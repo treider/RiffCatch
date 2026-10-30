@@ -30,7 +30,10 @@ private:
     void refreshStrips();
     void addTrack();
     void deleteTrack (TrackRow*);
-    void setStatus (const juce::String&);
+    void setStatus (const juce::String&, int ticks = 90);
+    void stopTransport();
+    void disarmAll();
+    void warnIfMultipleArmed();
     void toggleRecord();
     void togglePlay();
     void tapTempo();
@@ -62,7 +65,6 @@ private:
     TrackList list { engine, rows };
     juce::Viewport viewport;
     MasterStrip master { engine };
-    InputBar inputBar { engine };
     Ruler ruler { engine };
 
     IconButton recBtn  { IconButton::Record, Theme::red };

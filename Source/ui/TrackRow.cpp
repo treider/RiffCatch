@@ -62,7 +62,7 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     styleToggle (arm, Theme::red);
     styleToggle (mute, Theme::yellow);
     styleToggle (solo, Theme::green);
-    arm.onClick  = [this] { track().armed = arm.getToggleState(); };
+    arm.onClick  = [this] { track().armed = arm.getToggleState(); repaint(); if (onArmChanged) onArmChanged(); };
     mute.onClick = [this]
     {
         const bool now = mute.getToggleState();
@@ -291,7 +291,7 @@ void TrackRow::paint (juce::Graphics& g)
     auto b = getLocalBounds().toFloat().reduced (6.0f);
     const bool armedNow = track().armed.load();
     const bool recNow = track().recActive.load() && engine.getState() == AudioEngine::Recording;
-    const auto glow = recNow ? Theme::red : accent;
+    const auto glow = (recNow || armedNow) ? Theme::red : accent;      // armed tracks turn red
     juce::Path card;
     card.addRoundedRectangle (b, 8.0f);
     g.reduceClipRegion (card);                                          // everything below is clipped to a rounded card
@@ -777,87 +777,6 @@ void MasterStrip::resized()
     dbLabel.setBounds (r.removeFromLeft (60));
     r.removeFromLeft (16);
     meter.setBounds (r.withSizeKeepingCentre (r.getWidth(), 20));
-}
-
-// ---------------------------------------------------------------- input bar
-
-InputBar::InputBar (AudioEngine& e) : engine (e)
-{
-    setMouseCursor (juce::MouseCursor::PointingHandCursor);
-    setTooltip ("Click an input to assign it to the armed tracks");
-    setNumInputs (2);
-}
-
-void InputBar::setNumInputs (int n)
-{
-    n = juce::jlimit (0, 16, n);
-    if (n == meters.size()) return;
-    meters.clear();
-    for (int i = 0; i < n; ++i)
-    {
-        auto* m = new LevelMeter();
-        m->setHorizontal (true);
-        m->setBars (1);
-        m->setInterceptsMouseClicks (false, false);
-        meters.add (m);
-        addAndMakeVisible (m);
-    }
-    resized();
-    repaint();
-}
-
-juce::Rectangle<int> InputBar::cell (int i) const
-{
-    auto r = getLocalBounds().reduced (12, 6);
-    r.removeFromLeft (70);
-    const int n = juce::jmax (1, meters.size());
-    const int w = juce::jmin (140, r.getWidth() / n);
-    return { r.getX() + i * w, r.getY(), w - 8, r.getHeight() };
-}
-
-void InputBar::resized()
-{
-    for (int i = 0; i < meters.size(); ++i)
-    {
-        auto c = cell (i);
-        c.removeFromLeft (22);
-        meters[i]->setBounds (c.withSizeKeepingCentre (c.getWidth(), 10));
-    }
-}
-
-void InputBar::tick()
-{
-    for (int i = 0; i < meters.size(); ++i)
-    {
-        const float v = engine.inputLevel[i].load();
-        meters[i]->setLevels (v, v);
-    }
-}
-
-void InputBar::paint (juce::Graphics& g)
-{
-    {
-        const auto f = getLocalBounds().toFloat();
-        g.setColour (Theme::panel);
-        g.fillRoundedRectangle (f, 10.0f);
-        g.setColour (Theme::border.withAlpha (0.55f));
-        g.drawRoundedRectangle (f.reduced (0.5f), 10.0f, 1.0f);
-    }
-    g.setColour (Theme::dim);
-    g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
-    g.drawText ("INPUTS", getLocalBounds().reduced (14, 0).withWidth (60), juce::Justification::centredLeft);
-    g.setFont (13.0f);
-    g.setColour (Theme::text);
-    for (int i = 0; i < meters.size(); ++i)
-        g.drawText (juce::String (i + 1), cell (i).withWidth (18), juce::Justification::centredLeft);
-    if (meters.isEmpty())
-        g.drawText ("No input channels active - open Audio settings", getLocalBounds().withTrimmedLeft (80), juce::Justification::centredLeft);
-}
-
-void InputBar::mouseDown (const juce::MouseEvent& e)
-{
-    for (int i = 0; i < meters.size(); ++i)
-        if (cell (i).expanded (4, 4).contains (e.getPosition()) && onPick) { onPick (i); return; }
 }
 
 // ---------------------------------------------------------------- list / drag reorder

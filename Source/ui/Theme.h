@@ -50,11 +50,11 @@ public:
         setColour (juce::TextButton::buttonOnColourId, blue);
         setColour (juce::TextButton::textColourOffId, text);
         setColour (juce::TextButton::textColourOnId, deep);
-        setColour (juce::ComboBox::backgroundColourId, deep);
+        setColour (juce::ComboBox::backgroundColourId, raised);
         setColour (juce::ComboBox::textColourId, text);
-        setColour (juce::ComboBox::outlineColourId, border);
+        setColour (juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
         setColour (juce::ComboBox::arrowColourId, dim);
-        setColour (juce::ComboBox::focusedOutlineColourId, blue);
+        setColour (juce::ComboBox::focusedOutlineColourId, juce::Colours::transparentBlack);
         setColour (juce::PopupMenu::backgroundColourId, panel);
         setColour (juce::PopupMenu::textColourId, text);
         setColour (juce::PopupMenu::highlightedBackgroundColourId, blue.withAlpha (0.3f));
@@ -78,6 +78,21 @@ public:
 
     int getSliderThumbRadius (juce::Slider&) override { return 8; }
 
+    // Same flat, rounded look as the buttons (no outline)
+    void drawComboBox (juce::Graphics& g, int w, int h, bool, int, int, int, int, juce::ComboBox& box) override
+    {
+        const auto b = juce::Rectangle<float> ((float) w, (float) h);
+        g.setColour (box.findColour (juce::ComboBox::backgroundColourId).brighter (box.isMouseOver (true) ? 0.08f : 0.0f));
+        g.fillRoundedRectangle (b, 6.0f);
+        juce::Path arrow;
+        const float cx = (float) w - 14.0f, cy = (float) h * 0.5f;
+        arrow.startNewSubPath (cx - 4.0f, cy - 2.0f);
+        arrow.lineTo (cx, cy + 2.0f);
+        arrow.lineTo (cx + 4.0f, cy - 2.0f);
+        g.setColour (box.findColour (juce::ComboBox::arrowColourId));
+        g.strokePath (arrow, juce::PathStrokeType (1.6f));
+    }
+
     void drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour& bgc,
                                bool over, bool down) override
     {
@@ -90,6 +105,12 @@ public:
     void drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float, float,
                            juce::Slider::SliderStyle style, juce::Slider& s) override
     {
+        if (style == juce::Slider::LinearBar)   // value box: flat rounded, like the buttons
+        {
+            g.setColour (Theme::raised);
+            g.fillRoundedRectangle (juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h), 6.0f);
+            return;
+        }
         if (style != juce::Slider::LinearVertical && style != juce::Slider::LinearHorizontal)
         {
             LookAndFeel_V4::drawLinearSlider (g, x, y, w, h, pos, 0, 0, style, s);

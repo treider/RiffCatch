@@ -26,6 +26,8 @@ public:
 
     std::function<void (TrackRow*)> onDelete, onDragStart, onDragEnd;
     UndoPush onUndoable;
+    std::function<void()> onArmChanged;          // a track was armed/disarmed by the user
+    void syncArm() { arm.setToggleState (track().armed.load(), juce::dontSendNotification); repaint(); }
     std::function<void()> onReleaseFocus;   // give keyboard focus back to main window (shortcuts)
     std::function<void (TrackRow*, int)> onDragMove;
 
@@ -108,24 +110,6 @@ private:
     juce::Label title, dbLabel;
     juce::Slider fader;
     LevelMeter meter;
-};
-
-// Live level of every active input channel; click an input to assign it to armed tracks.
-class InputBar : public juce::Component, public juce::SettableTooltipClient
-{
-public:
-    explicit InputBar (AudioEngine& e);
-    void setNumInputs (int n);
-    void tick();
-    void paint (juce::Graphics&) override;
-    void resized() override;
-    void mouseDown (const juce::MouseEvent&) override;
-    std::function<void (int)> onPick;
-
-private:
-    juce::Rectangle<int> cell (int i) const;
-    AudioEngine& engine;
-    juce::OwnedArray<LevelMeter> meters;
 };
 
 // Container laid out by engine.order, with drag-to-reorder.

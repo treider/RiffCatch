@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "project/ProjectIO.h"
 #include "project/Exporter.h"
+#include "WinTitleBar.h"
 
 MainComponent::MainComponent()
 {
@@ -21,6 +22,7 @@ MainComponent::MainComponent()
         auto* r = new TrackRow (engine, i);
         r->onReleaseFocus = [this] { grabKeyboardFocus(); };
         r->onUndoable  = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
+        r->onArmChanged = [this] { warnIfMultipleArmed(); };
         r->onDelete    = [this] (TrackRow* row) { deleteTrack (row); };
         r->onDragStart = [this] (TrackRow* row) { list.dragStart (row); };
         r->onDragMove  = [this] (TrackRow* row, int dy) { list.dragMove (row, dy); };
@@ -45,16 +47,7 @@ MainComponent::MainComponent()
     viewport.setScrollBarsShown (true, false);
     addAndMakeVisible (viewport);
     addAndMakeVisible (master);
-    addAndMakeVisible (inputBar);
     addAndMakeVisible (ruler);
-    inputBar.onPick = [this] (int ch)
-    {
-        int n = 0;
-        for (int slot : engine.order)
-            if (engine.tracks[slot].armed.load()) { engine.tracks[slot].inputCode = ch; rows[slot]->refreshFromTrack(); ++n; }
-        setStatus (n > 0 ? "Input " + juce::String (ch + 1) + " assigned to " + juce::String (n) + " armed track(s)"
-                         : "Arm a track first, then click an input");
-    };
 
     titleLabel.setText ("RiffCatch", juce::dontSendNotification);
     titleLabel.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));
@@ -73,7 +66,7 @@ MainComponent::MainComponent()
     stopBtn.onClick = [this]
     {
         if (engine.getState() == AudioEngine::Stopped) engine.setCursor (0);   // second press rewinds to the start
-        else engine.stop();
+        else stopTransport();
     };
     ruler.onSeek = [this] (juce::int64 p) { engine.seek (p); };
     ruler.setMouseCursor (juce::MouseCursor::PointingHandCursor);
@@ -116,7 +109,7 @@ MainComponent::MainComponent()
     bpmLabel.setEditable (true);
     bpmLabel.setJustificationType (juce::Justification::centred);
     bpmLabel.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 20.0f, juce::Font::bold)));
-    bpmLabel.setColour (juce::Label::backgroundColourId, Theme::deep);
+    bpmLabel.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     bpmLabel.setColour (juce::Label::textColourId, Theme::cyan);
     bpmLabel.setTooltip ("Tempo (double-click to type, 30-300)");
     bpmLabel.onTextChange = [this] { setBpm (bpmLabel.getText().getDoubleValue()); grabKeyboardFocus(); };
@@ -223,7 +216,6 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
         if (auto* f = props.getUserSettings()) { f->setValue ("audioDeviceState", xml.get()); f->saveIfNeeded(); }
     const int n = engine.getNumInputs();
     for (auto* r : rows) r->setInputChoices (juce::jmax (1, n));
-    inputBar.setNumInputs (n);
 }
 
 void MainComponent::refreshStrips()
@@ -429,22 +421,47 @@ void MainComponent::doUndo (bool redo)
     refreshStrips();
     setStatus ((redo ? "Redo: " : "Undo: ") + what);
 }
-void MainComponent::setStatus (const juce::String& s)
+void MainComponent::setStatus (const juce::String& s, int ticks)
 {
     statusLabel.setText (s, juce::dontSendNotification);
-    statusTicks = 90;
+    statusTicks = ticks;
+}
+
+// A finished take leaves nothing armed, so the next playback/overdub starts from a clean state.
+void MainComponent::stopTransport()
+{
+    const auto st = engine.getState();
+    engine.stop();
+    if (st == AudioEngine::Recording || st == AudioEngine::CountIn) disarmAll();
+}
+
+void MainComponent::disarmAll()
+{
+    for (int slot : engine.order)
+    {
+        engine.tracks[slot].armed = false;
+        rows[slot]->syncArm();
+    }
+}
+
+void MainComponent::warnIfMultipleArmed()
+{
+    int n = 0;
+    for (int slot : engine.order) n += engine.tracks[slot].armed.load() ? 1 : 0;
+    if (n > 1) setStatus (juce::String (n) + " tracks armed - all will record", 150);
 }
 
 void MainComponent::toggleRecord()
 {
-    if (engine.getState() == AudioEngine::Recording) { engine.play(); return; }   // stop recording, keep playing
-    if (engine.getState() == AudioEngine::CountIn) { engine.stop(); return; }
+    if (engine.getState() == AudioEngine::Recording) { engine.play(); disarmAll(); return; }   // stop recording, keep playing
+    if (engine.getState() == AudioEngine::CountIn) { stopTransport(); return; }
+    warnIfMultipleArmed();
     if (! engine.record()) setStatus ("Arm a track (R) before recording");
 }
 
 void MainComponent::togglePlay()
 {
-    if (engine.getState() != AudioEngine::Stopped) engine.stop();
+    if (engine.getState() != AudioEngine::Stopped) stopTransport();
     else engine.play();
 }
 
@@ -481,7 +498,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
     {
         if (engine.getState() == AudioEngine::Stopped) engine.setCursor (0);
         else if (engine.getState() == AudioEngine::Playing) { engine.stop(); engine.setCursor (0); }
-        else engine.stop();
+        else stopTransport();
         return true;
     }
     if (code == 'R') { toggleRecord(); return true; }
@@ -499,6 +516,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
             if (mods.isShiftDown()) t.mute = ! t.mute.load();
             else                    t.armed = ! t.armed.load();
             rows[slot]->refreshFromTrack();
+            if (! mods.isShiftDown() && t.armed.load()) warnIfMultipleArmed();
         }
         return true;
     }
@@ -507,6 +525,14 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
 void MainComponent::timerCallback()
 {
     engine.pollRecording();
+    // dark title bar on every top-level window we open (audio settings, alert boxes, ...)
+    for (int i = 0; i < juce::TopLevelWindow::getNumTopLevelWindows(); ++i)
+        if (auto* w = juce::TopLevelWindow::getTopLevelWindow (i))
+            if (w->isOnDesktop() && ! w->getProperties().contains ("darkTitle"))
+            {
+                applyDarkTitleBar (w->getPeer(), Theme::bg, Theme::text);
+                w->getProperties().set ("darkTitle", true);
+            }
     undoBtn.setEnabled (undoManager.canUndo());
     redoBtn.setEnabled (undoManager.canRedo());
     undoBtn.setTooltip (undoManager.canUndo() ? "Undo " + undoManager.getUndoDescription() + " (Ctrl+Z)" : "Nothing to undo");
@@ -537,9 +563,7 @@ void MainComponent::timerCallback()
     }
     else
     {
-        const double beats = engine.getPosition() / spb;
-        barLabel.setText (juce::String::formatted ("Bar %d.%d", (int) (beats / 4.0) + 1, (int) beats % 4 + 1), juce::dontSendNotification);
-        barLabel.setColour (juce::Label::textColourId, st == AudioEngine::Recording ? Theme::red : Theme::cyan);
+        barLabel.setText ({}, juce::dontSendNotification);   // no bar counter outside the count-in
     }
 
     // time axis: bars when looping, otherwise seconds in 30 s steps
@@ -560,7 +584,6 @@ void MainComponent::timerCallback()
     for (auto* r : rows) r->setView (view, barSecs);
     ruler.setView (view, barSecs);
     ruler.repaint();
-    inputBar.tick();
     master.tick();
 
     if (statusTicks > 0 && --statusTicks == 0) statusLabel.setText ({}, juce::dontSendNotification);
@@ -576,6 +599,8 @@ void MainComponent::paint (juce::Graphics& g)
         g.setColour (Theme::border.withAlpha (0.55f));
         g.drawRoundedRectangle (f.reduced (0.5f), 10.0f, 1.0f);
     }
+    g.setColour (Theme::raised);
+    g.fillRoundedRectangle (bpmLabel.getBounds().toFloat(), 6.0f);
 }
 
 void MainComponent::resized()
@@ -615,8 +640,6 @@ void MainComponent::resized()
     undoBtn.setBounds (sb.removeFromRight (56)); sb.removeFromRight (10);
     statusLabel.setBounds (sb);
 
-    r.removeFromTop (10);
-    inputBar.setBounds (r.removeFromTop (38));
     r.removeFromTop (10);
     master.setBounds (r.removeFromBottom (56));
     r.removeFromBottom (10);
