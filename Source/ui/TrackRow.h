@@ -8,7 +8,7 @@
 class TrackRow : public juce::Component
 {
 public:
-    static constexpr int waveLeft = 384, waveRightInset = 34, clipStripH = 14;   // lane geometry shared with the Ruler
+    static constexpr int waveLeft = 378, waveRightInset = 28, clipStripH = 14;   // lane geometry shared with the Ruler
     TrackRow (AudioEngine& e, int slot);
 
     int slot() const noexcept { return index; }

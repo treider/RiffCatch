@@ -44,7 +44,7 @@ MainComponent::MainComponent()
                 [this, slot, prev] { auto& t = engine.tracks[slot]; if (prev >= 0) t.applyTake (prev); else t.silence(); });
     };
     viewport.setViewedComponent (&list, false);
-    viewport.setScrollBarsShown (true, false);
+    viewport.setScrollBarsShown (false, false, true, false);   // wheel scrolling, no scrollbar that would narrow the rows
     addAndMakeVisible (viewport);
     addAndMakeVisible (master);
     addAndMakeVisible (ruler);
@@ -644,7 +644,7 @@ void MainComponent::resized()
     master.setBounds (r.removeFromBottom (56));
     r.removeFromBottom (10);
 
-    auto rulerRow = r.removeFromTop (22);
+    auto rulerRow = r.removeFromTop (26);
     viewport.setBounds (r);
     const int w = viewport.getMaximumVisibleWidth();
     ruler.setBounds (rulerRow.withWidth (w));

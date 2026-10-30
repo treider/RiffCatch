@@ -288,7 +288,7 @@ void TrackRow::tick()
 void TrackRow::paint (juce::Graphics& g)
 {
     juce::Graphics::ScopedSaveState cardState (g);
-    auto b = getLocalBounds().toFloat().reduced (6.0f);
+    auto b = getLocalBounds().toFloat().reduced (0.0f, 4.0f);          // flush with the panels left/right
     const bool armedNow = track().armed.load();
     const bool recNow = track().recActive.load() && engine.getState() == AudioEngine::Recording;
     const auto glow = (recNow || armedNow) ? Theme::red : accent;      // armed tracks turn red
@@ -664,7 +664,7 @@ void TrackRow::mouseDoubleClick (const juce::MouseEvent& e)
 
 void TrackRow::resized()
 {
-    auto r = getLocalBounds().reduced (14, 10);
+    auto r = getLocalBounds().reduced (8, 10);
     r.removeFromLeft (4);
     grip.setBounds (r.removeFromLeft (16));
     r.removeFromLeft (6);
@@ -770,7 +770,7 @@ void MasterStrip::paint (juce::Graphics& g)
 
 void MasterStrip::resized()
 {
-    auto r = getLocalBounds().reduced (14, 10);
+    auto r = getLocalBounds().reduced (8, 10);
     r.removeFromLeft (4);
     title.setBounds (r.removeFromLeft (80));
     fader.setBounds (r.removeFromLeft (260));
@@ -859,17 +859,20 @@ void Ruler::seekTo (const juce::MouseEvent& e)
 
 void Ruler::paint (juce::Graphics& g)
 {
-    g.setColour (Theme::panel.brighter (0.05f));
-    g.fillRect (getLocalBounds());
-    g.setColour (Theme::deep);
-    g.fillRect (0, getHeight() - 1, getWidth(), 1);
-
     const float x0 = (float) TrackRow::waveLeft;
     const float wdt = (float) getWidth() - x0 - (float) TrackRow::waveRightInset;
     if (wdt <= 0.0f) return;
     const double pxPerSec = wdt / viewSeconds;
 
+    // same rounded dark lane as the clips below, so the ruler reads as part of the track area
+    const juce::Rectangle<float> pill (x0, 3.0f, wdt, (float) getHeight() - 6.0f);
+    g.setColour (Theme::panel);
+    g.fillRoundedRectangle (pill, 6.0f);
+
+    juce::Graphics::ScopedSaveState clip (g);
+    g.reduceClipRegion (pill.toNearestInt());
     g.setFont (juce::Font (juce::FontOptions (11.0f)));
+
     if (barSeconds > 0.0)
     {
         const double beat = barSeconds / 4.0;
@@ -878,18 +881,18 @@ void Ruler::paint (juce::Graphics& g)
         {
             const float x = x0 + (float) (s * pxPerSec);
             const bool bar = (k % 4 == 0);
-            g.setColour (bar ? Theme::text.withAlpha (0.8f) : Theme::dim);
-            g.fillRect (x, bar ? 4.0f : (float) getHeight() - 7.0f, 1.0f, bar ? (float) getHeight() - 5.0f : 6.0f);
+            g.setColour (bar ? Theme::dim : Theme::border);
+            g.fillRect (x, bar ? pill.getY() + 5.0f : pill.getBottom() - 8.0f, 1.0f, bar ? pill.getHeight() - 10.0f : 5.0f);
             if (bar)
             {
                 g.setColour (Theme::text);
-                g.drawText (juce::String (k / 4 + 1), (int) x + 4, 2, 40, 14, juce::Justification::centredLeft);
+                g.drawText (juce::String (k / 4 + 1), (int) x + 5, (int) pill.getY(), 40, (int) pill.getHeight() - 4, juce::Justification::centredLeft);
             }
         }
-        if (engine.loopEnabled.load())
+        if (engine.loopEnabled.load())   // loop region as a thin rounded pill along the bottom
         {
-            g.setColour (Theme::teal);
-            g.fillRect (x0, 0.0f, wdt, 3.0f);   // loop region
+            g.setColour (Theme::teal.withAlpha (0.9f));
+            g.fillRoundedRectangle (pill.getX() + 4.0f, pill.getBottom() - 4.0f, pill.getWidth() - 8.0f, 2.0f, 1.0f);
         }
     }
     else
@@ -898,9 +901,9 @@ void Ruler::paint (juce::Graphics& g)
         {
             const float x = x0 + (float) (s * pxPerSec);
             g.setColour (Theme::dim);
-            g.fillRect (x, 4.0f, 1.0f, (float) getHeight() - 5.0f);
+            g.fillRect (x, pill.getY() + 5.0f, 1.0f, pill.getHeight() - 10.0f);
             g.setColour (Theme::text);
-            g.drawText (juce::String::formatted ("%d:%02d", (int) s / 60, (int) s % 60), (int) x + 4, 2, 50, 14, juce::Justification::centredLeft);
+            g.drawText (juce::String::formatted ("%d:%02d", (int) s / 60, (int) s % 60), (int) x + 5, (int) pill.getY(), 50, (int) pill.getHeight() - 4, juce::Justification::centredLeft);
         }
     }
 
@@ -908,7 +911,7 @@ void Ruler::paint (juce::Graphics& g)
     {
         const float px = x0 + (float) (engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) * pxPerSec);
         juce::Path tri;
-        tri.addTriangle (px - 5.0f, (float) getHeight() - 9.0f, px + 6.0f, (float) getHeight() - 9.0f, px + 0.5f, (float) getHeight() - 1.0f);
+        tri.addTriangle (px - 5.0f, pill.getBottom() - 9.0f, px + 6.0f, pill.getBottom() - 9.0f, px + 0.5f, pill.getBottom() - 1.0f);
         g.setColour (Theme::text);
         g.fillPath (tri);
     }
