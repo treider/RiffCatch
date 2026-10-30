@@ -18,6 +18,7 @@ public:
     void resized() override;
 
     std::function<void (TrackRow*)> onDelete, onDragStart, onDragEnd;
+    std::function<void()> onReleaseFocus;   // give keyboard focus back to main window (shortcuts)
     std::function<void (TrackRow*, int)> onDragMove;
 
 private:

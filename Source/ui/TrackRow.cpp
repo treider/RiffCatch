@@ -40,9 +40,12 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     nameLabel.setEditable (false, true);
     nameLabel.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
     nameLabel.onTextChange = [this] { track().name = nameLabel.getText(); };
+    nameLabel.onEditorHide = [this] { if (onReleaseFocus) onReleaseFocus(); };
     addAndMakeVisible (nameLabel);
 
     input.onChange = [this] { track().inputCode = input.getSelectedId() - 1; };
+    input.setWantsKeyboardFocus (false);
+    input.onChange = [this] { track().inputCode = input.getSelectedId() - 1; if (onReleaseFocus) onReleaseFocus(); };
     addAndMakeVisible (input);
     inMeter.setHorizontal (true);
     addAndMakeVisible (inMeter);

@@ -18,6 +18,7 @@ MainComponent::MainComponent()
     for (int i = 0; i < AudioEngine::maxTracks; ++i)
     {
         auto* r = new TrackRow (engine, i);
+        r->onReleaseFocus = [this] { grabKeyboardFocus(); };
         r->onDelete    = [this] (TrackRow* row) { deleteTrack (row); };
         r->onDragStart = [this] (TrackRow* row) { list.dragStart (row); };
         r->onDragMove  = [this] (TrackRow* row, int dy) { list.dragMove (row, dy); };
@@ -45,6 +46,13 @@ MainComponent::MainComponent()
     addAndMakeVisible (titleLabel);
 
     for (auto* b : { &recBtn, &playBtn, &stopBtn }) addAndMakeVisible (b);
+    recBtn.setTooltip ("Record (R)");
+    playBtn.setTooltip ("Play / Stop (Space)");
+    stopBtn.setTooltip ("Stop and rewind (Enter)");
+    addBtn.setTooltip ("Add track (Ctrl+T)");
+    saveBtn.setTooltip ("Save (Ctrl+S, Ctrl+Shift+S = Save as)");
+    openBtn.setTooltip ("Open (Ctrl+O)");
+    newBtn.setTooltip ("New (Ctrl+N)");
     recBtn.onClick  = [this] { toggleRecord(); };
     playBtn.onClick = [this] { togglePlay(); };
     stopBtn.onClick = [this] { engine.stop(); };
@@ -157,11 +165,49 @@ void MainComponent::togglePlay()
 
 bool MainComponent::keyPressed (const juce::KeyPress& k)
 {
+    const auto mods = k.getModifiers();
+    const int code = k.getKeyCode();
+    const bool ctrl = mods.isCtrlDown() || mods.isCommandDown();
+
+    if (ctrl)
+    {
+        if (code == 'S') { saveProject (mods.isShiftDown()); return true; }
+        if (code == 'O') { openProject(); return true; }
+        if (code == 'N') { newProject(); return true; }
+        if (code == 'T') { addTrack(); return true; }
+        if (code >= '1' && code <= '8')
+        {
+            const int n = code - '1';
+            if (n < engine.getNumTracks())
+            {
+                auto& t = engine.tracks[engine.order[(size_t) n]];
+                t.solo = ! t.solo.load();
+                rows[engine.order[(size_t) n]]->refreshFromTrack();
+            }
+            return true;
+        }
+        return false;
+    }
+
     if (k == juce::KeyPress::spaceKey) { togglePlay(); return true; }
-    if (k.getTextCharacter() == 'r' || k.getTextCharacter() == 'R') { toggleRecord(); return true; }
+    if (k == juce::KeyPress::returnKey || k == juce::KeyPress::homeKey) { engine.stop(); return true; }
+    if (code == 'R') { toggleRecord(); return true; }
+
+    if (code >= '1' && code <= '8')    // 1-8 arm, Shift+1-8 mute
+    {
+        const int n = code - '1';
+        if (n < engine.getNumTracks())
+        {
+            const int slot = engine.order[(size_t) n];
+            auto& t = engine.tracks[slot];
+            if (mods.isShiftDown()) t.mute = ! t.mute.load();
+            else                    t.armed = ! t.armed.load();
+            rows[slot]->refreshFromTrack();
+        }
+        return true;
+    }
     return false;
 }
-
 void MainComponent::timerCallback()
 {
     const auto st = engine.getState();
