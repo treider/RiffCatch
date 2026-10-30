@@ -68,6 +68,7 @@ private:
     juce::int64 xToSample (float x) const;
     juce::TextButton hitsBtn { "Hits" };
     int dragHit = -1;
+    int lastGlowState = -1;
     bool nudging = false;
     int nudgeStartX = 0, nudgeStartVal = 0;
     float riseDb = 6.0f;

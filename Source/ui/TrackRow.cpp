@@ -266,6 +266,10 @@ void TrackRow::tick()
     inMeter.setLevels (lvl (l), lvl (r));
     meter.setLevels (t.peakL.exchange (0.0f), t.peakR.exchange (0.0f));
     updateCache();
+    {
+        const int glowState = (t.armed.load() ? 1 : 0) + ((t.recActive.load() && engine.getState() == AudioEngine::Recording) ? 2 : 0);
+        if (glowState != lastGlowState) { lastGlowState = glowState; repaint(); }
+    }
     const int nt = (int) t.takes.size(), ct = t.currentTake;
     if (nt != shownTakes || ct != shownCurrent)
     {
@@ -284,9 +288,13 @@ void TrackRow::tick()
 void TrackRow::paint (juce::Graphics& g)
 {
     juce::Graphics::ScopedSaveState cardState (g);
-    auto b = getLocalBounds().toFloat();
+    auto b = getLocalBounds().toFloat().reduced (4.0f, 3.0f);
+    const bool armedNow = track().armed.load();
+    const bool recNow = track().recActive.load() && engine.getState() == AudioEngine::Recording;
+    const auto glow = recNow ? Theme::red : accent;
+    juce::DropShadow (glow.withAlpha (recNow ? 0.65f : armedNow ? 0.50f : 0.22f), 9, { 0, 0 }).drawForRectangle (g, b.toNearestInt());
     juce::Path card;
-    card.addRoundedRectangle (b, 10.0f);
+    card.addRoundedRectangle (b, 8.0f);
     g.reduceClipRegion (card);                                          // everything below is clipped to a rounded card
     g.setColour (Theme::panel);
     g.fillRect (b);
@@ -296,6 +304,8 @@ void TrackRow::paint (juce::Graphics& g)
     g.fillRect (nameBar.toFloat());                                     // coloured name bar (Live style)
     g.setColour (accent);
     g.fillRect (b.withWidth (4.0f));                                    // track colour stripe
+    g.setColour (glow.withAlpha (0.75f));
+    g.fillRect (b.getX() + 14.0f, b.getY(), b.getWidth() - 28.0f, 1.0f);   // thin coloured top line
     // ---- clip lane
     auto w = wave.toFloat();
     g.setColour (Theme::deep);
@@ -430,7 +440,10 @@ void TrackRow::paint (juce::Graphics& g)
         g.fillRect (px, w.getY(), 1.5f, w.getHeight());
     }
     g.restoreState();
+    g.setColour (glow.withAlpha (recNow ? 0.9f : armedNow ? 0.8f : 0.35f));
+    g.drawRoundedRectangle (b.reduced (0.5f), 8.0f, 2.0f);              // border (inner 1 px visible)
 }
+
 // ---------------------------------------------------------------- hit editing
 
 float TrackRow::sampleToX (juce::int64 s) const

@@ -5,11 +5,11 @@
 // Tokyo Night Storm palette
 namespace Theme
 {
-    inline const juce::Colour bg     { 0xff24283b };
-    inline const juce::Colour panel  { 0xff1f2335 };
-    inline const juce::Colour deep   { 0xff16161e };
+    inline const juce::Colour bg     { 0xff1a1b26 };
+    inline const juce::Colour panel  { 0xff1f2133 };
+    inline const juce::Colour deep   { 0xff14151d };
     inline const juce::Colour raised { 0xff292e42 };
-    inline const juce::Colour border { 0xff3b4261 };
+    inline const juce::Colour border { 0xff2f334d };
     inline const juce::Colour text   { 0xffc0caf5 };
     inline const juce::Colour dim    { 0xff565f89 };
     inline const juce::Colour blue   { 0xff7aa2f7 };
@@ -169,8 +169,9 @@ public:
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
-        auto b = getLocalBounds().toFloat().reduced (1.0f);
+        auto b = getLocalBounds().toFloat().reduced (5.0f, 4.0f);
         const bool on = getToggleState();
+        if (on) juce::DropShadow (colour.withAlpha (0.55f), 9, { 0, 0 }).drawForRectangle (g, b.toNearestInt());
         auto bgc = on ? colour : Theme::raised;
         if (on && icon == Record)   // gentle pulse while recording
             bgc = bgc.interpolatedWith (juce::Colours::white, 0.12f + 0.12f * std::sin ((float) juce::Time::getMillisecondCounter() * 0.008f));
