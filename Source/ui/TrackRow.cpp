@@ -743,8 +743,7 @@ void MasterStrip::paint (juce::Graphics& g)
         juce::Path card;
         card.addRoundedRectangle (b, 10.0f);
         g.reduceClipRegion (card);
-        g.setGradientFill (juce::ColourGradient (Theme::panel.brighter (0.10f), 0.0f, b.getY(),
-                                                 Theme::panel.darker (0.05f), 0.0f, b.getBottom(), false));
+        g.setColour (Theme::panel);
         g.fillRect (b);
         g.setColour (Theme::purple);
         g.fillRect (b.withWidth (4.0f));
@@ -823,8 +822,7 @@ void InputBar::paint (juce::Graphics& g)
 {
     {
         const auto f = getLocalBounds().toFloat();
-        g.setGradientFill (juce::ColourGradient (Theme::panel.brighter (0.10f), 0.0f, f.getY(),
-                                                 Theme::panel.darker (0.05f), 0.0f, f.getBottom(), false));
+        g.setColour (Theme::panel);
         g.fillRoundedRectangle (f, 10.0f);
         g.setColour (Theme::border.withAlpha (0.55f));
         g.drawRoundedRectangle (f.reduced (0.5f), 10.0f, 1.0f);

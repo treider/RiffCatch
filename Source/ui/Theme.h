@@ -251,34 +251,25 @@ private:
         g.setColour (Theme::deep);
         g.fillRect (r);
         const float p = pos (level), hp = pos (hold);
-        if (horizontal)
+        // flat colour zones: green up to -18 dB, yellow up to -6 dB, red above
+        const float zoneY = (-18.0f + 60.0f) / 66.0f, zoneR = (-6.0f + 60.0f) / 66.0f;
+        auto zone = [&] (float from, float to, juce::Colour c)
         {
-            juce::ColourGradient grad (Theme::green, r.getX(), 0, Theme::red, r.getRight(), 0, false);
-            grad.addColour (0.70, Theme::green);
-            grad.addColour (0.88, Theme::yellow);
-            g.setGradientFill (grad);
-            g.fillRect (r.withWidth (r.getWidth() * p));
-            if (hp > 0.02f)
-            {
-                g.setColour (Theme::text.withAlpha (0.8f));
-                g.fillRect (r.getX() + r.getWidth() * hp - 1.5f, r.getY(), 1.5f, r.getHeight());
-            }
-        }
-        else
+            const float a = juce::jmin (p, to);
+            if (a <= from) return;
+            g.setColour (c);
+            if (horizontal) g.fillRect (r.getX() + r.getWidth() * from, r.getY(), r.getWidth() * (a - from), r.getHeight());
+            else            g.fillRect (r.getX(), r.getBottom() - r.getHeight() * a, r.getWidth(), r.getHeight() * (a - from));
+        };
+        zone (0.0f, zoneY, Theme::green);
+        zone (zoneY, zoneR, Theme::yellow);
+        zone (zoneR, 1.0f, Theme::red);
+        if (hp > 0.02f)
         {
-            juce::ColourGradient grad (Theme::red, r.getX(), r.getY(), Theme::green, r.getX(), r.getBottom(), false);
-            grad.addColour (0.09, Theme::red);
-            grad.addColour (0.22, Theme::yellow);
-            grad.addColour (0.55, Theme::green);
-            g.setGradientFill (grad);
-            g.fillRect (r.withTrimmedTop (r.getHeight() * (1.0f - p)));
-            if (hp > 0.02f)
-            {
-                g.setColour (Theme::text.withAlpha (0.8f));
-                g.fillRect (r.getX(), r.getBottom() - r.getHeight() * hp, r.getWidth(), 1.5f);
-            }
-        }
-        segments (g, r, horizontal);
+            g.setColour (Theme::text.withAlpha (0.8f));
+            if (horizontal) g.fillRect (r.getX() + r.getWidth() * hp - 1.5f, r.getY(), 1.5f, r.getHeight());
+            else            g.fillRect (r.getX(), r.getBottom() - r.getHeight() * hp, r.getWidth(), 1.5f);
+        }        segments (g, r, horizontal);
     }
 
     static void segments (juce::Graphics& g, juce::Rectangle<float> r, bool horiz)
