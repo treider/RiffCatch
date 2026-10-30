@@ -65,7 +65,6 @@ MainComponent::MainComponent()
     recBtn.setTooltip ("Record (R)");
     playBtn.setTooltip ("Play / Stop (Space)");
     stopBtn.setTooltip ("Stop and rewind (Enter)");
-    addBtn.setTooltip ("Add track (Ctrl+T)");
     saveBtn.setTooltip ("Save (Ctrl+S, Ctrl+Shift+S = Save as)");
     openBtn.setTooltip ("Open (Ctrl+O)");
     newBtn.setTooltip ("New (Ctrl+N)");
@@ -79,9 +78,9 @@ MainComponent::MainComponent()
     ruler.onSeek = [this] (juce::int64 p) { engine.seek (p); };
     ruler.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     ruler.setTooltip ("Click or drag to move the playhead (snaps to beats, Shift = bars, Alt = free)");
-    addBtn.onClick  = [this] { addTrack(); };
+    list.onAdd = [this] { addTrack(); };
 
-    for (auto* b : { &addBtn, &exportBtn, &newBtn, &openBtn, &saveBtn, &audioBtn })
+    for (auto* b : { &exportBtn, &newBtn, &openBtn, &saveBtn, &audioBtn })
     {
         b->setWantsKeyboardFocus (false);
         b->setColour (juce::TextButton::buttonColourId, Theme::raised);
@@ -234,7 +233,6 @@ void MainComponent::refreshStrips()
     master.refreshFromEngine();
     updateSettingsFromEngine();
     projectLabel.setText (projectDir == juce::File() ? "Untitled" : projectDir.getFileName(), juce::dontSendNotification);
-    addBtn.setEnabled (engine.getNumTracks() < AudioEngine::maxTracks);
     resized();
     list.layoutRows();
     repaint();
@@ -597,7 +595,6 @@ void MainComponent::resized()
     saveBtn.setBounds (bar.removeFromRight (64));  bar.removeFromRight (6);
     openBtn.setBounds (bar.removeFromRight (64));  bar.removeFromRight (6);
     newBtn.setBounds (bar.removeFromRight (56));   bar.removeFromRight (12);
-    addBtn.setBounds (bar.removeFromRight (84));   bar.removeFromRight (6);
     exportBtn.setBounds (bar.removeFromRight (70)); bar.removeFromRight (12);
     projectLabel.setBounds (bar);   // whatever is left of the top bar
     r.removeFromTop (8);

@@ -8,7 +8,7 @@
 class TrackRow : public juce::Component
 {
 public:
-    static constexpr int waveLeft = 380, waveRightInset = 30, clipStripH = 14;   // lane geometry shared with the Ruler
+    static constexpr int waveLeft = 388, waveRightInset = 38, clipStripH = 14;   // lane geometry shared with the Ruler
     TrackRow (AudioEngine& e, int slot);
 
     int slot() const noexcept { return index; }
@@ -132,10 +132,16 @@ private:
 class TrackList : public juce::Component
 {
 public:
-    static constexpr int rowHeight = 92, gap = 8;
-    TrackList (AudioEngine& e, juce::OwnedArray<TrackRow>& r) : engine (e), rows (r) {}
+    static constexpr int rowHeight = 108, gap = 0, addHeight = 76;   // rows include room for the glow around each card
+    TrackList (AudioEngine& e, juce::OwnedArray<TrackRow>& r) : engine (e), rows (r)
+    {
+        addButton.onClick = [this] { if (onAdd) onAdd(); };
+        addChildComponent (addButton);
+    }
 
-    int contentHeight() const { return juce::jmax (0, engine.getNumTracks() * (rowHeight + gap) - gap); }
+    int rowsHeight() const { return engine.getNumTracks() * (rowHeight + gap); }
+    int contentHeight() const { return rowsHeight() + (engine.getNumTracks() < AudioEngine::maxTracks ? addHeight : 0); }
+    std::function<void()> onAdd;
     void layoutRows();
     void dragStart (TrackRow*);
     void dragMove (TrackRow*, int dy);
@@ -147,6 +153,7 @@ private:
     int targetSlot (int y) const;
     AudioEngine& engine;
     juce::OwnedArray<TrackRow>& rows;
+    AddTrackButton addButton;
     TrackRow* dragging = nullptr;
     int dragStartY = 0, dragY = 0;
 };

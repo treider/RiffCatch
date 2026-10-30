@@ -288,11 +288,11 @@ void TrackRow::tick()
 void TrackRow::paint (juce::Graphics& g)
 {
     juce::Graphics::ScopedSaveState cardState (g);
-    auto b = getLocalBounds().toFloat().reduced (4.0f, 3.0f);
+    auto b = getLocalBounds().toFloat().reduced (9.0f);                 // leaves room for the glow
     const bool armedNow = track().armed.load();
     const bool recNow = track().recActive.load() && engine.getState() == AudioEngine::Recording;
     const auto glow = recNow ? Theme::red : accent;
-    juce::DropShadow (glow.withAlpha (recNow ? 0.65f : armedNow ? 0.50f : 0.22f), 9, { 0, 0 }).drawForRectangle (g, b.toNearestInt());
+    Theme::glow (g, b, 8.0f, glow, 9, recNow ? 0.75f : armedNow ? 0.6f : 0.28f);
     juce::Path card;
     card.addRoundedRectangle (b, 8.0f);
     g.reduceClipRegion (card);                                          // everything below is clipped to a rounded card
@@ -304,8 +304,12 @@ void TrackRow::paint (juce::Graphics& g)
     g.fillRect (nameBar.toFloat());                                     // coloured name bar (Live style)
     g.setColour (accent);
     g.fillRect (b.withWidth (4.0f));                                    // track colour stripe
-    g.setColour (glow.withAlpha (0.75f));
-    g.fillRect (b.getX() + 14.0f, b.getY(), b.getWidth() - 28.0f, 1.0f);   // thin coloured top line
+    {   // thin coloured line along the top edge that fades out towards both ends
+        juce::ColourGradient line (glow.withAlpha (0.0f), b.getX() + 6.0f, b.getY(), glow.withAlpha (0.0f), b.getRight() - 6.0f, b.getY(), false);
+        line.addColour (0.5, glow.withAlpha (0.95f));
+        g.setGradientFill (line);
+        g.fillRect (b.getX() + 6.0f, b.getY(), b.getWidth() - 12.0f, 1.0f);
+    }
     // ---- clip lane
     auto w = wave.toFloat();
     g.setColour (Theme::deep);
@@ -661,7 +665,7 @@ void TrackRow::mouseDoubleClick (const juce::MouseEvent& e)
 
 void TrackRow::resized()
 {
-    auto r = getLocalBounds().reduced (10, 8);
+    auto r = getLocalBounds().reduced (18, 14);
     r.removeFromLeft (4);
     grip.setBounds (r.removeFromLeft (16));
     r.removeFromLeft (6);
@@ -880,13 +884,15 @@ void TrackList::layoutRows()
         r->setVisible (true);
         ++p;
     }
+    const bool canAdd = n < AudioEngine::maxTracks && dragging == nullptr;
+    addButton.setVisible (canAdd);
+    addButton.setBounds ((getWidth() - 260) / 2, n * (rowHeight + gap) + 8, 260, addHeight - 16);
     if (dragging != nullptr)
     {
         dragging->setBounds (0, dragY, getWidth(), rowHeight);
         dragging->setVisible (true);
         dragging->toFront (false);
     }
-    juce::ignoreUnused (n);
 }
 
 void TrackList::dragStart (TrackRow* r)
@@ -898,7 +904,7 @@ void TrackList::dragStart (TrackRow* r)
 void TrackList::dragMove (TrackRow*, int dy)
 {
     if (dragging == nullptr) return;
-    dragY = juce::jlimit (0, juce::jmax (0, contentHeight() - rowHeight), dragStartY + dy);
+    dragY = juce::jlimit (0, juce::jmax (0, rowsHeight() - rowHeight), dragStartY + dy);
     layoutRows();
 }
 

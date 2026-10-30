@@ -21,6 +21,17 @@ namespace Theme
     inline const juce::Colour purple { 0xffbb9af7 };
     inline const juce::Colour teal   { 0xff73daca };
 
+    // Soft glow (like a CSS box-shadow with blur): concentric rings that fade out. Needs `radius` px of room around r.
+    inline void glow (juce::Graphics& g, juce::Rectangle<float> r, float corner, juce::Colour c, int radius, float alpha)
+    {
+        for (int i = radius; i >= 1; --i)
+        {
+            const float t = 1.0f - (float) (i - 1) / (float) radius;      // 1 at the edge -> 0 far away
+            g.setColour (c.withAlpha (alpha * t * t * t));
+            g.drawRoundedRectangle (r.expanded ((float) i - 0.5f), corner + (float) i - 0.5f, 1.0f);
+        }
+    }
+
     inline juce::Colour trackColour (int i)
     {
         const juce::Colour c[] = { blue, cyan, green, yellow, orange, purple, teal, red };
@@ -171,7 +182,7 @@ public:
     {
         auto b = getLocalBounds().toFloat().reduced (5.0f, 4.0f);
         const bool on = getToggleState();
-        if (on) juce::DropShadow (colour.withAlpha (0.55f), 9, { 0, 0 }).drawForRectangle (g, b.toNearestInt());
+        if (on) Theme::glow (g, b, 10.0f, colour, 5, 0.6f);
         auto bgc = on ? colour : Theme::raised;
         if (on && icon == Record)   // gentle pulse while recording
             bgc = bgc.interpolatedWith (juce::Colours::white, 0.12f + 0.12f * std::sin ((float) juce::Time::getMillisecondCounter() * 0.008f));
@@ -284,4 +295,32 @@ private:
     int bars = 2;
     float dispL = 0, dispR = 0, holdL = 0, holdR = 0;
     int holdTicksL = 0, holdTicksR = 0;
+};
+// Large dashed "+" under the last track
+class AddTrackButton : public juce::Button
+{
+public:
+    AddTrackButton() : juce::Button ({}) { setWantsKeyboardFocus (false); setTooltip ("Add track (Ctrl+T)"); setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto b = getLocalBounds().toFloat().reduced (2.0f);
+        const auto col = over || down ? Theme::blue : Theme::dim;
+        if (over || down)
+        {
+            g.setColour (Theme::blue.withAlpha (down ? 0.16f : 0.08f));
+            g.fillRoundedRectangle (b, 10.0f);
+        }
+        juce::Path outline, dashed;
+        outline.addRoundedRectangle (b, 10.0f);
+        const float dashes[] = { 6.0f, 5.0f };
+        juce::PathStrokeType (1.5f).createDashedStroke (dashed, outline, dashes, 2);
+        g.setColour (col.withAlpha (over ? 0.9f : 0.55f));
+        g.fillPath (dashed);
+
+        const auto c = b.getCentre();
+        g.setColour (col);
+        g.fillRoundedRectangle (c.x - 14.0f, c.y - 1.5f, 28.0f, 3.0f, 1.5f);
+        g.fillRoundedRectangle (c.x - 1.5f, c.y - 14.0f, 3.0f, 28.0f, 1.5f);
+    }
 };
