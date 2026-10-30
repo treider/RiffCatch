@@ -94,6 +94,7 @@ MainComponent::MainComponent()
     addAndMakeVisible (timeLabel);
 
     projectLabel.setJustificationType (juce::Justification::centredRight);
+    projectLabel.setFont (juce::Font (juce::FontOptions (14.0f)));
     projectLabel.setColour (juce::Label::textColourId, Theme::dim);
     addAndMakeVisible (projectLabel);
 
@@ -196,7 +197,7 @@ MainComponent::MainComponent()
     changeListenerCallback (nullptr);
     refreshStrips();
     setWantsKeyboardFocus (true);
-    setSize (1140, 760);
+    setSize (1280, 760);
     startTimerHz (30);
 }
 
@@ -583,6 +584,7 @@ void MainComponent::resized()
     newBtn.setBounds (bar.removeFromRight (56));   bar.removeFromRight (12);
     addBtn.setBounds (bar.removeFromRight (84));   bar.removeFromRight (6);
     exportBtn.setBounds (bar.removeFromRight (70)); bar.removeFromRight (12);
+    projectLabel.setBounds (bar);   // whatever is left of the top bar
     r.removeFromTop (8);
     settingsArea = r.removeFromTop (46);
     auto sb = settingsArea.reduced (14, 8);
@@ -597,7 +599,6 @@ void MainComponent::resized()
     countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (18);
     latLabel.setBounds (sb.removeFromLeft (120));
     latAdjust.setBounds (sb.removeFromLeft (80).withSizeKeepingCentre (80, 24)); sb.removeFromLeft (12);
-    projectLabel.setBounds (sb.removeFromRight (130));
     redoBtn.setBounds (sb.removeFromRight (56)); sb.removeFromRight (6);
     undoBtn.setBounds (sb.removeFromRight (56)); sb.removeFromRight (10);
     statusLabel.setBounds (sb);
