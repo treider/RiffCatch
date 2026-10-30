@@ -3,7 +3,7 @@
 
 namespace ProjectIO
 {
-bool save (AudioEngine& e, const juce::File& dir, double bpm, juce::String& error)
+bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
 {
     if (! dir.createDirectory()) { error = "Could not create " + dir.getFullPathName(); return false; }
 
@@ -52,14 +52,18 @@ bool save (AudioEngine& e, const juce::File& dir, double bpm, juce::String& erro
     }
 
     auto* loop = new juce::DynamicObject();
-    loop->setProperty ("enabled", false);
+    loop->setProperty ("enabled", e.loopEnabled.load());
     loop->setProperty ("startBar", 0);
-    loop->setProperty ("bars", 4);
+    loop->setProperty ("bars", e.loopBars.load());
 
     auto* root = new juce::DynamicObject();
     root->setProperty ("version", 1);
     root->setProperty ("name", dir.getFileName());
-    root->setProperty ("bpm", bpm);
+    root->setProperty ("bpm", e.bpm.load());
+    root->setProperty ("timeSignature", "4/4");
+    root->setProperty ("clickEnabled", e.clickEnabled.load());
+    root->setProperty ("clickVolume", (double) e.clickVolume.load());
+    root->setProperty ("countInSeconds", (double) e.countInSeconds.load());
     root->setProperty ("sampleRate", e.getSampleRate());
     root->setProperty ("masterVolume", (double) e.masterVolume.load());
     root->setProperty ("loop", juce::var (loop));
@@ -73,7 +77,7 @@ bool save (AudioEngine& e, const juce::File& dir, double bpm, juce::String& erro
     return true;
 }
 
-bool load (AudioEngine& e, const juce::File& dir, double& bpm, juce::String& error)
+bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
 {
     auto json = juce::JSON::parse (dir.getChildFile ("project.json"));
     auto* arr = json["tracks"].getArray();
@@ -125,7 +129,12 @@ bool load (AudioEngine& e, const juce::File& dir, double& bpm, juce::String& err
         }
     }
 
-    bpm = (double) json.getProperty ("bpm", 120.0);
+    e.bpm = juce::jlimit (30.0, 300.0, (double) json.getProperty ("bpm", 120.0));
+    e.loopEnabled = (bool) json["loop"].getProperty ("enabled", true);
+    e.loopBars = juce::jlimit (1, 64, (int) json["loop"].getProperty ("bars", 4));
+    e.clickEnabled = (bool) json.getProperty ("clickEnabled", true);
+    e.clickVolume = (float) (double) json.getProperty ("clickVolume", 0.5);
+    e.countInSeconds = (float) (double) json.getProperty ("countInSeconds", 3.0);
     e.masterVolume = (float) (double) json.getProperty ("masterVolume", 1.0);
     if (count == 0) e.addTrack();
     return true;

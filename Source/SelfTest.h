@@ -1,0 +1,74 @@
+#pragma once
+#include "audio/AudioEngine.h"
+
+// Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
+inline juce::String runEngineSelfTest()
+{
+    juce::String log;
+    bool ok = true;
+    auto check = [&] (bool c, const juce::String& what) { log << (c ? "PASS " : "FAIL ") << what << "\n"; ok &= c; };
+
+    auto eng = std::make_unique<AudioEngine>();
+    const double sr = 48000.0;
+    eng->prepareForTest (sr, 2);
+    eng->bpm = 120.0; eng->loopBars = 1; eng->loopEnabled = true; eng->countInSeconds = 2.0f;
+    eng->clickEnabled = true;
+    const int slot = eng->addTrack();
+    eng->tracks[slot].armed = true;
+    eng->tracks[slot].volume = 0.0f;   // mute monitoring so only click energy is measured on the output
+
+    const int loopLen = (int) eng->getLoopLength();     // 1 bar @120 = 96000
+    check (loopLen == 96000, "loop length = 96000 samples (got " + juce::String (loopLen) + ")");
+    check (eng->record(), "record() accepted");
+    check (eng->getState() == AudioEngine::CountIn, "state is CountIn");
+    check (eng->getCountInLength() == 96000, "count-in = 4 beats = 96000 samples");
+
+    constexpr int block = 480;
+    std::vector<float> inBuf (block), outL (block), outR (block);
+    const float* ins[2] = { inBuf.data(), inBuf.data() };
+    float* outs[2] = { outL.data(), outR.data() };
+    juce::int64 global = 0;
+    double countInEnergy = 0.0;
+    bool recordingStartedAtBeat = false;
+    juce::AudioIODeviceCallbackContext ctx;
+
+    auto runBlocks = [&] (juce::int64 samples)
+    {
+        for (juce::int64 done = 0; done < samples; done += block)
+        {
+            for (int i = 0; i < block; ++i) inBuf[(size_t) i] = (float) (global + i) * 1.0e-7f;   // unique ramp
+            eng->audioDeviceIOCallbackWithContext (ins, 2, outs, 2, block, ctx);
+            if (eng->getState() == AudioEngine::CountIn)
+                for (int i = 0; i < block; ++i) countInEnergy += std::abs (outL[(size_t) i]);
+            global += block;
+            if ((global / block) % 5 == 0) eng->pollRecording();
+        }
+    };
+
+    runBlocks (96000 - block);
+    check (eng->getState() == AudioEngine::CountIn, "still counting in just before the end");
+    check (countInEnergy > 1.0, "click audible during count-in (energy " + juce::String (countInEnergy, 1) + ")");
+    runBlocks (block);                                   // last count-in block
+    const juce::int64 recStart = global;                 // first recorded sample = global index at start of pass 1
+    runBlocks (block);                                   // first recorded block
+    recordingStartedAtBeat = eng->getState() == AudioEngine::Recording && eng->getPosition() == block;
+    check (recordingStartedAtBeat, "recording starts on the first sample after count-in, at bar 1 (pos " + juce::String (eng->getPosition()) + ")");
+
+    runBlocks ((juce::int64) loopLen * 2 + 24000);       // two full passes + a partial third
+    check (eng->getState() == AudioEngine::Recording, "still recording after 2.25 passes");
+    eng->stop();
+    runBlocks (block * 20);
+    eng->pollRecording(); eng->pollRecording(); eng->pollRecording();
+
+    auto& tr = eng->tracks[slot];
+    check (tr.length.load() == loopLen, "track length = exactly one loop (" + juce::String (tr.length.load()) + ")");
+    check ((int) tr.takes.size() == 2, "two completed passes kept as takes (" + juce::String ((int) tr.takes.size()) + ")");
+    const float expected = (float) (recStart + loopLen) * 1.0e-7f;   // pass 2 starts one loop after pass 1
+    check (tr.length.load() == loopLen && std::abs (tr.data.getSample (0, 0) - expected) < 1.0e-4f,
+           "last completed pass wins; partial pass 3 discarded");
+    tr.applyTake (0);
+    check (std::abs (tr.data.getSample (0, 0) - (float) recStart * 1.0e-7f) < 1.0e-4f, "take 1 can be restored");
+
+    log << (ok ? "ALL OK" : "FAILURES") << "\n";
+    return log;
+}

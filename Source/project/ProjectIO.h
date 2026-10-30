@@ -5,6 +5,7 @@
 // Project folder: project.json + one WAV per track.
 namespace ProjectIO
 {
-    bool save (AudioEngine& engine, const juce::File& dir, double bpm, juce::String& error);
-    bool load (AudioEngine& engine, const juce::File& dir, double& bpm, juce::String& error);
+    bool save (AudioEngine& engine, const juce::File& dir, juce::String& error);
+    bool load (AudioEngine& engine, const juce::File& dir, juce::String& error);
 }
+

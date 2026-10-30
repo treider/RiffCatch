@@ -92,8 +92,31 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     dbLabel.setFont (juce::Font (juce::FontOptions (12.0f)));
     addAndMakeVisible (dbLabel);
 
+    for (auto* b : { &prevTake, &nextTake })
+    {
+        b->setWantsKeyboardFocus (false);
+        b->setColour (juce::TextButton::buttonColourId, Theme::raised.withAlpha (0.9f));
+        addChildComponent (b);
+    }
+    prevTake.onClick = [this] { takeStep (-1); };
+    nextTake.onClick = [this] { takeStep (+1); };
+    prevTake.setTooltip ("Previous take");
+    nextTake.setTooltip ("Next take");
+    takeLabel.setJustificationType (juce::Justification::centred);
+    takeLabel.setFont (juce::Font (juce::FontOptions (11.0f)));
+    takeLabel.setColour (juce::Label::textColourId, Theme::text);
+    takeLabel.setInterceptsMouseClicks (false, false);
+    addChildComponent (takeLabel);
+
     setInputChoices (2);
     refreshFromTrack();
+}
+
+void TrackRow::takeStep (int d)
+{
+    auto& t = track();
+    t.applyTake (juce::jlimit (0, (int) t.takes.size() - 1, t.currentTake + d));
+    if (onReleaseFocus) onReleaseFocus();
 }
 
 void TrackRow::setInputChoices (int n)
@@ -165,6 +188,15 @@ void TrackRow::tick()
     inMeter.setLevels (lvl (l), lvl (r));
     meter.setLevels (t.peakL.exchange (0.0f), t.peakR.exchange (0.0f));
     updateCache();
+    const int nt = (int) t.takes.size(), ct = t.currentTake;
+    if (nt != shownTakes || ct != shownCurrent)
+    {
+        shownTakes = nt; shownCurrent = ct;
+        const bool show = nt > 1;
+        prevTake.setVisible (show); nextTake.setVisible (show); takeLabel.setVisible (show);
+        prevTake.setEnabled (ct > 0); nextTake.setEnabled (ct < nt - 1);
+        takeLabel.setText ("take " + juce::String (ct + 1) + "/" + juce::String (nt), juce::dontSendNotification);
+    }
     repaint (wave);
 }
 
@@ -189,9 +221,23 @@ void TrackRow::paint (juce::Graphics& g)
     const double sr = engine.getSampleRate();
     const double pxPerSec = w.getWidth() / viewSeconds;
 
-    g.setColour (Theme::border.withAlpha (0.35f));
-    for (double s = 5.0; s < viewSeconds; s += 5.0)
-        g.fillRect ((float) (w.getX() + s * pxPerSec), w.getY(), 1.0f, w.getHeight());
+    if (barSeconds > 0.0)
+    {
+        const double beat = barSeconds / 4.0;
+        int k = 0;
+        for (double s = 0.0; s < viewSeconds - 0.001; s += beat, ++k)
+        {
+            const bool bar = (k % 4 == 0);
+            g.setColour (bar ? Theme::border.withAlpha (0.9f) : Theme::border.withAlpha (0.3f));
+            g.fillRect ((float) (w.getX() + s * pxPerSec), w.getY(), bar ? 1.5f : 1.0f, w.getHeight());
+        }
+    }
+    else
+    {
+        g.setColour (Theme::border.withAlpha (0.35f));
+        for (double s = 5.0; s < viewSeconds; s += 5.0)
+            g.fillRect ((float) (w.getX() + s * pxPerSec), w.getY(), 1.0f, w.getHeight());
+    }
 
     const bool armed = track().armed.load();
     const bool recording = armed && engine.getState() == AudioEngine::Recording;
@@ -258,6 +304,9 @@ void TrackRow::resized()
     meter.setBounds (r.removeFromRight (14));
     r.removeFromRight (6);
     wave = r;
+    prevTake.setBounds (wave.getRight() - 96, wave.getY() + 4, 20, 18);
+    takeLabel.setBounds (wave.getRight() - 76, wave.getY() + 4, 52, 18);
+    nextTake.setBounds (wave.getRight() - 24, wave.getY() + 4, 20, 18);
 
     auto l1 = header.removeFromTop (26);
     del.setBounds (l1.removeFromRight (24));

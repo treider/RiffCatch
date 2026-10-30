@@ -32,6 +32,9 @@ private:
     void setStatus (const juce::String&);
     void toggleRecord();
     void togglePlay();
+    void tapTempo();
+    void setBpm (double v);
+    void updateSettingsFromEngine();
 
     juce::ApplicationProperties props;
     juce::AudioDeviceManager deviceManager;
@@ -47,12 +50,16 @@ private:
     IconButton playBtn { IconButton::Play,   Theme::green };
     IconButton stopBtn { IconButton::Stop,   Theme::blue };
     juce::TextButton addBtn { "+ Track" }, newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" }, audioBtn { "Audio" };
-    juce::Label timeLabel, projectLabel, statusLabel, titleLabel;
+    juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
+    juce::Label bpmLabel;
+    juce::TextButton tapBtn { "Tap" }, loopBtn { "Loop" }, clickBtn { "Click" };
+    juce::ComboBox barsBox, countInBox;
+    juce::Slider clickVol;
+    std::vector<double> taps;
 
     juce::File projectDir;
-    double bpm = 120.0;
     int statusTicks = 0;
-    juce::Rectangle<int> barArea;
+    juce::Rectangle<int> barArea, settingsArea;
     juce::TooltipWindow tooltips { this, 600 };
 
     std::unique_ptr<juce::FileChooser> chooser;

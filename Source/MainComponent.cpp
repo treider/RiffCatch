@@ -83,12 +83,75 @@ MainComponent::MainComponent()
     statusLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (statusLabel);
 
+    // ---- tempo / loop / click / count-in controls
+    bpmCaption.setText ("BPM", juce::dontSendNotification);
+    countCaption.setText ("Count-in", juce::dontSendNotification);
+    for (auto* l : { &bpmCaption, &countCaption }) { l->setColour (juce::Label::textColourId, Theme::dim); addAndMakeVisible (l); }
+
+    bpmLabel.setEditable (true);
+    bpmLabel.setJustificationType (juce::Justification::centred);
+    bpmLabel.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 20.0f, juce::Font::bold)));
+    bpmLabel.setColour (juce::Label::backgroundColourId, Theme::deep);
+    bpmLabel.setColour (juce::Label::textColourId, Theme::cyan);
+    bpmLabel.setTooltip ("Tempo (double-click to type, 30-300)");
+    bpmLabel.onTextChange = [this] { setBpm (bpmLabel.getText().getDoubleValue()); grabKeyboardFocus(); };
+    addAndMakeVisible (bpmLabel);
+
+    tapBtn.setTooltip ("Tap tempo (T)");
+    tapBtn.setWantsKeyboardFocus (false);
+    tapBtn.onClick = [this] { tapTempo(); };
+    addAndMakeVisible (tapBtn);
+
+    for (auto* b : { &loopBtn, &clickBtn })
+    {
+        b->setClickingTogglesState (true);
+        b->setWantsKeyboardFocus (false);
+        b->setColour (juce::TextButton::buttonOnColourId, Theme::teal);
+        addAndMakeVisible (b);
+    }
+    loopBtn.setTooltip ("Loop the project region while playing/recording (L)");
+    clickBtn.setTooltip ("Metronome during play/record (C). Count-in always clicks.");
+    loopBtn.onClick  = [this] { engine.loopEnabled = loopBtn.getToggleState(); };
+    clickBtn.onClick = [this] { engine.clickEnabled = clickBtn.getToggleState(); };
+
+    for (int b : { 1, 2, 4, 8, 16 }) barsBox.addItem (juce::String (b) + (b == 1 ? " bar" : " bars"), b);
+    barsBox.setWantsKeyboardFocus (false);
+    barsBox.setTooltip ("Loop length in bars (4/4)");
+    barsBox.onChange = [this] { engine.loopBars = barsBox.getSelectedId(); grabKeyboardFocus(); };
+    addAndMakeVisible (barsBox);
+
+    clickVol.setSliderStyle (juce::Slider::LinearHorizontal);
+    clickVol.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+    clickVol.setRange (0.0, 1.0, 0.01);
+    clickVol.setColour (juce::Slider::trackColourId, Theme::teal);
+    clickVol.setWantsKeyboardFocus (false);
+    clickVol.setTooltip ("Click volume");
+    clickVol.onValueChange = [this] { engine.clickVolume = (float) clickVol.getValue(); };
+    addAndMakeVisible (clickVol);
+
+    countInBox.addItem ("Off", 1);
+    for (int s : { 1, 2, 3, 4, 6, 8 }) countInBox.addItem (juce::String (s) + " s", 10 + s);
+    countInBox.setWantsKeyboardFocus (false);
+    countInBox.setTooltip ("Count-in length, rounded to whole beats");
+    countInBox.onChange = [this]
+    {
+        const int id = countInBox.getSelectedId();
+        engine.countInSeconds = id == 1 ? 0.0f : (float) (id - 10);
+        grabKeyboardFocus();
+    };
+    addAndMakeVisible (countInBox);
+
+    barLabel.setJustificationType (juce::Justification::centredLeft);
+    barLabel.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 16.0f, juce::Font::plain)));
+    barLabel.setColour (juce::Label::textColourId, Theme::cyan);
+    addAndMakeVisible (barLabel);
+
     engine.addTrack();
     engine.addTrack();
     changeListenerCallback (nullptr);
     refreshStrips();
     setWantsKeyboardFocus (true);
-    setSize (1120, 680);
+    setSize (1140, 760);
     startTimerHz (30);
 }
 
@@ -116,10 +179,43 @@ void MainComponent::refreshStrips()
     for (auto* r : rows)
         if (engine.tracks[r->slot()].active.load()) r->refreshFromTrack();
     master.refreshFromEngine();
+    updateSettingsFromEngine();
     projectLabel.setText (projectDir == juce::File() ? "Untitled" : projectDir.getFileName(), juce::dontSendNotification);
     addBtn.setEnabled (engine.getNumTracks() < AudioEngine::maxTracks);
     resized();
     repaint();
+}
+
+void MainComponent::updateSettingsFromEngine()
+{
+    const double b = engine.bpm.load();
+    bpmLabel.setText (std::abs (b - std::round (b)) < 0.05 ? juce::String ((int) std::round (b)) : juce::String (b, 1), juce::dontSendNotification);
+    loopBtn.setToggleState (engine.loopEnabled.load(), juce::dontSendNotification);
+    clickBtn.setToggleState (engine.clickEnabled.load(), juce::dontSendNotification);
+    barsBox.setSelectedId (engine.loopBars.load(), juce::dontSendNotification);
+    clickVol.setValue (engine.clickVolume.load(), juce::dontSendNotification);
+    const int s = (int) std::lround (engine.countInSeconds.load());
+    countInBox.setSelectedId (s <= 0 ? 1 : 10 + s, juce::dontSendNotification);
+}
+
+void MainComponent::setBpm (double v)
+{
+    if (engine.getState() == AudioEngine::Stopped)
+        engine.bpm = juce::jlimit (30.0, 300.0, std::round (v * 10.0) / 10.0);
+    updateSettingsFromEngine();
+}
+
+void MainComponent::tapTempo()
+{
+    if (engine.getState() != AudioEngine::Stopped) return;
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (! taps.empty() && now - taps.back() > 2000.0) taps.clear();
+    taps.push_back (now);
+    if (taps.size() > 6) taps.erase (taps.begin());
+    if (taps.size() >= 2)   // average of the last intervals
+        setBpm (60000.0 / ((taps.back() - taps.front()) / (double) (taps.size() - 1)));
+    else
+        setStatus ("Keep tapping...");
 }
 
 void MainComponent::addTrack()
@@ -153,13 +249,14 @@ void MainComponent::setStatus (const juce::String& s)
 
 void MainComponent::toggleRecord()
 {
-    if (engine.getState() == AudioEngine::Recording) { engine.play(); return; }
+    if (engine.getState() == AudioEngine::Recording) { engine.play(); return; }   // stop recording, keep playing
+    if (engine.getState() == AudioEngine::CountIn) { engine.stop(); return; }
     if (! engine.record()) setStatus ("Arm a track (R) before recording");
 }
 
 void MainComponent::togglePlay()
 {
-    if (engine.getState() == AudioEngine::Playing) engine.stop();
+    if (engine.getState() != AudioEngine::Stopped) engine.stop();
     else engine.play();
 }
 
@@ -192,6 +289,9 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
     if (k == juce::KeyPress::spaceKey) { togglePlay(); return true; }
     if (k == juce::KeyPress::returnKey || k == juce::KeyPress::homeKey) { engine.stop(); return true; }
     if (code == 'R') { toggleRecord(); return true; }
+    if (code == 'T') { tapTempo(); return true; }
+    if (code == 'C') { clickBtn.setToggleState (! clickBtn.getToggleState(), juce::sendNotification); return true; }
+    if (code == 'L' && engine.getState() == AudioEngine::Stopped) { loopBtn.setToggleState (! loopBtn.getToggleState(), juce::sendNotification); return true; }
 
     if (code >= '1' && code <= '8')    // 1-8 arm, Shift+1-8 mute
     {
@@ -210,35 +310,63 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
 }
 void MainComponent::timerCallback()
 {
+    engine.pollRecording();
+
     const auto st = engine.getState();
-    recBtn.setToggleState (st == AudioEngine::Recording, juce::dontSendNotification);
+    recBtn.setToggleState (st == AudioEngine::Recording || st == AudioEngine::CountIn, juce::dontSendNotification);
     playBtn.setToggleState (st == AudioEngine::Playing, juce::dontSendNotification);
 
-    const double secs = engine.getPosition() / juce::jmax (1.0, engine.getSampleRate());
+    const bool idle = st == AudioEngine::Stopped;
+    for (auto* c : std::initializer_list<juce::Component*> { &bpmLabel, &tapBtn, &loopBtn, &barsBox })
+        c->setEnabled (idle);
+
+    const double sr = juce::jmax (1.0, engine.getSampleRate());
+    const double spb = engine.getSamplesPerBeat();
+    const double secs = engine.getPosition() / sr;
     const int m = (int) (secs / 60.0);
     timeLabel.setText (juce::String::formatted ("%02d:%02d.%03d", m, (int) secs % 60, (int) ((secs - std::floor (secs)) * 1000.0)),
                        juce::dontSendNotification);
 
+    if (st == AudioEngine::CountIn)
+    {
+        const auto left = (int) std::ceil ((double) (engine.getCountInLength() - engine.getCountInPosition()) / spb - 1.0e-6);
+        barLabel.setText ("Count-in " + juce::String (juce::jmax (1, left)), juce::dontSendNotification);
+        barLabel.setColour (juce::Label::textColourId, Theme::yellow);
+    }
+    else
+    {
+        const double beats = engine.getPosition() / spb;
+        barLabel.setText (juce::String::formatted ("Bar %d.%d", (int) (beats / 4.0) + 1, (int) beats % 4 + 1), juce::dontSendNotification);
+        barLabel.setColour (juce::Label::textColourId, st == AudioEngine::Recording ? Theme::red : Theme::cyan);
+    }
+
+    // time axis: bars when looping, otherwise seconds in 30 s steps
     juce::int64 longest = engine.getPosition();
-    const double sr = juce::jmax (1.0, engine.getSampleRate());
     for (int slot : engine.order)
     {
         longest = juce::jmax (longest, engine.tracks[slot].length.load());
         rows[slot]->tick();
     }
-    const double view = juce::jmax (30.0, std::ceil ((longest / sr + 1.0) / 30.0) * 30.0);
-    for (auto* r : rows) r->setViewSeconds (view);
+    double view, barSecs = 0.0;
+    if (engine.loopEnabled.load())
+    {
+        view = engine.getLoopLength() / sr;
+        barSecs = 4.0 * spb / sr;
+    }
+    else
+        view = juce::jmax (30.0, std::ceil ((longest / sr + 1.0) / 30.0) * 30.0);
+    for (auto* r : rows) r->setView (view, barSecs);
     inputBar.tick();
     master.tick();
 
     if (statusTicks > 0 && --statusTicks == 0) statusLabel.setText ({}, juce::dontSendNotification);
 }
-
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::bg);
     g.setColour (Theme::panel);
     g.fillRoundedRectangle (barArea.toFloat(), 14.0f);
+    g.fillRoundedRectangle (settingsArea.toFloat(), 14.0f);
 }
 
 void MainComponent::resized()
@@ -251,16 +379,28 @@ void MainComponent::resized()
     recBtn.setBounds (bar.removeFromLeft (44));  bar.removeFromLeft (8);
     playBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
     stopBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (14);
-    timeLabel.setBounds (bar.removeFromLeft (160));
-    bar.removeFromLeft (10);
+    timeLabel.setBounds (bar.removeFromLeft (150));
+    barLabel.setBounds (bar.removeFromLeft (140));
 
     audioBtn.setBounds (bar.removeFromRight (70)); bar.removeFromRight (6);
     saveBtn.setBounds (bar.removeFromRight (64));  bar.removeFromRight (6);
     openBtn.setBounds (bar.removeFromRight (64));  bar.removeFromRight (6);
     newBtn.setBounds (bar.removeFromRight (56));   bar.removeFromRight (12);
     addBtn.setBounds (bar.removeFromRight (84));   bar.removeFromRight (12);
-    projectLabel.setBounds (bar.removeFromRight (130));
-    statusLabel.setBounds (bar);
+    r.removeFromTop (8);
+    settingsArea = r.removeFromTop (46);
+    auto sb = settingsArea.reduced (14, 8);
+    bpmCaption.setBounds (sb.removeFromLeft (36));
+    bpmLabel.setBounds (sb.removeFromLeft (64));  sb.removeFromLeft (6);
+    tapBtn.setBounds (sb.removeFromLeft (48));    sb.removeFromLeft (18);
+    loopBtn.setBounds (sb.removeFromLeft (56));   sb.removeFromLeft (6);
+    barsBox.setBounds (sb.removeFromLeft (80));   sb.removeFromLeft (18);
+    clickBtn.setBounds (sb.removeFromLeft (56));  sb.removeFromLeft (6);
+    clickVol.setBounds (sb.removeFromLeft (90));  sb.removeFromLeft (18);
+    countCaption.setBounds (sb.removeFromLeft (64));
+    countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (16);
+    projectLabel.setBounds (sb.removeFromRight (150));
+    statusLabel.setBounds (sb);
 
     r.removeFromTop (10);
     inputBar.setBounds (r.removeFromTop (38));
@@ -294,10 +434,11 @@ void MainComponent::newProject()
 {
     engine.removeAllTracks();
     engine.masterVolume = 1.0f;
+    engine.bpm = 120.0; engine.loopBars = 4; engine.loopEnabled = true;
+    engine.countInSeconds = 3.0f; engine.clickEnabled = true; engine.clickVolume = 0.5f;
     engine.addTrack();
     engine.addTrack();
     projectDir = juce::File();
-    bpm = 120.0;
     refreshStrips();
 }
 
@@ -318,7 +459,7 @@ void MainComponent::saveProject (bool saveAs)
 void MainComponent::doSave (const juce::File& dir)
 {
     juce::String err;
-    if (ProjectIO::save (engine, dir, bpm, err))
+    if (ProjectIO::save (engine, dir, err))
     {
         projectDir = dir;
         projectLabel.setText (dir.getFileName(), juce::dontSendNotification);
@@ -343,7 +484,7 @@ void MainComponent::openProject()
 void MainComponent::doOpen (const juce::File& dir)
 {
     juce::String err;
-    if (ProjectIO::load (engine, dir, bpm, err))
+    if (ProjectIO::load (engine, dir, err))
     {
         projectDir = dir;
         refreshStrips();

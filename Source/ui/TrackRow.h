@@ -12,7 +12,7 @@ public:
     int slot() const noexcept { return index; }
     void refreshFromTrack();
     void setInputChoices (int numInputs);
-    void setViewSeconds (double s) { viewSeconds = s; }
+    void setView (double seconds, double barSecs) { viewSeconds = seconds; barSeconds = barSecs; }
     void tick();
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -39,7 +39,11 @@ private:
     AudioEngine& engine;
     int index;
     juce::Colour accent;
-    double viewSeconds = 30.0;
+    double viewSeconds = 30.0, barSeconds = 0.0;
+    juce::TextButton prevTake { "<" }, nextTake { ">" };
+    juce::Label takeLabel;
+    int shownTakes = -1, shownCurrent = -1;
+    void takeStep (int d);
 
     Grip grip { *this };
     juce::Label nameLabel, dbLabel;
