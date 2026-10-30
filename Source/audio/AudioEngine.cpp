@@ -49,11 +49,9 @@ bool AudioEngine::record()
         tr.recActive = true;
     }
 
-    // count-in: whole beats, nearest to the requested length (min 1 beat if enabled)
+    // count-in: whole bars of 4 beats
     const double spb = getSamplesPerBeat();
-    const double secs = countInSeconds.load();
-    int beats = 0;
-    if (secs > 0.05) beats = juce::jmax (1, (int) std::lround (secs * bpm.load() / 60.0));
+    const int beats = juce::jlimit (0, 8, countInBars.load()) * 4;
     countInLen = (juce::int64) std::ceil (beats * spb);
 
     rewind = true;

@@ -134,13 +134,14 @@ MainComponent::MainComponent()
     addAndMakeVisible (clickVol);
 
     countInBox.addItem ("Off", 1);
-    for (int s : { 1, 2, 3, 4, 6, 8 }) countInBox.addItem (juce::String (s) + " s", 10 + s);
+    countInBox.addItem ("1 bar", 11);
+    countInBox.addItem ("2 bars", 12);
     countInBox.setWantsKeyboardFocus (false);
-    countInBox.setTooltip ("Count-in length, rounded to whole beats");
+    countInBox.setTooltip ("Count-in before recording starts (4 beats per bar)");
     countInBox.onChange = [this]
     {
         const int id = countInBox.getSelectedId();
-        engine.countInSeconds = id == 1 ? 0.0f : (float) (id - 10);
+        engine.countInBars = id == 1 ? 0 : id - 10;
         grabKeyboardFocus();
     };
     addAndMakeVisible (countInBox);
@@ -216,8 +217,8 @@ void MainComponent::updateSettingsFromEngine()
     clickBtn.setToggleState (engine.clickEnabled.load(), juce::dontSendNotification);
     barsBox.setSelectedId (engine.loopBars.load(), juce::dontSendNotification);
     clickVol.setValue (engine.clickVolume.load(), juce::dontSendNotification);
-    const int s = (int) std::lround (engine.countInSeconds.load());
-    countInBox.setSelectedId (s <= 0 ? 1 : 10 + s, juce::dontSendNotification);
+    const int cb = engine.countInBars.load();
+    countInBox.setSelectedId (cb <= 0 ? 1 : 10 + cb, juce::dontSendNotification);
 }
 
 void MainComponent::setBpm (double v)
@@ -393,8 +394,8 @@ void MainComponent::timerCallback()
 
     if (st == AudioEngine::CountIn)
     {
-        const auto left = (int) std::ceil ((double) (engine.getCountInLength() - engine.getCountInPosition()) / sr - 1.0e-6);   // seconds remaining
-        barLabel.setText ("Count-in " + juce::String (juce::jmax (1, left)), juce::dontSendNotification);
+        const int beat = (int) (engine.getCountInPosition() / spb) % 4 + 1;     // 1-2-3-4
+        barLabel.setText ("Count " + juce::String (beat), juce::dontSendNotification);
         barLabel.setColour (juce::Label::textColourId, Theme::yellow);
     }
     else
@@ -510,7 +511,7 @@ void MainComponent::newProject()
     engine.removeAllTracks();
     engine.masterVolume = 1.0f;
     engine.bpm = 120.0; engine.loopBars = 4; engine.loopEnabled = true;
-    engine.countInSeconds = 3.0f; engine.clickEnabled = true; engine.clickVolume = 0.5f;
+    engine.countInBars = 1; engine.clickEnabled = true; engine.clickVolume = 0.5f;
     engine.addTrack();
     engine.addTrack();
     projectDir = juce::File();

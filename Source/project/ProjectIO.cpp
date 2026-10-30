@@ -64,7 +64,7 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
     root->setProperty ("timeSignature", "4/4");
     root->setProperty ("clickEnabled", e.clickEnabled.load());
     root->setProperty ("clickVolume", (double) e.clickVolume.load());
-    root->setProperty ("countInSeconds", (double) e.countInSeconds.load());
+    root->setProperty ("countInBars", e.countInBars.load());
     root->setProperty ("sampleRate", e.getSampleRate());
     root->setProperty ("masterVolume", (double) e.masterVolume.load());
     root->setProperty ("loop", juce::var (loop));
@@ -136,7 +136,8 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
     e.loopBars = juce::jlimit (1, 64, (int) json["loop"].getProperty ("bars", 4));
     e.clickEnabled = (bool) json.getProperty ("clickEnabled", true);
     e.clickVolume = (float) (double) json.getProperty ("clickVolume", 0.5);
-    e.countInSeconds = (float) (double) json.getProperty ("countInSeconds", 3.0);
+    e.countInBars = json.hasProperty ("countInBars") ? juce::jlimit (0, 2, (int) json.getProperty ("countInBars", 1))
+                                                     : ((double) json.getProperty ("countInSeconds", 3.0) > 0.0 ? 1 : 0);
     e.masterVolume = (float) (double) json.getProperty ("masterVolume", 1.0);
     if (count == 0) e.addTrack();
     return true;

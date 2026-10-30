@@ -12,7 +12,7 @@ inline juce::String runEngineSelfTest()
     auto eng = std::make_unique<AudioEngine>();
     const double sr = 48000.0;
     eng->prepareForTest (sr, 2);
-    eng->bpm = 120.0; eng->loopBars = 1; eng->loopEnabled = true; eng->countInSeconds = 2.0f;
+    eng->bpm = 120.0; eng->loopBars = 1; eng->loopEnabled = true; eng->countInBars = 1;
     eng->clickEnabled = true;
     eng->latencyAdjustMs = 10.0f;                       // 480 samples of compensation @48k
     const int comp = eng->getCompensationSamples();

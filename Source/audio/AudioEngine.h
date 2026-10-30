@@ -36,7 +36,7 @@ public:
     std::atomic<double> bpm { 120.0 };
     std::atomic<int> loopBars { 4 };
     std::atomic<bool> loopEnabled { true };
-    std::atomic<float> countInSeconds { 3.0f };
+    std::atomic<int> countInBars { 1 };          // 0 = off, else whole bars of 4 beats
     std::atomic<bool> clickEnabled { true };
     std::atomic<float> clickVolume { 0.5f };
 
