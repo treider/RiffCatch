@@ -84,7 +84,7 @@ public:
         auto c = bgc;
         if (down) c = c.darker (0.15f); else if (over) c = c.brighter (0.12f);
         g.setColour (c);
-        g.fillRoundedRectangle (b.getLocalBounds().toFloat().reduced (0.5f), 3.0f);
+        g.fillRoundedRectangle (b.getLocalBounds().toFloat().reduced (0.5f), 6.0f);
     }
 
     void drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float, float,
@@ -172,9 +172,11 @@ public:
         auto b = getLocalBounds().toFloat().reduced (1.0f);
         const bool on = getToggleState();
         auto bgc = on ? colour : Theme::raised;
+        if (on && icon == Record)   // gentle pulse while recording
+            bgc = bgc.interpolatedWith (juce::Colours::white, 0.12f + 0.12f * std::sin ((float) juce::Time::getMillisecondCounter() * 0.008f));
         if (down) bgc = bgc.darker (0.2f); else if (over) bgc = bgc.brighter (0.12f);
         g.setColour (bgc);
-        g.fillRoundedRectangle (b, 3.0f);
+        g.fillRoundedRectangle (b, 10.0f);
 
         g.setColour (on ? Theme::deep : colour);
         auto ic = b.withSizeKeepingCentre (b.getHeight() * 0.38f, b.getHeight() * 0.38f);

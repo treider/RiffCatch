@@ -2,6 +2,7 @@
 #include "MainComponent.h"
 #include "ui/Theme.h"
 #include "SelfTest.h"
+#include "WinTitleBar.h"
 
 class RiffCatchApp : public juce::JUCEApplication
 {
@@ -36,6 +37,7 @@ public:
             setResizeLimits (1100, 620, 3000, 2000);
             centreWithSize (getWidth(), getHeight());
             setVisible (true);
+            applyDarkTitleBar (getPeer(), Theme::bg, Theme::text);
         }
         void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
     };

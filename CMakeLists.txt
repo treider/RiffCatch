@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(RiffCatch VERSION 0.3 LANGUAGES C CXX)   # bump the minor version every iteration
+project(RiffCatch VERSION 0.4 LANGUAGES C CXX)   # bump the minor version every iteration
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -49,6 +49,7 @@ juce_add_gui_app(RiffCatch
 target_sources(RiffCatch PRIVATE
   Source/Main.cpp
   Source/MainComponent.cpp
+  Source/WinTitleBar.cpp
   Source/audio/AudioEngine.cpp
   Source/audio/HitEditor.cpp
   Source/project/ProjectIO.cpp

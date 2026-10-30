@@ -283,7 +283,11 @@ void TrackRow::tick()
 
 void TrackRow::paint (juce::Graphics& g)
 {
+    juce::Graphics::ScopedSaveState cardState (g);
     auto b = getLocalBounds().toFloat();
+    juce::Path card;
+    card.addRoundedRectangle (b, 10.0f);
+    g.reduceClipRegion (card);                                          // everything below is clipped to a rounded card
     g.setColour (Theme::panel);
     g.fillRect (b);
     g.setColour (Theme::panel.brighter (0.05f));
@@ -292,13 +296,10 @@ void TrackRow::paint (juce::Graphics& g)
     g.fillRect (nameBar.toFloat());                                     // coloured name bar (Live style)
     g.setColour (accent);
     g.fillRect (b.withWidth (4.0f));                                    // track colour stripe
-    g.setColour (Theme::deep);
-    g.fillRect (b.withTop (b.getBottom() - 1.0f));                      // row separator
-
     // ---- clip lane
     auto w = wave.toFloat();
     g.setColour (Theme::deep);
-    g.fillRect (w);
+    g.fillRoundedRectangle (w, 6.0f);
     if (w.isEmpty()) return;
 
     g.saveState();
@@ -737,12 +738,19 @@ void MasterStrip::tick() { meter.setLevels (engine.masterPeakL.exchange (0.0f), 
 void MasterStrip::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
-    g.setColour (Theme::panel.brighter (0.05f));
-    g.fillRect (b);
-    g.setColour (Theme::purple);
-    g.fillRect (b.withWidth (4.0f));
-    g.setColour (Theme::deep);
-    g.drawRect (b, 1.0f);
+    {
+        juce::Graphics::ScopedSaveState s (g);
+        juce::Path card;
+        card.addRoundedRectangle (b, 10.0f);
+        g.reduceClipRegion (card);
+        g.setGradientFill (juce::ColourGradient (Theme::panel.brighter (0.10f), 0.0f, b.getY(),
+                                                 Theme::panel.darker (0.05f), 0.0f, b.getBottom(), false));
+        g.fillRect (b);
+        g.setColour (Theme::purple);
+        g.fillRect (b.withWidth (4.0f));
+    }
+    g.setColour (Theme::border.withAlpha (0.55f));
+    g.drawRoundedRectangle (b.reduced (0.5f), 10.0f, 1.0f);
 }
 
 void MasterStrip::resized()
@@ -813,10 +821,14 @@ void InputBar::tick()
 
 void InputBar::paint (juce::Graphics& g)
 {
-    g.setColour (Theme::panel.brighter (0.05f));
-    g.fillRect (getLocalBounds().toFloat());
-    g.setColour (Theme::deep);
-    g.drawRect (getLocalBounds().toFloat(), 1.0f);
+    {
+        const auto f = getLocalBounds().toFloat();
+        g.setGradientFill (juce::ColourGradient (Theme::panel.brighter (0.10f), 0.0f, f.getY(),
+                                                 Theme::panel.darker (0.05f), 0.0f, f.getBottom(), false));
+        g.fillRoundedRectangle (f, 10.0f);
+        g.setColour (Theme::border.withAlpha (0.55f));
+        g.drawRoundedRectangle (f.reduced (0.5f), 10.0f, 1.0f);
+    }
     g.setColour (Theme::dim);
     g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
     g.drawText ("INPUTS", getLocalBounds().reduced (14, 0).withWidth (60), juce::Justification::centredLeft);

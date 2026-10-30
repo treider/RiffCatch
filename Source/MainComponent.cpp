@@ -516,6 +516,7 @@ void MainComponent::timerCallback()
 
     const auto st = engine.getState();
     recBtn.setToggleState (st == AudioEngine::Recording || st == AudioEngine::CountIn, juce::dontSendNotification);
+    if (recBtn.getToggleState()) recBtn.repaint();   // pulse animation
     playBtn.setToggleState (st == AudioEngine::Playing, juce::dontSendNotification);
 
     const bool idle = st == AudioEngine::Stopped;
@@ -571,10 +572,12 @@ void MainComponent::paint (juce::Graphics& g)
     g.fillAll (Theme::bg);
     for (auto a : { barArea, settingsArea })
     {
-        g.setColour (Theme::panel.brighter (0.05f));
-        g.fillRect (a);
-        g.setColour (Theme::deep);
-        g.drawRect (a, 1);
+        const auto f = a.toFloat();
+        g.setGradientFill (juce::ColourGradient (Theme::panel.brighter (0.10f), 0.0f, f.getY(),
+                                                 Theme::panel.darker (0.05f), 0.0f, f.getBottom(), false));
+        g.fillRoundedRectangle (f, 10.0f);
+        g.setColour (Theme::border.withAlpha (0.55f));
+        g.drawRoundedRectangle (f.reduced (0.5f), 10.0f, 1.0f);
     }
 }
 
