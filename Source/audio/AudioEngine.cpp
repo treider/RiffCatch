@@ -112,46 +112,52 @@ void AudioEngine::processChunk (const float* const* in, int numIn, float* const*
         const float theta = (juce::jlimit (-1.0f, 1.0f, tr.pan.load()) + 1.0f) * juce::MathConstants<float>::pi * 0.25f;   // equal-power
         const float tgtL = vol * std::cos (theta), tgtR = vol * std::sin (theta);
 
-        const float* srcL = nullptr;
-        const float* srcR = nullptr;
-        int avail = 0;
+        const float* inL = nullptr;   // live input (monitoring + recording)
+        const float* inR = nullptr;
+        const float* pbL = nullptr;   // playback of recorded audio
+        const float* pbR = nullptr;
+        int pbAvail = 0;
 
-        if (armed)   // input monitoring; armed tracks do not play back their own audio
+        if (armed)   // input monitoring
         {
             const int code = tr.inputCode.load();
             const int l = code >= 100 ? code - 100 : code;
             const int r = code >= 100 ? l + 1 : l;
-            if (l < numIn && in[l] != nullptr) srcL = in[l] + offset;
-            if (r < numIn && in[r] != nullptr) srcR = in[r] + offset;
-            avail = n;
+            if (l < numIn && in[l] != nullptr) inL = in[l] + offset;
+            if (r < numIn && in[r] != nullptr) inR = in[r] + offset;
         }
-        else if (st != Stopped)
+        if (st != Stopped && ! recording)   // an armed track still plays its audio, except while it is being re-recorded
         {
             const auto len = tr.length.load();
             if (pos < len && tr.data.getNumSamples() >= len)
             {
-                srcL = tr.data.getReadPointer (0) + pos;
-                srcR = tr.data.getReadPointer (1) + pos;
-                avail = (int) juce::jmin<juce::int64> (n, len - pos);
+                pbL = tr.data.getReadPointer (0) + pos;
+                pbR = tr.data.getReadPointer (1) + pos;
+                pbAvail = (int) juce::jmin<juce::int64> (n, len - pos);
             }
         }
 
         float pl = 0.0f, pr = 0.0f;
-        if (avail > 0 && (srcL != nullptr || srcR != nullptr))
+        if (pbAvail > 0 || armed)
         {
             float gl = tr.curGainL, gr = tr.curGainR;
             const float sl = (tgtL - gl) / (float) n, sr = (tgtR - gr) / (float) n;
-            for (int i = 0; i < avail; ++i)
+            for (int i = 0; i < n; ++i)
             {
                 gl += sl; gr += sr;
-                const float a = srcL != nullptr ? srcL[i] : 0.0f;
-                const float b = srcR != nullptr ? srcR[i] : a;
+                float a = 0.0f, b = 0.0f;
+                if (i < pbAvail) { a += pbL[i]; b += pbR[i]; }
+                if (armed)
+                {
+                    const float x = inL != nullptr ? inL[i] : 0.0f;
+                    a += x;
+                    b += inR != nullptr ? inR[i] : x;
+                }
                 const float yl = a * gl, yr = b * gr;
                 mixL[i] += yl; mixR[i] += yr;
                 pl = juce::jmax (pl, std::abs (yl)); pr = juce::jmax (pr, std::abs (yr));
             }
-        }
-        tr.curGainL = tgtL; tr.curGainR = tgtR;
+        }        tr.curGainL = tgtL; tr.curGainR = tgtR;
         if (pl > tr.peakL.load()) tr.peakL = pl;
         if (pr > tr.peakR.load()) tr.peakR = pr;
 
@@ -165,9 +171,9 @@ void AudioEngine::processChunk (const float* const* in, int numIn, float* const*
                 auto* dr = tr.data.getWritePointer (1) + pos;
                 for (int i = 0; i < w; ++i)
                 {
-                    const float a = srcL != nullptr ? srcL[i] : 0.0f;
+                    const float a = inL != nullptr ? inL[i] : 0.0f;
                     dl[i] = a;
-                    dr[i] = srcR != nullptr ? srcR[i] : a;
+                    dr[i] = inR != nullptr ? inR[i] : a;
                 }
                 if (pos + w > tr.length.load()) tr.length = pos + w;
             }

@@ -115,7 +115,7 @@ void TrackRow::refreshFromTrack()
     if (input.indexOfItemId (t.inputCode.load() + 1) >= 0)
         input.setSelectedId (t.inputCode.load() + 1, juce::dontSendNotification);
     updateDb();
-    mn.clear(); mx.clear(); done = 0; rev = ~0u;
+    mn.clear(); mx.clear(); mn2.clear(); mx2.clear(); stereo = false; done = 0; rev = ~0u;
     repaint();
 }
 
@@ -132,7 +132,7 @@ void TrackRow::updateCache()
 
     const auto len = juce::jmin<juce::int64> (t.length.load(), t.data.getNumSamples());
     const auto r = t.revision.load();
-    if (r != rev || len < done * binSize) { mn.clear(); mx.clear(); done = 0; rev = r; }
+    if (r != rev || len < done * binSize) { mn.clear(); mx.clear(); mn2.clear(); mx2.clear(); stereo = false; done = 0; rev = r; }
 
     const auto target = len / binSize;
     if (target > done)
@@ -143,8 +143,10 @@ void TrackRow::updateCache()
         {
             auto a = juce::FloatVectorOperations::findMinAndMax (l + b * binSize, binSize);
             auto c = juce::FloatVectorOperations::findMinAndMax (rr + b * binSize, binSize);
-            mn.push_back (juce::jmin (a.getStart(), c.getStart()));
-            mx.push_back (juce::jmax (a.getEnd(), c.getEnd()));
+            mn.push_back (a.getStart()); mx.push_back (a.getEnd());
+            mn2.push_back (c.getStart()); mx2.push_back (c.getEnd());
+            if (std::abs (a.getStart() - c.getStart()) > 1.0e-4f || std::abs (a.getEnd() - c.getEnd()) > 1.0e-4f)
+                stereo = true;
         }
         done = target;
     }
@@ -190,27 +192,43 @@ void TrackRow::paint (juce::Graphics& g)
 
     const bool armed = track().armed.load();
     const bool recording = armed && engine.getState() == AudioEngine::Recording;
-    const float mid = w.getCentreY(), half = w.getHeight() * 0.5f - 6.0f;
     g.setColour (Theme::dim.withAlpha (0.4f));
-    g.fillRect (w.getX(), mid, w.getWidth(), 1.0f);
+    g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
 
     if (done > 0)
     {
-        g.setColour (recording ? Theme::red : accent);
         const double spp = sr * viewSeconds / w.getWidth();     // samples per pixel
-        for (int x = 0; x < wave.getWidth(); ++x)
+        auto drawLane = [&] (const std::vector<float>& lo, const std::vector<float>& hi, float top, float height)
         {
-            const auto b0 = (juce::int64) (x * spp / binSize);
-            if (b0 >= done) break;
-            const auto b1 = juce::jmin (done, juce::jmax (b0 + 1, (juce::int64) ((x + 1) * spp / binSize)));
-            float lo = 0.0f, hi = 0.0f;
-            for (auto k = b0; k < b1; ++k) { lo = juce::jmin (lo, mn[(size_t) k]); hi = juce::jmax (hi, mx[(size_t) k]); }
-            const float y1 = mid - juce::jlimit (0.0f, 1.0f, hi) * half;
-            const float y2 = mid - juce::jlimit (-1.0f, 0.0f, lo) * half;
-            g.fillRect ((float) (w.getX() + x), y1, 1.0f, juce::jmax (1.0f, y2 - y1));
+            const float mid = top + height * 0.5f, half = height * 0.5f - 3.0f;
+            for (int x = 0; x < wave.getWidth(); ++x)
+            {
+                const auto b0 = (juce::int64) (x * spp / binSize);
+                if (b0 >= done) break;
+                const auto b1 = juce::jmin (done, juce::jmax (b0 + 1, (juce::int64) ((x + 1) * spp / binSize)));
+                float mnv = 0.0f, mxv = 0.0f;
+                for (auto k = b0; k < b1; ++k) { mnv = juce::jmin (mnv, lo[(size_t) k]); mxv = juce::jmax (mxv, hi[(size_t) k]); }
+                const float y1 = mid - juce::jlimit (0.0f, 1.0f, mxv) * half;
+                const float y2 = mid - juce::jlimit (-1.0f, 0.0f, mnv) * half;
+                g.fillRect ((float) (w.getX() + x), y1, 1.0f, juce::jmax (1.0f, y2 - y1));
+            }
+        };
+        g.setColour (recording ? Theme::red : accent);
+        if (stereo)
+        {
+            const float h2 = w.getHeight() * 0.5f;
+            drawLane (mn, mx, w.getY(), h2);
+            drawLane (mn2, mx2, w.getY() + h2, h2);
+            g.setColour (Theme::border.withAlpha (0.6f));
+            g.fillRect (w.getX(), w.getY() + h2, w.getWidth(), 1.0f);
+            g.setColour (Theme::dim);
+            g.setFont (10.0f);
+            g.drawText ("L", wave.withSize (14, 14).translated (3, 1), juce::Justification::centred);
+            g.drawText ("R", wave.withSize (14, 14).translated (3, (int) h2 + 1), juce::Justification::centred);
         }
-    }
-    else
+        else
+            drawLane (mn, mx, w.getY(), w.getHeight());
+    }    else
     {
         g.setColour (Theme::dim);
         g.setFont (13.0f);

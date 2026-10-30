@@ -50,7 +50,8 @@ private:
 
     // waveform min/max cache (incremental, 256 samples per bin)
     static constexpr int binSize = 256;
-    std::vector<float> mn, mx;
+    std::vector<float> mn, mx, mn2, mx2;   // ch0 / ch1
+    bool stereo = false;
     juce::int64 done = 0;
     unsigned rev = ~0u;
 };
