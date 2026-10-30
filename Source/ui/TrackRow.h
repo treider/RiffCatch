@@ -7,6 +7,7 @@
 class TrackRow : public juce::Component
 {
 public:
+    static constexpr int waveLeft = 380, waveRightInset = 30, clipStripH = 14;   // lane geometry shared with the Ruler
     TrackRow (AudioEngine& e, int slot);
 
     int slot() const noexcept { return index; }
@@ -51,7 +52,7 @@ private:
     LevelMeter inMeter, meter;
     juce::TextButton arm { "R" }, mute { "M" }, solo { "S" }, del { juce::String::fromUTF8 ("\xC3\x97") };
     juce::Slider pan, fader;
-    juce::Rectangle<int> wave;
+    juce::Rectangle<int> wave, nameBar;
 
     // waveform min/max cache (incremental, 256 samples per bin)
     static constexpr int binSize = 256;
@@ -116,4 +117,16 @@ private:
     juce::OwnedArray<TrackRow>& rows;
     TrackRow* dragging = nullptr;
     int dragStartY = 0, dragY = 0;
+};
+
+// Time ruler above the track lanes: bar numbers + beat ticks (or seconds), loop band and playhead.
+class Ruler : public juce::Component
+{
+public:
+    explicit Ruler (AudioEngine& e) : engine (e) {}
+    void setView (double seconds, double barSecs) { viewSeconds = seconds; barSeconds = barSecs; }
+    void paint (juce::Graphics&) override;
+private:
+    AudioEngine& engine;
+    double viewSeconds = 30.0, barSeconds = 0.0;
 };

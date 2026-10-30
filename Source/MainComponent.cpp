@@ -31,6 +31,7 @@ MainComponent::MainComponent()
     addAndMakeVisible (viewport);
     addAndMakeVisible (master);
     addAndMakeVisible (inputBar);
+    addAndMakeVisible (ruler);
     inputBar.onPick = [this] (int ch)
     {
         int n = 0;
@@ -356,6 +357,8 @@ void MainComponent::timerCallback()
     else
         view = juce::jmax (30.0, std::ceil ((longest / sr + 1.0) / 30.0) * 30.0);
     for (auto* r : rows) r->setView (view, barSecs);
+    ruler.setView (view, barSecs);
+    ruler.repaint();
     inputBar.tick();
     master.tick();
 
@@ -364,9 +367,13 @@ void MainComponent::timerCallback()
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::bg);
-    g.setColour (Theme::panel);
-    g.fillRoundedRectangle (barArea.toFloat(), 14.0f);
-    g.fillRoundedRectangle (settingsArea.toFloat(), 14.0f);
+    for (auto a : { barArea, settingsArea })
+    {
+        g.setColour (Theme::panel.brighter (0.05f));
+        g.fillRect (a);
+        g.setColour (Theme::deep);
+        g.drawRect (a, 1);
+    }
 }
 
 void MainComponent::resized()
@@ -408,8 +415,10 @@ void MainComponent::resized()
     master.setBounds (r.removeFromBottom (56));
     r.removeFromBottom (10);
 
+    auto rulerRow = r.removeFromTop (22);
     viewport.setBounds (r);
     const int w = viewport.getMaximumVisibleWidth();
+    ruler.setBounds (rulerRow.withWidth (w));
     list.setSize (w, juce::jmax (list.contentHeight(), viewport.getHeight()));
 }
 // ------------------------------------------------------------- dialogs/projects

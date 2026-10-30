@@ -38,7 +38,8 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     addAndMakeVisible (grip);
 
     nameLabel.setEditable (false, true);
-    nameLabel.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
+    nameLabel.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+    nameLabel.setColour (juce::Label::textColourId, Theme::deep);
     nameLabel.onTextChange = [this] { track().name = nameLabel.getText(); };
     nameLabel.onEditorHide = [this] { if (onReleaseFocus) onReleaseFocus(); };
     addAndMakeVisible (nameLabel);
@@ -195,7 +196,7 @@ void TrackRow::tick()
         const bool show = nt > 1;
         prevTake.setVisible (show); nextTake.setVisible (show); takeLabel.setVisible (show);
         prevTake.setEnabled (ct > 0); nextTake.setEnabled (ct < nt - 1);
-        takeLabel.setText ("take " + juce::String (ct + 1) + "/" + juce::String (nt), juce::dontSendNotification);
+        takeLabel.setText ({}, juce::dontSendNotification);
     }
     repaint (wave);
 }
@@ -204,16 +205,20 @@ void TrackRow::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
     g.setColour (Theme::panel);
-    g.fillRoundedRectangle (b, 12.0f);
+    g.fillRect (b);
+    g.setColour (Theme::panel.brighter (0.05f));
+    g.fillRect (b.withRight ((float) wave.getX() - 4.0f));            // header block
+    g.setColour (accent.withAlpha (0.92f));
+    g.fillRect (nameBar.toFloat());                                     // coloured name bar (Live style)
     g.setColour (accent);
-    g.fillRoundedRectangle (b.withWidth (4.0f).reduced (0.0f, 14.0f), 2.0f);
-    g.setColour (Theme::border.withAlpha (0.5f));
-    g.drawRoundedRectangle (b.reduced (0.5f), 12.0f, 1.0f);
+    g.fillRect (b.withWidth (4.0f));                                    // track colour stripe
+    g.setColour (Theme::deep);
+    g.fillRect (b.withTop (b.getBottom() - 1.0f));                      // row separator
 
-    // waveform lane
+    // ---- clip lane
     auto w = wave.toFloat();
     g.setColour (Theme::deep);
-    g.fillRoundedRectangle (w, 8.0f);
+    g.fillRect (w);
     if (w.isEmpty()) return;
 
     g.saveState();
@@ -228,59 +233,80 @@ void TrackRow::paint (juce::Graphics& g)
         for (double s = 0.0; s < viewSeconds - 0.001; s += beat, ++k)
         {
             const bool bar = (k % 4 == 0);
-            g.setColour (bar ? Theme::border.withAlpha (0.9f) : Theme::border.withAlpha (0.3f));
-            g.fillRect ((float) (w.getX() + s * pxPerSec), w.getY(), bar ? 1.5f : 1.0f, w.getHeight());
+            g.setColour (bar ? Theme::border.withAlpha (0.8f) : Theme::border.withAlpha (0.25f));
+            g.fillRect ((float) (w.getX() + s * pxPerSec), w.getY(), 1.0f, w.getHeight());
         }
     }
     else
     {
-        g.setColour (Theme::border.withAlpha (0.35f));
+        g.setColour (Theme::border.withAlpha (0.3f));
         for (double s = 5.0; s < viewSeconds; s += 5.0)
             g.fillRect ((float) (w.getX() + s * pxPerSec), w.getY(), 1.0f, w.getHeight());
     }
 
-    const bool armed = track().armed.load();
-    const bool recording = armed && engine.getState() == AudioEngine::Recording;
-    g.setColour (Theme::dim.withAlpha (0.4f));
-    g.fillRect (w.getX(), w.getCentreY(), w.getWidth(), 1.0f);
+    auto& tr = track();
+    const bool armed = tr.armed.load();
+    const bool recording = tr.recActive.load() && engine.getState() == AudioEngine::Recording;
+    const auto len = tr.length.load();
 
-    if (done > 0)
+    // clip rectangle: recorded take, or the in-progress loop pass
+    double clipSecs = len / juce::jmax (1.0, sr);
+    bool live = false;
+    if (recording && tr.recToStage.load()) { clipSecs = tr.stagePos.load() / juce::jmax (1.0, sr); live = true; }
+    else if (recording) live = true;
+    const float clipW = juce::jmin (w.getWidth(), (float) (clipSecs * pxPerSec));
+
+    if (clipW > 1.0f && (done > 0 || live))
     {
-        const double spp = sr * viewSeconds / w.getWidth();     // samples per pixel
-        auto drawLane = [&] (const std::vector<float>& lo, const std::vector<float>& hi, float top, float height)
+        auto clip = w.withWidth (clipW);
+        const auto col = live ? Theme::red : accent;
+        auto strip = clip.removeFromTop ((float) clipStripH);
+        g.setColour (col);
+        g.fillRect (strip);
+        g.setColour (Theme::deep);
+        g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+        juce::String title = live ? juce::String ("Recording") : tr.name;
+        if (! live && tr.takes.size() > 1) title << "   take " << (tr.currentTake + 1) << "/" << (int) tr.takes.size();
+        g.drawText (title, strip.reduced (5.0f, 0.0f), juce::Justification::centredLeft);
+
+        g.setColour (col.withMultipliedBrightness (0.30f).withMultipliedSaturation (0.8f));
+        g.fillRect (clip);
+
+        if (done > 0 && ! (live && tr.recToStage.load()))
         {
-            const float mid = top + height * 0.5f, half = height * 0.5f - 3.0f;
-            for (int x = 0; x < wave.getWidth(); ++x)
+            g.setColour (col.brighter (0.35f));
+            const double spp = sr * viewSeconds / w.getWidth();     // samples per pixel
+            auto drawLane = [&] (const std::vector<float>& lo, const std::vector<float>& hi, juce::Rectangle<float> area)
             {
-                const auto b0 = (juce::int64) (x * spp / binSize);
-                if (b0 >= done) break;
-                const auto b1 = juce::jmin (done, juce::jmax (b0 + 1, (juce::int64) ((x + 1) * spp / binSize)));
-                float mnv = 0.0f, mxv = 0.0f;
-                for (auto k = b0; k < b1; ++k) { mnv = juce::jmin (mnv, lo[(size_t) k]); mxv = juce::jmax (mxv, hi[(size_t) k]); }
-                const float y1 = mid - juce::jlimit (0.0f, 1.0f, mxv) * half;
-                const float y2 = mid - juce::jlimit (-1.0f, 0.0f, mnv) * half;
-                g.fillRect ((float) (w.getX() + x), y1, 1.0f, juce::jmax (1.0f, y2 - y1));
+                const float mid = area.getCentreY(), half = area.getHeight() * 0.5f - 2.0f;
+                for (int x = 0; x < (int) area.getWidth(); ++x)
+                {
+                    const auto b0 = (juce::int64) (x * spp / binSize);
+                    if (b0 >= done) break;
+                    const auto b1 = juce::jmin (done, juce::jmax (b0 + 1, (juce::int64) ((x + 1) * spp / binSize)));
+                    float mnv = 0.0f, mxv = 0.0f;
+                    for (auto k = b0; k < b1; ++k) { mnv = juce::jmin (mnv, lo[(size_t) k]); mxv = juce::jmax (mxv, hi[(size_t) k]); }
+                    const float y1 = mid - juce::jlimit (0.0f, 1.0f, mxv) * half;
+                    const float y2 = mid - juce::jlimit (-1.0f, 0.0f, mnv) * half;
+                    g.fillRect ((float) (area.getX() + x), y1, 1.0f, juce::jmax (1.0f, y2 - y1));
+                }
+            };
+            if (stereo)
+            {
+                const float h2 = clip.getHeight() * 0.5f;
+                drawLane (mn, mx, clip.withHeight (h2));
+                drawLane (mn2, mx2, clip.withTrimmedTop (h2));
+                g.setColour (Theme::deep.withAlpha (0.6f));
+                g.fillRect (clip.getX(), clip.getY() + h2, clip.getWidth(), 1.0f);
             }
-        };
-        g.setColour (recording ? Theme::red : accent);
-        if (stereo)
-        {
-            const float h2 = w.getHeight() * 0.5f;
-            drawLane (mn, mx, w.getY(), h2);
-            drawLane (mn2, mx2, w.getY() + h2, h2);
-            g.setColour (Theme::border.withAlpha (0.6f));
-            g.fillRect (w.getX(), w.getY() + h2, w.getWidth(), 1.0f);
-            g.setColour (Theme::dim);
-            g.setFont (10.0f);
-            g.drawText ("L", wave.withSize (14, 14).translated (3, 1), juce::Justification::centred);
-            g.drawText ("R", wave.withSize (14, 14).translated (3, (int) h2 + 1), juce::Justification::centred);
+            else
+                drawLane (mn, mx, clip);
         }
-        else
-            drawLane (mn, mx, w.getY(), w.getHeight());
-    }    else
+    }
+    else
     {
         g.setColour (Theme::dim);
-        g.setFont (13.0f);
+        g.setFont (12.0f);
         g.drawText (armed ? "Armed - press R to record" : "Empty", wave, juce::Justification::centred);
     }
 
@@ -292,7 +318,6 @@ void TrackRow::paint (juce::Graphics& g)
     }
     g.restoreState();
 }
-
 void TrackRow::resized()
 {
     auto r = getLocalBounds().reduced (10, 8);
@@ -304,9 +329,9 @@ void TrackRow::resized()
     meter.setBounds (r.removeFromRight (14));
     r.removeFromRight (6);
     wave = r;
-    prevTake.setBounds (wave.getRight() - 96, wave.getY() + 4, 20, 18);
-    takeLabel.setBounds (wave.getRight() - 76, wave.getY() + 4, 52, 18);
-    nextTake.setBounds (wave.getRight() - 24, wave.getY() + 4, 20, 18);
+    prevTake.setBounds (wave.getRight() - 62, wave.getY(), 18, clipStripH);
+    nextTake.setBounds (wave.getRight() - 20, wave.getY(), 18, clipStripH);
+    takeLabel.setBounds (wave.getRight() - 44, wave.getY(), 24, clipStripH);
 
     auto l1 = header.removeFromTop (26);
     del.setBounds (l1.removeFromRight (24));
@@ -315,7 +340,8 @@ void TrackRow::resized()
     l1.removeFromRight (4);
     input.setBounds (l1.removeFromRight (96));
     l1.removeFromRight (6);
-    nameLabel.setBounds (l1);
+    nameLabel.setBounds (l1.reduced (4, 0));
+    nameBar = l1;
 
     header.removeFromTop (8);
     auto l2 = header;
@@ -365,12 +391,12 @@ void MasterStrip::tick() { meter.setLevels (engine.masterPeakL.exchange (0.0f), 
 void MasterStrip::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
-    g.setColour (Theme::panel);
-    g.fillRoundedRectangle (b, 12.0f);
+    g.setColour (Theme::panel.brighter (0.05f));
+    g.fillRect (b);
     g.setColour (Theme::purple);
-    g.fillRoundedRectangle (b.withWidth (4.0f).reduced (0.0f, 14.0f), 2.0f);
-    g.setColour (Theme::border.withAlpha (0.5f));
-    g.drawRoundedRectangle (b.reduced (0.5f), 12.0f, 1.0f);
+    g.fillRect (b.withWidth (4.0f));
+    g.setColour (Theme::deep);
+    g.drawRect (b, 1.0f);
 }
 
 void MasterStrip::resized()
@@ -441,8 +467,10 @@ void InputBar::tick()
 
 void InputBar::paint (juce::Graphics& g)
 {
-    g.setColour (Theme::panel);
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), 12.0f);
+    g.setColour (Theme::panel.brighter (0.05f));
+    g.fillRect (getLocalBounds().toFloat());
+    g.setColour (Theme::deep);
+    g.drawRect (getLocalBounds().toFloat(), 1.0f);
     g.setColour (Theme::dim);
     g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
     g.drawText ("INPUTS", getLocalBounds().reduced (14, 0).withWidth (60), juce::Justification::centredLeft);
@@ -513,4 +541,63 @@ void TrackList::dragEnd (TrackRow* r)
     engine.order.insert (engine.order.begin() + juce::jmin (t, (int) engine.order.size()), r->slot());
     dragging = nullptr;
     layoutRows();
+}
+
+// ---------------------------------------------------------------- ruler
+
+void Ruler::paint (juce::Graphics& g)
+{
+    g.setColour (Theme::panel.brighter (0.05f));
+    g.fillRect (getLocalBounds());
+    g.setColour (Theme::deep);
+    g.fillRect (0, getHeight() - 1, getWidth(), 1);
+
+    const float x0 = (float) TrackRow::waveLeft;
+    const float wdt = (float) getWidth() - x0 - (float) TrackRow::waveRightInset;
+    if (wdt <= 0.0f) return;
+    const double pxPerSec = wdt / viewSeconds;
+
+    g.setFont (juce::Font (juce::FontOptions (11.0f)));
+    if (barSeconds > 0.0)
+    {
+        const double beat = barSeconds / 4.0;
+        int k = 0;
+        for (double s = 0.0; s < viewSeconds - 0.001; s += beat, ++k)
+        {
+            const float x = x0 + (float) (s * pxPerSec);
+            const bool bar = (k % 4 == 0);
+            g.setColour (bar ? Theme::text.withAlpha (0.8f) : Theme::dim);
+            g.fillRect (x, bar ? 4.0f : (float) getHeight() - 7.0f, 1.0f, bar ? (float) getHeight() - 5.0f : 6.0f);
+            if (bar)
+            {
+                g.setColour (Theme::text);
+                g.drawText (juce::String (k / 4 + 1), (int) x + 4, 2, 40, 14, juce::Justification::centredLeft);
+            }
+        }
+        if (engine.loopEnabled.load())
+        {
+            g.setColour (Theme::teal);
+            g.fillRect (x0, 0.0f, wdt, 3.0f);   // loop region
+        }
+    }
+    else
+    {
+        for (double s = 0.0; s < viewSeconds; s += 5.0)
+        {
+            const float x = x0 + (float) (s * pxPerSec);
+            g.setColour (Theme::dim);
+            g.fillRect (x, 4.0f, 1.0f, (float) getHeight() - 5.0f);
+            g.setColour (Theme::text);
+            g.drawText (juce::String::formatted ("%d:%02d", (int) s / 60, (int) s % 60), (int) x + 4, 2, 50, 14, juce::Justification::centredLeft);
+        }
+    }
+
+    if (engine.getState() != AudioEngine::Stopped || engine.getPosition() > 0)
+    {
+        const float px = x0 + (float) (engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) * pxPerSec);
+        juce::Path tri;
+        tri.addTriangle (px - 5.0f, (float) getHeight() - 9.0f, px + 6.0f, (float) getHeight() - 9.0f, px + 0.5f, (float) getHeight() - 1.0f);
+        g.setColour (Theme::text);
+        g.fillPath (tri);
+    }
 }

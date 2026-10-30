@@ -45,6 +45,7 @@ private:
     juce::Viewport viewport;
     MasterStrip master { engine };
     InputBar inputBar { engine };
+    Ruler ruler { engine };
 
     IconButton recBtn  { IconButton::Record, Theme::red };
     IconButton playBtn { IconButton::Play,   Theme::green };

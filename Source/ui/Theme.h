@@ -84,7 +84,7 @@ public:
         auto c = bgc;
         if (down) c = c.darker (0.15f); else if (over) c = c.brighter (0.12f);
         g.setColour (c);
-        g.fillRoundedRectangle (b.getLocalBounds().toFloat().reduced (0.5f), 7.0f);
+        g.fillRoundedRectangle (b.getLocalBounds().toFloat().reduced (0.5f), 3.0f);
     }
 
     void drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float, float,
@@ -99,31 +99,31 @@ public:
         if (style == juce::Slider::LinearVertical)
         {
             const float cx = x + w * 0.5f;
-            juce::Rectangle<float> groove (cx - 3.0f, (float) y, 6.0f, (float) h);
+            juce::Rectangle<float> groove (cx - 2.0f, (float) y, 4.0f, (float) h);
             g.setColour (Theme::deep);
-            g.fillRoundedRectangle (groove, 3.0f);
+            g.fillRoundedRectangle (groove, 1.0f);
             g.setColour (accent.withAlpha (s.isEnabled() ? 0.9f : 0.3f));
-            g.fillRoundedRectangle (groove.withTop (pos), 3.0f);
+            g.fillRoundedRectangle (groove.withTop (pos), 1.0f);
 
-            juce::Rectangle<float> thumb (cx - 15.0f, pos - 7.0f, 30.0f, 14.0f);
+            juce::Rectangle<float> thumb (cx - 12.0f, pos - 5.0f, 24.0f, 10.0f);
             g.setColour (Theme::text);
-            g.fillRoundedRectangle (thumb, 4.0f);
-            g.setColour (accent);
-            g.fillRect (thumb.withSizeKeepingCentre (18.0f, 2.0f));
+            g.fillRoundedRectangle (thumb, 1.5f);
+            g.setColour (Theme::deep);
+            g.fillRect (thumb.withSizeKeepingCentre (14.0f, 1.0f));
         }
         else
         {
             const float cy = y + h * 0.5f;
-            juce::Rectangle<float> groove ((float) x, cy - 3.0f, (float) w, 6.0f);
+            juce::Rectangle<float> groove ((float) x, cy - 2.0f, (float) w, 4.0f);
             g.setColour (Theme::deep);
-            g.fillRoundedRectangle (groove, 3.0f);
+            g.fillRoundedRectangle (groove, 1.0f);
             g.setColour (accent);
-            g.fillRoundedRectangle (groove.withRight (pos), 3.0f);
-            juce::Rectangle<float> thumb (pos - 7.0f, cy - 15.0f, 14.0f, 30.0f);
+            g.fillRoundedRectangle (groove.withRight (pos), 1.0f);
+            juce::Rectangle<float> thumb (pos - 5.0f, cy - 11.0f, 10.0f, 22.0f);
             g.setColour (Theme::text);
-            g.fillRoundedRectangle (thumb, 4.0f);
-            g.setColour (accent);
-            g.fillRect (thumb.withSizeKeepingCentre (2.0f, 18.0f));
+            g.fillRoundedRectangle (thumb, 1.5f);
+            g.setColour (Theme::deep);
+            g.fillRect (thumb.withSizeKeepingCentre (1.0f, 14.0f));
         }
     }
 
@@ -174,7 +174,7 @@ public:
         auto bgc = on ? colour : Theme::raised;
         if (down) bgc = bgc.darker (0.2f); else if (over) bgc = bgc.brighter (0.12f);
         g.setColour (bgc);
-        g.fillRoundedRectangle (b, 10.0f);
+        g.fillRoundedRectangle (b, 3.0f);
 
         g.setColour (on ? Theme::deep : colour);
         auto ic = b.withSizeKeepingCentre (b.getHeight() * 0.38f, b.getHeight() * 0.38f);
@@ -247,7 +247,7 @@ private:
     void drawBar (juce::Graphics& g, juce::Rectangle<float> r, float level, float hold)
     {
         g.setColour (Theme::deep);
-        g.fillRoundedRectangle (r, 2.0f);
+        g.fillRect (r);
         const float p = pos (level), hp = pos (hold);
         if (horizontal)
         {
@@ -255,7 +255,7 @@ private:
             grad.addColour (0.70, Theme::green);
             grad.addColour (0.88, Theme::yellow);
             g.setGradientFill (grad);
-            g.fillRoundedRectangle (r.withWidth (r.getWidth() * p), 2.0f);
+            g.fillRect (r.withWidth (r.getWidth() * p));
             if (hp > 0.02f)
             {
                 g.setColour (Theme::text.withAlpha (0.8f));
@@ -269,13 +269,21 @@ private:
             grad.addColour (0.22, Theme::yellow);
             grad.addColour (0.55, Theme::green);
             g.setGradientFill (grad);
-            g.fillRoundedRectangle (r.withTrimmedTop (r.getHeight() * (1.0f - p)), 2.0f);
+            g.fillRect (r.withTrimmedTop (r.getHeight() * (1.0f - p)));
             if (hp > 0.02f)
             {
                 g.setColour (Theme::text.withAlpha (0.8f));
                 g.fillRect (r.getX(), r.getBottom() - r.getHeight() * hp, r.getWidth(), 1.5f);
             }
         }
+        segments (g, r, horizontal);
+    }
+
+    static void segments (juce::Graphics& g, juce::Rectangle<float> r, bool horiz)
+    {
+        g.setColour (Theme::panel);
+        if (horiz) for (float x = r.getX() + 3.0f; x < r.getRight(); x += 4.0f) g.fillRect (x, r.getY(), 1.0f, r.getHeight());
+        else       for (float y = r.getY() + 3.0f; y < r.getBottom(); y += 4.0f) g.fillRect (r.getX(), y, r.getWidth(), 1.0f);
     }
 
     bool horizontal = false;
