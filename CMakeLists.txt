@@ -27,7 +27,9 @@ juce_add_gui_app(RiffCatch
 target_sources(RiffCatch PRIVATE
   Source/Main.cpp
   Source/MainComponent.cpp
-  Source/audio/AudioEngine.cpp)
+  Source/audio/AudioEngine.cpp
+  Source/project/ProjectIO.cpp
+  Source/ui/ChannelStrip.cpp)
 
 target_include_directories(RiffCatch PRIVATE Source)
 
