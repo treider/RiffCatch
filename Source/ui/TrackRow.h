@@ -17,6 +17,10 @@ public:
     void tick();
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
 
     std::function<void (TrackRow*)> onDelete, onDragStart, onDragEnd;
     std::function<void()> onReleaseFocus;   // give keyboard focus back to main window (shortcuts)
@@ -45,6 +49,14 @@ private:
     juce::Label takeLabel;
     int shownTakes = -1, shownCurrent = -1;
     void takeStep (int d);
+    void showHitsMenu();
+    void quantize (double division, float strength);
+    int hitAt (int x) const;
+    float sampleToX (juce::int64 s) const;
+    juce::int64 xToSample (float x) const;
+    juce::TextButton hitsBtn { "Hits" };
+    int dragHit = -1;
+    float riseDb = 6.0f;
 
     Grip grip { *this };
     juce::Label nameLabel, dbLabel;

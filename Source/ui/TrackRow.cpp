@@ -115,6 +115,13 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
         b->setColour (juce::TextButton::buttonColourId, Theme::raised.withAlpha (0.9f));
         addChildComponent (b);
     }
+    hitsBtn.setWantsKeyboardFocus (false);
+    hitsBtn.setColour (juce::TextButton::buttonColourId, Theme::deep.withAlpha (0.7f));
+    hitsBtn.setColour (juce::TextButton::buttonOnColourId, Theme::yellow);
+    hitsBtn.setColour (juce::TextButton::textColourOnId, Theme::deep);
+    hitsBtn.setTooltip ("Edit individual hits: drag markers, quantize");
+    hitsBtn.onClick = [this] { showHitsMenu(); };
+    addChildComponent (hitsBtn);
     prevTake.onClick = [this] { takeStep (-1); };
     nextTake.onClick = [this] { takeStep (+1); };
     prevTake.setTooltip ("Previous take");
@@ -215,6 +222,9 @@ void TrackRow::tick()
         prevTake.setEnabled (ct > 0); nextTake.setEnabled (ct < nt - 1);
         takeLabel.setText ({}, juce::dontSendNotification);
     }
+    const bool canEdit = t.length.load() > 0 && ! (t.recActive.load() && engine.getState() == AudioEngine::Recording);
+    if (hitsBtn.isVisible() != canEdit) hitsBtn.setVisible (canEdit);
+    hitsBtn.setToggleState (t.editing, juce::dontSendNotification);
     repaint (wave);
 }
 
@@ -327,6 +337,28 @@ void TrackRow::paint (juce::Graphics& g)
         g.drawText (armed ? "Armed - press R to record" : "Empty", wave, juce::Justification::centred);
     }
 
+    if (tr.editing)
+    {
+        const float top = w.getY() + (float) clipStripH;
+        for (size_t i = 0; i < tr.hits.size(); ++i)
+        {
+            const auto& h = tr.hits[i];
+            const float xs = sampleToX (h.src), xd = sampleToX (h.dst);
+            const bool moved = h.dst != h.src;
+            if (moved)
+            {
+                g.setColour (Theme::text.withAlpha (0.25f));
+                g.fillRect (xs, top, 1.0f, w.getBottom() - top);
+            }
+            const bool active = (int) i == dragHit;
+            g.setColour (moved || active ? Theme::yellow : Theme::text.withAlpha (0.85f));
+            g.fillRect (xd - 0.5f, top, 1.5f, w.getBottom() - top);
+            juce::Path tri;
+            tri.addTriangle (xd - 5.0f, top, xd + 6.0f, top, xd + 0.5f, top + 8.0f);
+            g.fillPath (tri);
+        }
+    }
+
     const float px = (float) (w.getX() + engine.getPosition() / juce::jmax (1.0, sr) * pxPerSec);
     if (engine.getState() != AudioEngine::Stopped || engine.getPosition() > 0)
     {
@@ -335,6 +367,152 @@ void TrackRow::paint (juce::Graphics& g)
     }
     g.restoreState();
 }
+// ---------------------------------------------------------------- hit editing
+
+float TrackRow::sampleToX (juce::int64 s) const
+{
+    return (float) wave.getX() + (float) (s / juce::jmax (1.0, engine.getSampleRate()) * (wave.getWidth() / viewSeconds));
+}
+
+juce::int64 TrackRow::xToSample (float x) const
+{
+    return (juce::int64) std::llround ((x - (float) wave.getX()) / (wave.getWidth() / viewSeconds) * engine.getSampleRate());
+}
+
+int TrackRow::hitAt (int x) const
+{
+    const auto& hs = engine.tracks[index].hits;
+    int best = -1; float bd = 8.0f;
+    for (size_t i = 0; i < hs.size(); ++i)
+        if (const float d = std::abs (sampleToX (hs[i].dst) - (float) x); d < bd) { bd = d; best = (int) i; }
+    return best;
+}
+
+void TrackRow::showHitsMenu()
+{
+    auto& t = track();
+    juce::PopupMenu m;
+    m.addItem (1, "Edit hits", true, t.editing);
+    m.addSeparator();
+    m.addItem (2, "Quantize to 1/4", t.editing);
+    m.addItem (3, "Quantize to 1/8", t.editing);
+    m.addItem (4, "Quantize to 1/16", t.editing);
+    m.addItem (5, "Quantize to 1/8 (50%)", t.editing);
+    m.addSeparator();
+    m.addItem (6, "Detect more hits", t.editing);
+    m.addItem (7, "Detect fewer hits", t.editing);
+    m.addItem (8, "Reset all hits to original", t.editing);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&hitsBtn), [this] (int id)
+    {
+        auto& tr = track();
+        const double sr = engine.getSampleRate();
+        switch (id)
+        {
+            case 1:
+                if (tr.editing) tr.editing = false;                 // leave edit mode, keep the edited audio
+                else if (engine.getState() == AudioEngine::Stopped) tr.beginEdit (sr, riseDb);
+                break;
+            case 2: quantize (1.0, 1.0f); break;
+            case 3: quantize (2.0, 1.0f); break;
+            case 4: quantize (4.0, 1.0f); break;
+            case 5: quantize (2.0, 0.5f); break;
+            case 6: riseDb = juce::jmax (3.0f, riseDb - 1.5f); tr.beginEdit (sr, riseDb); tr.applyEdit (sr); break;
+            case 7: riseDb = juce::jmin (15.0f, riseDb + 1.5f); tr.beginEdit (sr, riseDb); tr.applyEdit (sr); break;
+            case 8: for (auto& h : tr.hits) h.dst = h.src; tr.applyEdit (sr); break;
+            default: break;
+        }
+        if (onReleaseFocus) onReleaseFocus();
+        repaint();
+    });
+}
+
+// Snap hit targets to the beat grid (division 1 = quarter notes, 2 = eighths, 4 = sixteenths).
+void TrackRow::quantize (double division, float strength)
+{
+    auto& t = track();
+    if (! t.editing || t.hits.empty()) return;
+    const double sr = engine.getSampleRate();
+    const double step = engine.getSamplesPerBeat() / division;
+    const juce::int64 minGap = (juce::int64) (0.02 * sr), len = t.editSource.getNumSamples();
+
+    for (auto& h : t.hits)
+    {
+        const double snapped = std::round ((double) h.src / step) * step;
+        h.dst = (juce::int64) std::llround ((double) h.src + (snapped - (double) h.src) * strength);
+    }
+    for (size_t i = 0; i < t.hits.size(); ++i)   // keep order and a minimum distance
+    {
+        const auto lo = (i == 0 ? 0 : t.hits[i - 1].dst) + minGap;
+        t.hits[i].dst = juce::jmax (lo, t.hits[i].dst);
+    }
+    for (size_t i = t.hits.size(); i-- > 0;)
+    {
+        const auto hi = (i + 1 == t.hits.size() ? len : t.hits[i + 1].dst) - minGap;
+        t.hits[i].dst = juce::jmin (hi, t.hits[i].dst);
+    }
+    t.applyEdit (sr);
+}
+
+void TrackRow::mouseDown (const juce::MouseEvent& e)
+{
+    auto& t = track();
+    dragHit = -1;
+    if (! t.editing || ! wave.contains (e.getPosition())) return;
+    const int h = hitAt (e.x);
+    if (h < 0) return;
+    if (e.mods.isPopupMenu())      // right-click removes a hit
+    {
+        t.hits.erase (t.hits.begin() + h);
+        t.applyEdit (engine.getSampleRate());
+        repaint();
+        return;
+    }
+    dragHit = h;
+}
+
+void TrackRow::mouseDrag (const juce::MouseEvent& e)
+{
+    auto& t = track();
+    if (dragHit < 0 || dragHit >= (int) t.hits.size()) return;
+    const juce::int64 gap = (juce::int64) (0.02 * engine.getSampleRate());
+    const auto lo = (dragHit == 0 ? 0 : t.hits[(size_t) dragHit - 1].dst) + gap;
+    const auto hi = ((size_t) dragHit + 1 == t.hits.size() ? (juce::int64) t.editSource.getNumSamples()
+                                                           : t.hits[(size_t) dragHit + 1].dst) - gap;
+    t.hits[(size_t) dragHit].dst = juce::jlimit (lo, juce::jmax (lo, hi), xToSample ((float) e.x));
+    repaint (wave);
+}
+
+void TrackRow::mouseUp (const juce::MouseEvent&)
+{
+    if (dragHit >= 0)
+    {
+        track().applyEdit (engine.getSampleRate());   // re-render once, when the marker is released
+        dragHit = -1;
+        repaint();
+    }
+}
+
+void TrackRow::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    auto& t = track();
+    if (! t.editing || ! wave.contains (e.getPosition())) return;
+    const double sr = engine.getSampleRate();
+    const int h = hitAt (e.x);
+    if (h >= 0) { t.hits[(size_t) h].dst = t.hits[(size_t) h].src; t.applyEdit (sr); repaint(); return; }
+
+    // add a hit where the user clicked (missed by the detector)
+    const auto dst = xToSample ((float) e.x);
+    if (dst <= 0 || dst >= t.editSource.getNumSamples()) return;
+    size_t at = 0;
+    while (at < t.hits.size() && t.hits[at].dst < dst) ++at;
+    const juce::int64 d0 = at == 0 ? 0 : t.hits[at - 1].dst, s0 = at == 0 ? 0 : t.hits[at - 1].src;
+    const juce::int64 d1 = at == t.hits.size() ? t.editSource.getNumSamples() : t.hits[at].dst;
+    const juce::int64 s1 = at == t.hits.size() ? t.editSource.getNumSamples() : t.hits[at].src;
+    const double f = d1 > d0 ? (double) (dst - d0) / (double) (d1 - d0) : 0.0;
+    t.hits.insert (t.hits.begin() + (long) at, { s0 + (juce::int64) std::llround (f * (double) (s1 - s0)), dst });
+    repaint();
+}
+
 void TrackRow::resized()
 {
     auto r = getLocalBounds().reduced (10, 8);
@@ -349,6 +527,7 @@ void TrackRow::resized()
     prevTake.setBounds (wave.getRight() - 62, wave.getY(), 18, clipStripH);
     nextTake.setBounds (wave.getRight() - 20, wave.getY(), 18, clipStripH);
     takeLabel.setBounds (wave.getRight() - 44, wave.getY(), 24, clipStripH);
+    hitsBtn.setBounds (wave.getRight() - 112, wave.getY(), 46, clipStripH);
 
     auto l1 = header.removeFromTop (26);
     del.setBounds (l1.removeFromRight (24));

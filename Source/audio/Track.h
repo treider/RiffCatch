@@ -3,6 +3,7 @@
 #include <juce_core/juce_core.h>
 #include <atomic>
 #include <vector>
+#include "HitEditor.h"
 
 // Fader position (0..1) <-> linear gain. Linear in dB from -60 to +6, 0 = -inf.
 inline float faderToGain (float pos)
@@ -41,6 +42,38 @@ public:
     static constexpr int maxTakes = 10;
     std::vector<juce::AudioBuffer<float>> takes;
     int currentTake = -1;
+
+    // hit (transient) editing, message thread only. Non-destructive: editSource keeps the unedited take.
+    bool editing = false;
+    std::vector<Hit> hits;
+    juce::AudioBuffer<float> editSource;
+    void resetEdit() { editing = false; hits.clear(); editSource.setSize (0, 0); }
+
+    void beginEdit (double sr, float riseDb)
+    {
+        const auto len = (int) length.load();
+        if (len <= 0) return;
+        editSource.setSize (2, len);
+        {
+            juce::SpinLock::ScopedLockType l (lock);
+            for (int c = 0; c < 2; ++c) editSource.copyFrom (c, 0, data, c, 0, len);
+        }
+        hits.clear();
+        for (auto p : HitEditor::detectOnsets (editSource, sr, riseDb)) hits.push_back ({ p, p });
+        editing = true;
+    }
+
+    // Re-render the take from editSource + hits and swap it in.
+    void applyEdit (double sr)
+    {
+        if (! editing || editSource.getNumSamples() == 0) return;
+        auto out = HitEditor::render (editSource, hits, sr);
+        juce::SpinLock::ScopedLockType l (lock);
+        data.setSize (2, out.getNumSamples(), false, false, true);
+        for (int c = 0; c < 2; ++c) data.copyFrom (c, 0, out, c, 0, out.getNumSamples());
+        length = out.getNumSamples();
+        ++revision;
+    }
     std::atomic<int> nudge { 0 };         // manual timing offset in samples (+ = later)
     std::atomic<int> inputCode { 0 };     // 0..N-1 = mono input N, 100+i = stereo pair (i, i+1)
     std::atomic<float> peakL { 0.0f }, peakR { 0.0f };   // peak since last UI read
@@ -65,7 +98,7 @@ public:
 
     void clearAudio()
     {
-        takes.clear(); currentTake = -1;
+        takes.clear(); currentTake = -1; resetEdit();
         juce::SpinLock::ScopedLockType l (lock);
         length = 0;
         ++revision;
@@ -74,7 +107,7 @@ public:
     // Allocate capacity and truncate the take at fromPos.
     void prepareRecording (juce::int64 fromPos, double sampleRate)
     {
-        takes.clear(); currentTake = -1;
+        takes.clear(); currentTake = -1; resetEdit();
         juce::SpinLock::ScopedLockType l (lock);
         const auto cap = (int) (sampleRate * maxRecordSeconds);
         if (data.getNumSamples() < cap)
@@ -117,7 +150,7 @@ public:
     void applyTake (int i)
     {
         if (i < 0 || i >= (int) takes.size()) return;
-        currentTake = i;
+        currentTake = i; resetEdit();
         const auto& src = takes[(size_t) i];
         juce::SpinLock::ScopedLockType l (lock);
         data.setSize (2, src.getNumSamples(), false, false, true);
@@ -143,7 +176,7 @@ public:
 
     void setAudio (juce::AudioBuffer<float>&& b)
     {
-        takes.clear(); currentTake = -1;
+        takes.clear(); currentTake = -1; resetEdit();
         juce::SpinLock::ScopedLockType l (lock);
         const auto n = b.getNumSamples();
         data = std::move (b);

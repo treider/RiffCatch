@@ -92,6 +92,48 @@ inline juce::String runEngineSelfTest()
         mp3.deleteFile();
     }
 
+    // ---- hit detection + re-timing
+    {
+        const int len = (int) (sr * 3.0);
+        juce::AudioBuffer<float> take (2, len);
+        take.clear();
+        const double times[] = { 0.50, 1.04, 1.50, 2.03 };      // two hits are ~35 ms off the 0.5 s grid
+        for (double tm : times)
+        {
+            const int s0 = (int) (tm * sr);
+            for (int i = 0; i < (int) (0.4 * sr) && s0 + i < len; ++i)
+            {
+                const float v = std::sin (juce::MathConstants<float>::twoPi * 220.0f * (float) i / (float) sr)
+                                * std::exp (-(float) i / (float) (0.12 * sr)) * 0.7f;
+                take.setSample (0, s0 + i, v); take.setSample (1, s0 + i, v);
+            }
+        }
+        auto found = HitEditor::detectOnsets (take, sr, 6.0f);
+        check (found.size() == 4, "onset detection found 4 hits (" + juce::String ((int) found.size()) + ")");
+        bool near = found.size() == 4;
+        for (size_t i = 0; i < found.size() && i < 4; ++i)
+            near &= std::abs ((double) found[i] / sr - times[i]) < 0.01;
+        check (near, "detected positions within 10 ms of the real hits");
+
+        std::vector<Hit> hits;
+        const double grid[] = { 0.50, 1.00, 1.50, 2.00 };
+        for (size_t i = 0; i < found.size(); ++i) hits.push_back ({ found[i], (juce::int64) (grid[i] * sr) });
+        auto edited = HitEditor::render (take, hits, sr);
+        check (edited.getNumSamples() == len, "re-timed take keeps its length");
+        bool onGrid = true, finite = true;
+        for (int i = 0; i < 4; ++i)
+        {
+            const int g = (int) (grid[i] * sr);
+            int first = -1;
+            for (int s = g - (int) (0.06 * sr); s < g + (int) (0.06 * sr); ++s)
+                if (std::abs (edited.getSample (0, s)) > 0.05f) { first = s; break; }
+            onGrid &= first >= 0 && std::abs (first - g) < (int) (0.004 * sr);   // within 4 ms
+        }
+        for (int s = 0; s < len; ++s) finite &= std::isfinite (edited.getSample (0, s));
+        check (onGrid, "every moved hit now sounds on the grid (within 4 ms)");
+        check (finite, "re-timed audio has no NaN/inf");
+    }
+
     log << (ok ? "ALL OK" : "FAILURES") << "\n";
     return log;
 }

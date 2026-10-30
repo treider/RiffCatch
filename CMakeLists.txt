@@ -50,6 +50,7 @@ target_sources(RiffCatch PRIVATE
   Source/Main.cpp
   Source/MainComponent.cpp
   Source/audio/AudioEngine.cpp
+  Source/audio/HitEditor.cpp
   Source/project/ProjectIO.cpp
   Source/project/Exporter.cpp
   Source/ui/TrackRow.cpp)
