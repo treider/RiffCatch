@@ -8,7 +8,7 @@
 class TrackRow : public juce::Component
 {
 public:
-    static constexpr int waveLeft = 388, waveRightInset = 38, clipStripH = 14;   // lane geometry shared with the Ruler
+    static constexpr int waveLeft = 384, waveRightInset = 34, clipStripH = 14;   // lane geometry shared with the Ruler
     TrackRow (AudioEngine& e, int slot);
 
     int slot() const noexcept { return index; }
@@ -132,7 +132,7 @@ private:
 class TrackList : public juce::Component
 {
 public:
-    static constexpr int rowHeight = 108, gap = 0, addHeight = 76;   // rows include room for the glow around each card
+    static constexpr int rowHeight = 96, gap = 0, addHeight = 64;   // each row has a small margin around its card
     TrackList (AudioEngine& e, juce::OwnedArray<TrackRow>& r) : engine (e), rows (r)
     {
         addButton.onClick = [this] { if (onAdd) onAdd(); };
