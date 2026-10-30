@@ -151,13 +151,17 @@ private:
 };
 
 // Time ruler above the track lanes: bar numbers + beat ticks (or seconds), loop band and playhead.
-class Ruler : public juce::Component
+class Ruler : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit Ruler (AudioEngine& e) : engine (e) {}
     void setView (double seconds, double barSecs) { viewSeconds = seconds; barSeconds = barSecs; }
     void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent& e) override { seekTo (e); }
+    void mouseDrag (const juce::MouseEvent& e) override { seekTo (e); }
+    std::function<void (juce::int64)> onSeek;
 private:
+    void seekTo (const juce::MouseEvent&);
     AudioEngine& engine;
     double viewSeconds = 30.0, barSeconds = 0.0;
 };

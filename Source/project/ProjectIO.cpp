@@ -59,6 +59,7 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
 
     auto* root = new juce::DynamicObject();
     root->setProperty ("version", 1);
+    root->setProperty ("appVersion", JUCE_APPLICATION_VERSION_STRING);
     root->setProperty ("name", dir.getFileName());
     root->setProperty ("bpm", e.bpm.load());
     root->setProperty ("timeSignature", "4/4");

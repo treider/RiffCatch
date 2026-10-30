@@ -893,6 +893,23 @@ void TrackList::dragEnd (TrackRow* r)
 
 // ---------------------------------------------------------------- ruler
 
+// Click or drag in the ruler to move the playhead. Snaps to beats; Shift = bars, Alt = free.
+void Ruler::seekTo (const juce::MouseEvent& e)
+{
+    const float x0 = (float) TrackRow::waveLeft;
+    const float wdt = (float) getWidth() - x0 - (float) TrackRow::waveRightInset;
+    if (wdt <= 0.0f || ! onSeek) return;
+    const double sr = engine.getSampleRate();
+    double pos = juce::jlimit (0.0, 1.0, (double) (e.x - x0) / wdt) * viewSeconds * sr;
+    if (! e.mods.isAltDown())
+    {
+        const double step = engine.getSamplesPerBeat() * (e.mods.isShiftDown() ? 4.0 : 1.0);
+        pos = std::round (pos / step) * step;
+    }
+    if (engine.loopEnabled.load()) pos = juce::jmin (pos, (double) (engine.getLoopLength() - 1));
+    onSeek ((juce::int64) pos);
+}
+
 void Ruler::paint (juce::Graphics& g)
 {
     g.setColour (Theme::panel.brighter (0.05f));

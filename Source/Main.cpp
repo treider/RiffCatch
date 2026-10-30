@@ -20,7 +20,7 @@ public:
         }
         startApp();
     }
-    void startApp() { juce::LookAndFeel::setDefaultLookAndFeel (&laf); window = std::make_unique<MainWindow> (getApplicationName()); }
+    void startApp() { juce::LookAndFeel::setDefaultLookAndFeel (&laf); window = std::make_unique<MainWindow> (getApplicationName() + " v" + getApplicationVersion()); }
     void shutdown() override { window.reset(); juce::LookAndFeel::setDefaultLookAndFeel (nullptr); }
     void systemRequestedQuit() override { quit(); }
 

@@ -71,7 +71,14 @@ MainComponent::MainComponent()
     newBtn.setTooltip ("New (Ctrl+N)");
     recBtn.onClick  = [this] { toggleRecord(); };
     playBtn.onClick = [this] { togglePlay(); };
-    stopBtn.onClick = [this] { engine.stop(); };
+    stopBtn.onClick = [this]
+    {
+        if (engine.getState() == AudioEngine::Stopped) engine.setCursor (0);   // second press rewinds to the start
+        else engine.stop();
+    };
+    ruler.onSeek = [this] (juce::int64 p) { engine.seek (p); };
+    ruler.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    ruler.setTooltip ("Click or drag to move the playhead (snaps to beats, Shift = bars, Alt = free)");
     addBtn.onClick  = [this] { addTrack(); };
 
     for (auto* b : { &addBtn, &exportBtn, &newBtn, &openBtn, &saveBtn, &audioBtn })
@@ -472,7 +479,13 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
     }
 
     if (k == juce::KeyPress::spaceKey) { togglePlay(); return true; }
-    if (k == juce::KeyPress::returnKey || k == juce::KeyPress::homeKey) { engine.stop(); return true; }
+    if (k == juce::KeyPress::returnKey || k == juce::KeyPress::homeKey)
+    {
+        if (engine.getState() == AudioEngine::Stopped) engine.setCursor (0);
+        else if (engine.getState() == AudioEngine::Playing) { engine.stop(); engine.setCursor (0); }
+        else engine.stop();
+        return true;
+    }
     if (code == 'R') { toggleRecord(); return true; }
     if (code == 'T') { tapTempo(); return true; }
     if (code == 'C') { clickBtn.setToggleState (! clickBtn.getToggleState(), juce::sendNotification); return true; }

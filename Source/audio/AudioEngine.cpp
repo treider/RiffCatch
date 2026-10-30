@@ -17,11 +17,20 @@ void AudioEngine::audioDeviceStopped() {}
 
 void AudioEngine::play()
 {
-    if (state.load() == Stopped) { rewind = true; state = Playing; }
+    if (state.load() == Stopped) { jumpTo = cursorPos.load(); state = Playing; }
     else if (state.load() == Recording) state = Playing;
 }
 
-void AudioEngine::stop() { state = Stopped; }   // audio thread resets position
+void AudioEngine::stop() { state = Stopped; }   // audio thread returns the playhead to the cursor
+
+void AudioEngine::seek (juce::int64 pos)
+{
+    pos = juce::jmax<juce::int64> (0, pos);
+    const auto st = state.load();
+    if (st == Recording || st == CountIn) return;   // loop recording must stay locked to bar 1
+    cursorPos = pos;
+    if (st == Playing) jumpTo = pos;
+}
 
 bool AudioEngine::record()
 {
@@ -54,7 +63,7 @@ bool AudioEngine::record()
     const int beats = juce::jlimit (0, 8, countInBars.load()) * 4;
     countInLen = (juce::int64) std::ceil (beats * spb);
 
-    rewind = true;
+    jumpTo = 0;                       // recording always starts at bar 1
     state = beats > 0 ? (int) CountIn : (int) Recording;
     return true;
 }
@@ -172,14 +181,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* in, int 
 // Processes up to n samples; may process fewer when a boundary (count-in end, loop end) is reached.
 int AudioEngine::processChunk (const float* const* in, int numIn, float* const* out, int numOut, int offset, int n)
 {
-    if (rewind.exchange (false)) { playPos = 0; countPos = 0; }
+    if (const auto j = jumpTo.exchange (-1); j >= 0) { playPos = j; countPos = 0; }
 
     auto st = (State) state.load();
     const double sr = sampleRate.load();
     const double spb = getSamplesPerBeat();
     const auto loopLen = getLoopLength();
 
-    if (st == Stopped) { playPos = 0; countPos = 0; }
+    if (st == Stopped) { playPos = cursorPos.load(); countPos = 0; }
 
     if (st == CountIn && countPos.load() >= countInLen.load())   // count-in finished -> record at bar 1
     {

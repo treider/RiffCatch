@@ -135,6 +135,30 @@ inline juce::String runEngineSelfTest()
         check (finite, "re-timed audio has no NaN/inf");
     }
 
+    // ---- playhead cursor / seek
+    {
+        AudioEngine e3;
+        e3.prepareForTest (sr, 2);
+        e3.loopBars = 4;
+        e3.addTrack();
+        std::vector<float> z (block, 0.0f), l (block), r (block);
+        const float* zi[2] = { z.data(), z.data() };
+        float* zo[2] = { l.data(), r.data() };
+        juce::AudioIODeviceCallbackContext c3;
+        auto run = [&] { e3.audioDeviceIOCallbackWithContext (zi, 2, zo, 2, block, c3); };
+        e3.seek (48000);
+        run();
+        check (e3.getPosition() == 48000 && e3.getState() == AudioEngine::Stopped, "seek while stopped moves the stopped playhead to the cursor");
+        e3.play(); run();
+        check (e3.getPosition() == 48000 + block, "play starts from the cursor (pos " + juce::String (e3.getPosition()) + ")");
+        e3.seek (1000); run();
+        check (e3.getPosition() == 1000 + block, "seek while playing jumps immediately");
+        e3.stop(); run();
+        check (e3.getPosition() == 1000, "stop returns the playhead to the cursor");
+        e3.setCursor (0); run();
+        check (e3.getPosition() == 0, "setCursor(0) rewinds");
+    }
+
     // ---- undo building blocks
     {
         AudioEngine e2;

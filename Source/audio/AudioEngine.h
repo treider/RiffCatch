@@ -23,6 +23,10 @@ public:
     void play();
     bool record();          // false if no armed track. Always starts at bar 1 (after count-in).
     void stop();
+    // Playhead cursor (set by clicking the ruler). While playing it jumps immediately.
+    void seek (juce::int64 pos);
+    void setCursor (juce::int64 pos) { cursorPos = juce::jmax<juce::int64> (0, pos); }
+    juce::int64 getCursor() const noexcept { return cursorPos.load(); }
     std::function<void (int slot, int prevTake, int newTake)> onTakeCommitted;   // UI thread, for undo
     void pollRecording();   // call regularly from the UI thread: commits finished loop passes
     State getState() const noexcept { return (State) state.load(); }
@@ -71,7 +75,8 @@ private:
     std::atomic<juce::int64> playPos { 0 };     // position inside loop (or linear position)
     std::atomic<juce::int64> countPos { 0 };    // samples elapsed in count-in
     std::atomic<juce::int64> countInLen { 0 };
-    std::atomic<bool> rewind { false };
+    std::atomic<juce::int64> jumpTo { -1 };      // pending position jump (audio thread consumes it)
+    std::atomic<juce::int64> cursorPos { 0 };    // where Play starts; the stopped playhead
     std::atomic<double> sampleRate { 44100.0 };
     std::atomic<int> numInputs { 0 };
     int sessionLen = 0;                         // loop length (samples) of current record session
