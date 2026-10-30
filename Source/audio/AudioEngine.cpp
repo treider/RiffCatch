@@ -21,14 +21,42 @@ bool AudioEngine::record()
 {
     const auto pos = state.load() == Stopped ? 0 : playPos.load();
     bool any = false;
-    for (int i = 0; i < numTracks.load(); ++i)
-        if (tracks[i].armed.load())
+    for (int i = 0; i < maxTracks; ++i)
+        if (tracks[i].active.load() && tracks[i].armed.load())
         {
             tracks[i].prepareRecording (pos, sampleRate.load());
             any = true;
         }
     if (any) state = Recording;
     return any;
+}
+
+int AudioEngine::addTrack()
+{
+    for (int i = 0; i < maxTracks; ++i)
+        if (! tracks[i].active.load())
+        {
+            tracks[i].resetToDefaults (i);
+            tracks[i].active = true;
+            order.push_back (i);
+            return i;
+        }
+    return -1;
+}
+
+void AudioEngine::removeTrack (int slot)
+{
+    tracks[slot].active = false;
+    tracks[slot].armed = false;
+    tracks[slot].clearAudio();
+    order.erase (std::remove (order.begin(), order.end(), slot), order.end());
+}
+
+void AudioEngine::removeAllTracks()
+{
+    stop();
+    for (int i = 0; i < maxTracks; ++i) removeTrack (i);
+    order.clear();
 }
 
 void AudioEngine::stop() { state = Stopped; }   // audio thread resets position
@@ -40,6 +68,17 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* in, int 
     for (int c = 0; c < numOut; ++c)
         if (out[c] != nullptr)
             juce::FloatVectorOperations::clear (out[c], numSamples);
+
+    for (int ch = 0; ch < juce::jmin (numIn, 16); ++ch)
+    {
+        float p = 0.0f;
+        if (in[ch] != nullptr)
+        {
+            auto r = juce::FloatVectorOperations::findMinAndMax (in[ch], numSamples);
+            p = juce::jmax (std::abs (r.getStart()), std::abs (r.getEnd()));
+        }
+        inputLevel[ch] = juce::jmax (p, inputLevel[ch].load() * 0.93f);
+    }
 
     for (int done = 0; done < numSamples; done += chunk)
         processChunk (in, numIn, out, numOut, done, juce::jmin (chunk, numSamples - done));
@@ -54,15 +93,15 @@ void AudioEngine::processChunk (const float* const* in, int numIn, float* const*
     juce::FloatVectorOperations::clear (mixL, n);
     juce::FloatVectorOperations::clear (mixR, n);
 
-    const int nt = numTracks.load();
     bool anySolo = false;
-    for (int t = 0; t < nt; ++t) anySolo |= tracks[t].solo.load();
+    for (int t = 0; t < maxTracks; ++t) anySolo |= tracks[t].active.load() && tracks[t].solo.load();
 
     bool recordFull = false;
 
-    for (int t = 0; t < nt; ++t)
+    for (int t = 0; t < maxTracks; ++t)
     {
         auto& tr = tracks[t];
+        if (! tr.active.load()) continue;
         juce::SpinLock::ScopedTryLockType lk (tr.lock);
         if (! lk.isLocked()) continue;
 

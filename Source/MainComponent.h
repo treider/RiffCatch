@@ -2,7 +2,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "audio/AudioEngine.h"
 #include "ui/Theme.h"
-#include "ui/ChannelStrip.h"
+#include "ui/TrackRow.h"
 
 class MainComponent : public juce::Component,
                       private juce::Timer,
@@ -27,6 +27,8 @@ private:
     void doSave (const juce::File& dir);
     void doOpen (const juce::File& dir);
     void refreshStrips();
+    void addTrack();
+    void deleteTrack (TrackRow*);
     void setStatus (const juce::String&);
     void toggleRecord();
     void togglePlay();
@@ -35,20 +37,23 @@ private:
     juce::AudioDeviceManager deviceManager;
     AudioEngine engine;
 
-    juce::OwnedArray<ChannelStrip> strips;
+    juce::OwnedArray<TrackRow> rows;
+    TrackList list { engine, rows };
+    juce::Viewport viewport;
     MasterStrip master { engine };
+    InputBar inputBar { engine };
 
     IconButton recBtn  { IconButton::Record, Theme::red };
     IconButton playBtn { IconButton::Play,   Theme::green };
     IconButton stopBtn { IconButton::Stop,   Theme::blue };
-    IconButton addBtn  { IconButton::Plus,   Theme::blue };
-    juce::TextButton newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" }, audioBtn { "Audio" };
+    juce::TextButton addBtn { "+ Track" }, newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" }, audioBtn { "Audio" };
     juce::Label timeLabel, projectLabel, statusLabel, titleLabel;
 
     juce::File projectDir;
     double bpm = 120.0;
     int statusTicks = 0;
-    juce::Rectangle<int> barArea, addArea;
+    juce::Rectangle<int> barArea;
+    juce::TooltipWindow tooltips { this, 600 };
 
     std::unique_ptr<juce::FileChooser> chooser;
     juce::Component::SafePointer<juce::Component> audioDialog;

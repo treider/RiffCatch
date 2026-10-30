@@ -119,8 +119,11 @@ public:
             g.fillRoundedRectangle (groove, 3.0f);
             g.setColour (accent);
             g.fillRoundedRectangle (groove.withRight (pos), 3.0f);
+            juce::Rectangle<float> thumb (pos - 7.0f, cy - 15.0f, 14.0f, 30.0f);
             g.setColour (Theme::text);
-            g.fillEllipse (pos - 7.0f, cy - 7.0f, 14.0f, 14.0f);
+            g.fillRoundedRectangle (thumb, 4.0f);
+            g.setColour (accent);
+            g.fillRect (thumb.withSizeKeepingCentre (2.0f, 18.0f));
         }
     }
 
@@ -198,10 +201,13 @@ private:
     juce::Colour colour;
 };
 
-// Stereo peak meter, dB scaled -60..+6 to match fader
+// Peak meter, dB scaled -60..+6 to match fader. Vertical or horizontal, 1 or 2 bars.
 class LevelMeter : public juce::Component
 {
 public:
+    void setHorizontal (bool h) { horizontal = h; }
+    void setBars (int n) { bars = n; }
+
     void setLevels (float l, float r)
     {
         dispL = l > dispL ? l : dispL * 0.86f;
@@ -215,10 +221,21 @@ public:
     {
         auto b = getLocalBounds().toFloat();
         const float gap = 2.0f;
-        const float bw = (b.getWidth() - gap) * 0.5f;
-        drawBar (g, b.removeFromLeft (bw), dispL, holdL);
-        b.removeFromLeft (gap);
-        drawBar (g, b, dispR, holdR);
+        if (bars == 1) { drawBar (g, b, dispL, holdL); return; }
+        if (horizontal)
+        {
+            const float bh = (b.getHeight() - gap) * 0.5f;
+            drawBar (g, b.removeFromTop (bh), dispL, holdL);
+            b.removeFromTop (gap);
+            drawBar (g, b, dispR, holdR);
+        }
+        else
+        {
+            const float bw = (b.getWidth() - gap) * 0.5f;
+            drawBar (g, b.removeFromLeft (bw), dispL, holdL);
+            b.removeFromLeft (gap);
+            drawBar (g, b, dispR, holdR);
+        }
     }
 
 private:
@@ -231,22 +248,38 @@ private:
     {
         g.setColour (Theme::deep);
         g.fillRoundedRectangle (r, 2.0f);
-        const float p = pos (level);
-        auto fill = r.withTrimmedTop (r.getHeight() * (1.0f - p));
-        juce::ColourGradient grad (Theme::red, r.getX(), r.getY(), Theme::green, r.getX(), r.getBottom(), false);
-        grad.addColour (0.09, Theme::red);
-        grad.addColour (0.22, Theme::yellow);
-        grad.addColour (0.55, Theme::green);
-        g.setGradientFill (grad);
-        g.fillRoundedRectangle (fill, 2.0f);
-        const float hp = pos (hold);
-        if (hp > 0.02f)
+        const float p = pos (level), hp = pos (hold);
+        if (horizontal)
         {
-            g.setColour (Theme::text.withAlpha (0.8f));
-            g.fillRect (r.getX(), r.getBottom() - r.getHeight() * hp, r.getWidth(), 1.5f);
+            juce::ColourGradient grad (Theme::green, r.getX(), 0, Theme::red, r.getRight(), 0, false);
+            grad.addColour (0.70, Theme::green);
+            grad.addColour (0.88, Theme::yellow);
+            g.setGradientFill (grad);
+            g.fillRoundedRectangle (r.withWidth (r.getWidth() * p), 2.0f);
+            if (hp > 0.02f)
+            {
+                g.setColour (Theme::text.withAlpha (0.8f));
+                g.fillRect (r.getX() + r.getWidth() * hp - 1.5f, r.getY(), 1.5f, r.getHeight());
+            }
+        }
+        else
+        {
+            juce::ColourGradient grad (Theme::red, r.getX(), r.getY(), Theme::green, r.getX(), r.getBottom(), false);
+            grad.addColour (0.09, Theme::red);
+            grad.addColour (0.22, Theme::yellow);
+            grad.addColour (0.55, Theme::green);
+            g.setGradientFill (grad);
+            g.fillRoundedRectangle (r.withTrimmedTop (r.getHeight() * (1.0f - p)), 2.0f);
+            if (hp > 0.02f)
+            {
+                g.setColour (Theme::text.withAlpha (0.8f));
+                g.fillRect (r.getX(), r.getBottom() - r.getHeight() * hp, r.getWidth(), 1.5f);
+            }
         }
     }
 
+    bool horizontal = false;
+    int bars = 2;
     float dispL = 0, dispR = 0, holdL = 0, holdR = 0;
     int holdTicksL = 0, holdTicksR = 0;
 };

@@ -25,13 +25,18 @@ public:
     juce::int64 getPosition() const noexcept { return playPos.load(); }
     double getSampleRate() const noexcept { return sampleRate.load(); }
 
-    int getNumTracks() const noexcept { return numTracks.load(); }
-    void setNumTracks (int n) { numTracks = juce::jlimit (0, maxTracks, n); }
+    // Track slots (message thread). `order` is the display/save order of active slots.
+    int getNumTracks() const noexcept { return (int) order.size(); }
+    int addTrack();                  // returns slot index or -1
+    void removeTrack (int slot);
+    void removeAllTracks();
+    std::vector<int> order;
     int getNumInputs() const noexcept { return numInputs.load(); }
 
     Track tracks[maxTracks];
     std::atomic<float> masterVolume { 1.0f };
     std::atomic<float> masterPeakL { 0.0f }, masterPeakR { 0.0f };
+    std::atomic<float> inputLevel[16] {};   // decaying peak per active input channel
 
 private:
     static constexpr int chunk = 4096;
@@ -40,7 +45,6 @@ private:
     std::atomic<int> state { Stopped };
     std::atomic<juce::int64> playPos { 0 };
     std::atomic<double> sampleRate { 44100.0 };
-    std::atomic<int> numTracks { 2 };
     std::atomic<int> numInputs { 0 };
 
     float mixL[chunk] {}, mixR[chunk] {};

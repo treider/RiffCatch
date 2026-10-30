@@ -25,6 +25,8 @@ public:
     std::atomic<float> volume { 1.0f };   // linear gain
     std::atomic<float> pan { 0.0f };      // -1..+1
     std::atomic<bool> mute { false }, solo { false }, armed { false };
+    std::atomic<bool> active { false };            // slot in use
+    std::atomic<unsigned> revision { 0 };          // bumped when audio is replaced/truncated (waveform cache)
     std::atomic<int> inputCode { 0 };     // 0..N-1 = mono input N, 100+i = stereo pair (i, i+1)
     std::atomic<float> peakL { 0.0f }, peakR { 0.0f };   // peak since last UI read
 
@@ -50,6 +52,7 @@ public:
     {
         juce::SpinLock::ScopedLockType l (lock);
         length = 0;
+        ++revision;
     }
 
     // Allocate capacity and truncate the take at fromPos.
@@ -60,6 +63,7 @@ public:
         if (data.getNumSamples() < cap)
             data.setSize (2, cap, true, true, false);
         length = juce::jmin<juce::int64> (length.load(), fromPos);
+        ++revision;
     }
 
     void setAudio (juce::AudioBuffer<float>&& b)
@@ -68,5 +72,6 @@ public:
         const auto n = b.getNumSamples();
         data = std::move (b);
         length = n;
+        ++revision;
     }
 };

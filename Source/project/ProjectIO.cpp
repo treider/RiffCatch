@@ -12,9 +12,11 @@ bool save (AudioEngine& e, const juce::File& dir, double bpm, juce::String& erro
     juce::WavAudioFormat wav;
 
     juce::Array<juce::var> tracks;
-    for (int i = 0; i < e.getNumTracks(); ++i)
+    int pos = 0;
+    for (int slot : e.order)
     {
-        auto& tr = e.tracks[i];
+        const int i = pos++;
+        auto& tr = e.tracks[slot];
         juce::String fileName;
         const auto len = tr.length.load();
         if (len > 0)
@@ -77,8 +79,7 @@ bool load (AudioEngine& e, const juce::File& dir, double& bpm, juce::String& err
     auto* arr = json["tracks"].getArray();
     if (! json.isObject() || arr == nullptr) { error = "Not a RiffCatch project: " + dir.getFullPathName(); return false; }
 
-    e.stop();
-    e.setNumTracks (0);
+    e.removeAllTracks();
 
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
@@ -87,9 +88,9 @@ bool load (AudioEngine& e, const juce::File& dir, double& bpm, juce::String& err
 
     for (int i = 0; i < AudioEngine::maxTracks; ++i)
     {
-        auto& tr = e.tracks[i];
-        tr.resetToDefaults (i);
         if (i >= count) continue;
+        e.addTrack();
+        auto& tr = e.tracks[i];
 
         auto t = arr->getReference (i);
         tr.name = t["name"].toString();
@@ -126,7 +127,7 @@ bool load (AudioEngine& e, const juce::File& dir, double& bpm, juce::String& err
 
     bpm = (double) json.getProperty ("bpm", 120.0);
     e.masterVolume = (float) (double) json.getProperty ("masterVolume", 1.0);
-    e.setNumTracks (juce::jmax (1, count));
+    if (count == 0) e.addTrack();
     return true;
 }
 }

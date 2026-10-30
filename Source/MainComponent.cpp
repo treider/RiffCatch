@@ -17,28 +17,40 @@ MainComponent::MainComponent()
 
     for (int i = 0; i < AudioEngine::maxTracks; ++i)
     {
-        engine.tracks[i].resetToDefaults (i);
-        strips.add (new ChannelStrip (engine, i));
-        addChildComponent (strips.getLast());
+        auto* r = new TrackRow (engine, i);
+        r->onDelete    = [this] (TrackRow* row) { deleteTrack (row); };
+        r->onDragStart = [this] (TrackRow* row) { list.dragStart (row); };
+        r->onDragMove  = [this] (TrackRow* row, int dy) { list.dragMove (row, dy); };
+        r->onDragEnd   = [this] (TrackRow* row) { list.dragEnd (row); };
+        rows.add (r);
+        list.addChildComponent (r);
     }
+    viewport.setViewedComponent (&list, false);
+    viewport.setScrollBarsShown (true, false);
+    addAndMakeVisible (viewport);
     addAndMakeVisible (master);
+    addAndMakeVisible (inputBar);
+    inputBar.onPick = [this] (int ch)
+    {
+        int n = 0;
+        for (int slot : engine.order)
+            if (engine.tracks[slot].armed.load()) { engine.tracks[slot].inputCode = ch; rows[slot]->refreshFromTrack(); ++n; }
+        setStatus (n > 0 ? "Input " + juce::String (ch + 1) + " assigned to " + juce::String (n) + " armed track(s)"
+                         : "Arm a track first, then click an input");
+    };
 
     titleLabel.setText ("RiffCatch", juce::dontSendNotification);
     titleLabel.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));
     titleLabel.setColour (juce::Label::textColourId, Theme::blue);
     addAndMakeVisible (titleLabel);
 
-    for (auto* b : { &recBtn, &playBtn, &stopBtn, &addBtn }) addAndMakeVisible (b);
+    for (auto* b : { &recBtn, &playBtn, &stopBtn }) addAndMakeVisible (b);
     recBtn.onClick  = [this] { toggleRecord(); };
     playBtn.onClick = [this] { togglePlay(); };
     stopBtn.onClick = [this] { engine.stop(); };
-    addBtn.onClick  = [this]
-    {
-        const int n = engine.getNumTracks();
-        if (n < AudioEngine::maxTracks) { engine.setNumTracks (n + 1); refreshStrips(); }
-    };
+    addBtn.onClick  = [this] { addTrack(); };
 
-    for (auto* b : { &newBtn, &openBtn, &saveBtn, &audioBtn })
+    for (auto* b : { &addBtn, &newBtn, &openBtn, &saveBtn, &audioBtn })
     {
         b->setWantsKeyboardFocus (false);
         b->setColour (juce::TextButton::buttonColourId, Theme::raised);
@@ -63,7 +75,9 @@ MainComponent::MainComponent()
     statusLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (statusLabel);
 
-    engine.setNumTracks (2);
+    engine.addTrack();
+    engine.addTrack();
+    changeListenerCallback (nullptr);
     refreshStrips();
     setWantsKeyboardFocus (true);
     setSize (1120, 680);
@@ -84,24 +98,45 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     if (auto xml = deviceManager.createStateXml())
         if (auto* f = props.getUserSettings()) { f->setValue ("audioDeviceState", xml.get()); f->saveIfNeeded(); }
-    const int n = juce::jmax (1, engine.getNumInputs());
-    for (auto* s : strips) s->setInputChoices (n);
+    const int n = engine.getNumInputs();
+    for (auto* r : rows) r->setInputChoices (juce::jmax (1, n));
+    inputBar.setNumInputs (n);
 }
 
 void MainComponent::refreshStrips()
 {
-    const int n = engine.getNumTracks();
-    for (int i = 0; i < strips.size(); ++i)
-    {
-        strips[i]->setVisible (i < n);
-        if (i < n) strips[i]->refreshFromTrack();
-    }
+    for (auto* r : rows)
+        if (engine.tracks[r->slot()].active.load()) r->refreshFromTrack();
     master.refreshFromEngine();
     projectLabel.setText (projectDir == juce::File() ? "Untitled" : projectDir.getFileName(), juce::dontSendNotification);
+    addBtn.setEnabled (engine.getNumTracks() < AudioEngine::maxTracks);
     resized();
     repaint();
 }
 
+void MainComponent::addTrack()
+{
+    if (engine.addTrack() < 0) return;
+    changeListenerCallback (nullptr);
+    refreshStrips();
+    viewport.setViewPosition (0, list.contentHeight());
+}
+
+void MainComponent::deleteTrack (TrackRow* row)
+{
+    const int slot = row->slot();
+    auto doDelete = [this, slot]
+    {
+        engine.removeTrack (slot);
+        rows[slot]->setVisible (false);
+        refreshStrips();
+    };
+    if (engine.tracks[slot].length.load() == 0) { doDelete(); return; }
+    juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::WarningIcon, "Delete track",
+                                        "Delete \"" + engine.tracks[slot].name + "\" and its recording? This cannot be undone.",
+                                        "Delete", "Cancel", this,
+                                        juce::ModalCallbackFunction::create ([doDelete] (int r) { if (r == 1) doDelete(); }));
+}
 void MainComponent::setStatus (const juce::String& s)
 {
     statusLabel.setText (s, juce::dontSendNotification);
@@ -138,7 +173,16 @@ void MainComponent::timerCallback()
     timeLabel.setText (juce::String::formatted ("%02d:%02d.%03d", m, (int) secs % 60, (int) ((secs - std::floor (secs)) * 1000.0)),
                        juce::dontSendNotification);
 
-    for (int i = 0; i < engine.getNumTracks(); ++i) strips[i]->tick();
+    juce::int64 longest = engine.getPosition();
+    const double sr = juce::jmax (1.0, engine.getSampleRate());
+    for (int slot : engine.order)
+    {
+        longest = juce::jmax (longest, engine.tracks[slot].length.load());
+        rows[slot]->tick();
+    }
+    const double view = juce::jmax (30.0, std::ceil ((longest / sr + 1.0) / 30.0) * 30.0);
+    for (auto* r : rows) r->setViewSeconds (view);
+    inputBar.tick();
     master.tick();
 
     if (statusTicks > 0 && --statusTicks == 0) statusLabel.setText ({}, juce::dontSendNotification);
@@ -149,12 +193,6 @@ void MainComponent::paint (juce::Graphics& g)
     g.fillAll (Theme::bg);
     g.setColour (Theme::panel);
     g.fillRoundedRectangle (barArea.toFloat(), 14.0f);
-
-    if (addBtn.isVisible())
-    {
-        g.setColour (Theme::border.withAlpha (0.6f));
-        g.drawRoundedRectangle (addArea.toFloat().reduced (0.5f), 12.0f, 1.5f);
-    }
 }
 
 void MainComponent::resized()
@@ -174,31 +212,20 @@ void MainComponent::resized()
     saveBtn.setBounds (bar.removeFromRight (64));  bar.removeFromRight (6);
     openBtn.setBounds (bar.removeFromRight (64));  bar.removeFromRight (6);
     newBtn.setBounds (bar.removeFromRight (56));   bar.removeFromRight (12);
-    projectLabel.setBounds (bar.removeFromRight (150));
+    addBtn.setBounds (bar.removeFromRight (84));   bar.removeFromRight (12);
+    projectLabel.setBounds (bar.removeFromRight (130));
     statusLabel.setBounds (bar);
 
-    r.removeFromTop (12);
-    master.setBounds (r.removeFromRight (140));
-    r.removeFromRight (12);
+    r.removeFromTop (10);
+    inputBar.setBounds (r.removeFromTop (38));
+    r.removeFromTop (10);
+    master.setBounds (r.removeFromBottom (56));
+    r.removeFromBottom (10);
 
-    const int n = engine.getNumTracks();
-    const int gap = 10;
-    const int maxW = 150;
-    const int w = juce::jmin (maxW, (r.getWidth() - gap * AudioEngine::maxTracks) / juce::jmax (1, n + 1));
-    for (int i = 0; i < n; ++i)
-    {
-        strips[i]->setBounds (r.removeFromLeft (w));
-        r.removeFromLeft (gap);
-    }
-    const bool canAdd = n < AudioEngine::maxTracks;
-    addBtn.setVisible (canAdd);
-    if (canAdd)
-    {
-        addArea = r.removeFromLeft (w);
-        addBtn.setBounds (addArea.withSizeKeepingCentre (48, 48));
-    }
+    viewport.setBounds (r);
+    const int w = viewport.getMaximumVisibleWidth();
+    list.setSize (w, juce::jmax (list.contentHeight(), viewport.getHeight()));
 }
-
 // ------------------------------------------------------------- dialogs/projects
 
 void MainComponent::showAudioSettings()
@@ -219,11 +246,10 @@ void MainComponent::showAudioSettings()
 
 void MainComponent::newProject()
 {
-    engine.stop();
-    engine.setNumTracks (0);
-    for (int i = 0; i < AudioEngine::maxTracks; ++i) engine.tracks[i].resetToDefaults (i);
+    engine.removeAllTracks();
     engine.masterVolume = 1.0f;
-    engine.setNumTracks (2);
+    engine.addTrack();
+    engine.addTrack();
     projectDir = juce::File();
     bpm = 120.0;
     refreshStrips();
