@@ -23,6 +23,7 @@ public:
     void play();
     bool record();          // false if no armed track. Always starts at bar 1 (after count-in).
     void stop();
+    std::function<void (int slot, int prevTake, int newTake)> onTakeCommitted;   // UI thread, for undo
     void pollRecording();   // call regularly from the UI thread: commits finished loop passes
     State getState() const noexcept { return (State) state.load(); }
     juce::int64 getPosition() const noexcept { return playPos.load(); }
@@ -51,6 +52,7 @@ public:
     // Track slots (message thread). `order` is the display/save order of active slots.
     int getNumTracks() const noexcept { return (int) order.size(); }
     int addTrack();                  // returns slot index or -1
+    int addTrackAt (int slot);       // prefers the given slot (undo/redo), falls back to any free one
     void removeTrack (int slot);
     void removeAllTracks();
     std::vector<int> order;

@@ -40,7 +40,15 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     nameLabel.setEditable (false, true);
     nameLabel.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
     nameLabel.setColour (juce::Label::textColourId, Theme::deep);
-    nameLabel.onTextChange = [this] { track().name = nameLabel.getText(); };
+    nameLabel.onTextChange = [this]
+    {
+        const auto before = lastName, after = nameLabel.getText();
+        track().name = after; lastName = after;
+        if (before != after)
+            push ("Rename track",
+                  [this, after] { track().name = after; lastName = after; nameLabel.setText (after, juce::dontSendNotification); },
+                  [this, before] { track().name = before; lastName = before; nameLabel.setText (before, juce::dontSendNotification); });
+    };
     nameLabel.onEditorHide = [this] { if (onReleaseFocus) onReleaseFocus(); };
     addAndMakeVisible (nameLabel);
 
@@ -55,8 +63,20 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     styleToggle (mute, Theme::yellow);
     styleToggle (solo, Theme::green);
     arm.onClick  = [this] { track().armed = arm.getToggleState(); };
-    mute.onClick = [this] { track().mute = mute.getToggleState(); };
-    solo.onClick = [this] { track().solo = solo.getToggleState(); };
+    mute.onClick = [this]
+    {
+        const bool now = mute.getToggleState();
+        track().mute = now;
+        push ("Mute", [this, now] { track().mute = now; mute.setToggleState (now, juce::dontSendNotification); },
+                      [this, now] { track().mute = ! now; mute.setToggleState (! now, juce::dontSendNotification); });
+    };
+    solo.onClick = [this]
+    {
+        const bool now = solo.getToggleState();
+        track().solo = now;
+        push ("Solo", [this, now] { track().solo = now; solo.setToggleState (now, juce::dontSendNotification); },
+                      [this, now] { track().solo = ! now; solo.setToggleState (! now, juce::dontSendNotification); });
+    };
     arm.setTooltip ("Arm for recording / input monitoring");
     addAndMakeVisible (arm); addAndMakeVisible (mute); addAndMakeVisible (solo);
 
@@ -80,11 +100,15 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     pan.setPopupDisplayEnabled (true, true, nullptr);
     pan.setColour (juce::Slider::rotarySliderFillColourId, accent);
     pan.setWantsKeyboardFocus (false);
-    pan.onValueChange = [this] { track().pan = (float) pan.getValue(); };
+    pan.onDragStart = [this] { draggingPan = true; };
+    pan.onDragEnd = [this] { draggingPan = false; commitPan(); };
+    pan.onValueChange = [this] { track().pan = (float) pan.getValue(); if (! draggingPan) commitPan(); };
     addAndMakeVisible (pan);
 
     styleFader (fader, accent, true);
-    fader.onValueChange = [this] { track().volume = faderToGain ((float) fader.getValue()); updateDb(); };
+    fader.onDragStart = [this] { draggingFader = true; };
+    fader.onDragEnd = [this] { draggingFader = false; commitVol(); };
+    fader.onValueChange = [this] { track().volume = faderToGain ((float) fader.getValue()); updateDb(); if (! draggingFader) commitVol(); };
     addAndMakeVisible (fader);
     addAndMakeVisible (meter);
 
@@ -122,10 +146,53 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     refreshFromTrack();
 }
 
+void TrackRow::commitVol()
+{
+    const float after = track().volume.load(), before = lastVol;
+    if (after == before) return;
+    lastVol = after;
+    push ("Volume",
+          [this, after] { track().volume = after; lastVol = after; fader.setValue (gainToFader (after), juce::dontSendNotification); updateDb(); },
+          [this, before] { track().volume = before; lastVol = before; fader.setValue (gainToFader (before), juce::dontSendNotification); updateDb(); });
+}
+
+void TrackRow::commitPan()
+{
+    const float after = track().pan.load(), before = lastPan;
+    if (after == before) return;
+    lastPan = after;
+    push ("Pan",
+          [this, after] { track().pan = after; lastPan = after; pan.setValue (after, juce::dontSendNotification); },
+          [this, before] { track().pan = before; lastPan = before; pan.setValue (before, juce::dontSendNotification); });
+}
+
+void TrackRow::pushHitEdit (const juce::String& name, const std::vector<Hit>& before)
+{
+    auto& t = track();
+    const auto after = t.hits;
+    bool same = before.size() == after.size();
+    for (size_t i = 0; same && i < after.size(); ++i) same = before[i].src == after[i].src && before[i].dst == after[i].dst;
+    if (same) return;
+    const auto gen = t.editGen;
+    auto apply = [this, gen] (const std::vector<Hit>& hs)
+    {
+        auto& tr = track();
+        if (tr.editGen != gen || tr.editSource.getNumSamples() == 0) return;   // take changed since: nothing to restore
+        tr.hits = hs;
+        tr.applyEdit (engine.getSampleRate());
+    };
+    push (name, [apply, after] { apply (after); }, [apply, before] { apply (before); });
+}
+
 void TrackRow::takeStep (int d)
 {
     auto& t = track();
-    t.applyTake (juce::jlimit (0, (int) t.takes.size() - 1, t.currentTake + d));
+    const int from = t.currentTake, to = juce::jlimit (0, (int) t.takes.size() - 1, t.currentTake + d);
+    if (from != to)
+        push ("Select take",
+              [this, to] { track().applyTake (to); },
+              [this, from] { track().applyTake (from); });
+    t.applyTake (to);
     if (onReleaseFocus) onReleaseFocus();
 }
 
@@ -143,6 +210,7 @@ void TrackRow::refreshFromTrack()
 {
     auto& t = track();
     nameLabel.setText (t.name, juce::dontSendNotification);
+    lastName = t.name; lastVol = t.volume.load(); lastPan = t.pan.load();
     arm.setToggleState (t.armed.load(), juce::dontSendNotification);
     mute.setToggleState (t.mute.load(), juce::dontSendNotification);
     solo.setToggleState (t.solo.load(), juce::dontSendNotification);
@@ -413,7 +481,7 @@ void TrackRow::showHitsMenu()
             case 5: quantize (2.0, 0.5f); break;
             case 6: riseDb = juce::jmax (3.0f, riseDb - 1.5f); tr.beginEdit (sr, riseDb); tr.applyEdit (sr); break;
             case 7: riseDb = juce::jmin (15.0f, riseDb + 1.5f); tr.beginEdit (sr, riseDb); tr.applyEdit (sr); break;
-            case 8: for (auto& h : tr.hits) h.dst = h.src; tr.applyEdit (sr); break;
+            case 8: { const auto before = tr.hits; for (auto& h : tr.hits) h.dst = h.src; tr.applyEdit (sr); pushHitEdit ("Reset hits", before); break; }
             default: break;
         }
         if (onReleaseFocus) onReleaseFocus();
@@ -426,6 +494,7 @@ void TrackRow::quantize (double division, float strength)
 {
     auto& t = track();
     if (! t.editing || t.hits.empty()) return;
+    const auto hitsBefore = t.hits;
     const double sr = engine.getSampleRate();
     const double step = engine.getSamplesPerBeat() / division;
     const juce::int64 minGap = (juce::int64) (0.02 * sr), len = t.editSource.getNumSamples();
@@ -446,6 +515,7 @@ void TrackRow::quantize (double division, float strength)
         t.hits[i].dst = juce::jmin (hi, t.hits[i].dst);
     }
     t.applyEdit (sr);
+    pushHitEdit ("Quantize", hitsBefore);
 }
 
 juce::MouseCursor TrackRow::getMouseCursor()
@@ -470,12 +540,17 @@ void TrackRow::mouseDown (const juce::MouseEvent& e)
         {
             if (e.mods.isPopupMenu())      // right-click on a hit removes it
             {
+                const auto before = t.hits;
                 t.hits.erase (t.hits.begin() + h);
                 t.applyEdit (engine.getSampleRate());
+                pushHitEdit ("Remove hit", before);
                 repaint();
             }
             else
+            {
                 dragHit = h;
+                hitsBeforeDrag = t.hits;
+            }
             return;
         }
         if (! e.mods.isPopupMenu()) return;   // left-drag in empty space does nothing while editing hits
@@ -515,10 +590,17 @@ void TrackRow::mouseDrag (const juce::MouseEvent& e)
 
 void TrackRow::mouseUp (const juce::MouseEvent&)
 {
+    if (nudging)
+    {
+        const int before = nudgeStartVal, after = track().nudge.load();
+        if (before != after)
+            push ("Nudge", [this, after] { track().nudge = after; repaint(); }, [this, before] { track().nudge = before; repaint(); });
+    }
     nudging = false;
     if (dragHit >= 0)
     {
         track().applyEdit (engine.getSampleRate());   // re-render once, when the marker is released
+        pushHitEdit ("Move hit", hitsBeforeDrag);
         dragHit = -1;
         repaint();
     }
@@ -528,10 +610,25 @@ void TrackRow::mouseDoubleClick (const juce::MouseEvent& e)
 {
     auto& t = track();
     if (! wave.contains (e.getPosition())) return;
-    if (! t.editing) { t.nudge = 0; repaint (wave); return; }   // double-click resets the nudge
+    if (! t.editing)   // double-click resets the nudge
+    {
+        const int before = t.nudge.load();
+        t.nudge = 0;
+        if (before != 0) push ("Reset nudge", [this] { track().nudge = 0; repaint(); }, [this, before] { track().nudge = before; repaint(); });
+        repaint (wave);
+        return;
+    }
     const double sr = engine.getSampleRate();
     const int h = hitAt (e.x);
-    if (h >= 0) { t.hits[(size_t) h].dst = t.hits[(size_t) h].src; t.applyEdit (sr); repaint(); return; }
+    if (h >= 0)
+    {
+        const auto before = t.hits;
+        t.hits[(size_t) h].dst = t.hits[(size_t) h].src;
+        t.applyEdit (sr);
+        pushHitEdit ("Reset hit", before);
+        repaint();
+        return;
+    }
 
     // add a hit where the user clicked (missed by the detector)
     const auto dst = xToSample ((float) e.x);
@@ -542,7 +639,9 @@ void TrackRow::mouseDoubleClick (const juce::MouseEvent& e)
     const juce::int64 d1 = at == t.hits.size() ? t.editSource.getNumSamples() : t.hits[at].dst;
     const juce::int64 s1 = at == t.hits.size() ? t.editSource.getNumSamples() : t.hits[at].src;
     const double f = d1 > d0 ? (double) (dst - d0) / (double) (d1 - d0) : 0.0;
+    const auto before = t.hits;
     t.hits.insert (t.hits.begin() + (long) at, { s0 + (juce::int64) std::llround (f * (double) (s1 - s0)), dst });
+    pushHitEdit ("Add hit", before);
     repaint();
 }
 
@@ -593,10 +692,13 @@ MasterStrip::MasterStrip (AudioEngine& e) : engine (e)
     addAndMakeVisible (title);
 
     styleFader (fader, Theme::purple, true);
+    fader.onDragStart = [this] { dragging = true; };
+    fader.onDragEnd = [this] { dragging = false; commitMaster(); };
     fader.onValueChange = [this]
     {
         engine.masterVolume = faderToGain ((float) fader.getValue());
         dbLabel.setText (dbText ((float) fader.getValue()), juce::dontSendNotification);
+        if (! dragging) commitMaster();
     };
     addAndMakeVisible (fader);
     meter.setHorizontal (true);
@@ -609,8 +711,23 @@ MasterStrip::MasterStrip (AudioEngine& e) : engine (e)
     refreshFromEngine();
 }
 
+void MasterStrip::commitMaster()
+{
+    const float after = engine.masterVolume.load(), before = lastMaster;
+    if (after == before) return;
+    lastMaster = after;
+    auto set = [this] (float g)
+    {
+        engine.masterVolume = g; lastMaster = g;
+        fader.setValue (gainToFader (g), juce::dontSendNotification);
+        dbLabel.setText (dbText ((float) fader.getValue()), juce::dontSendNotification);
+    };
+    if (onUndoable) onUndoable ("Master volume", [set, after] { set (after); }, [set, before] { set (before); });
+}
+
 void MasterStrip::refreshFromEngine()
 {
+    lastMaster = engine.masterVolume.load();
     fader.setValue (gainToFader (engine.masterVolume.load()), juce::dontSendNotification);
     dbLabel.setText (dbText ((float) fader.getValue()), juce::dontSendNotification);
 }
@@ -766,10 +883,12 @@ void TrackList::dragEnd (TrackRow* r)
 {
     if (dragging == nullptr) return;
     const int t = targetSlot (dragY);
+    const auto orderBefore = engine.order;
     engine.order.erase (std::remove (engine.order.begin(), engine.order.end(), r->slot()), engine.order.end());
     engine.order.insert (engine.order.begin() + juce::jmin (t, (int) engine.order.size()), r->slot());
     dragging = nullptr;
     layoutRows();
+    if (onReordered && orderBefore != engine.order) onReordered (orderBefore, engine.order);
 }
 
 // ---------------------------------------------------------------- ruler

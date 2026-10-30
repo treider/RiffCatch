@@ -47,7 +47,8 @@ public:
     bool editing = false;
     std::vector<Hit> hits;
     juce::AudioBuffer<float> editSource;
-    void resetEdit() { editing = false; hits.clear(); editSource.setSize (0, 0); }
+    unsigned editGen = 0;     // bumped when the edit baseline changes; older undo actions then become no-ops
+    void resetEdit() { editing = false; hits.clear(); editSource.setSize (0, 0); ++editGen; }
 
     void beginEdit (double sr, float riseDb)
     {
@@ -59,6 +60,7 @@ public:
             for (int c = 0; c < 2; ++c) editSource.copyFrom (c, 0, data, c, 0, len);
         }
         hits.clear();
+        ++editGen;
         for (auto p : HitEditor::detectOnsets (editSource, sr, riseDb)) hits.push_back ({ p, p });
         editing = true;
     }
@@ -66,7 +68,7 @@ public:
     // Re-render the take from editSource + hits and swap it in.
     void applyEdit (double sr)
     {
-        if (! editing || editSource.getNumSamples() == 0) return;
+        if (editSource.getNumSamples() == 0) return;
         auto out = HitEditor::render (editSource, hits, sr);
         juce::SpinLock::ScopedLockType l (lock);
         data.setSize (2, out.getNumSamples(), false, false, true);
@@ -124,7 +126,8 @@ public:
 
     // Replace track audio with a completed loop pass; older audio is kept as a take.
     // shiftEarlier: input/output latency compensation, circular because the take loops.
-    void commitTake (const juce::AudioBuffer<float>& src, int len, int shiftEarlier = 0)
+    // Returns {previous take index (-1 = none), new take index} for undo.
+    std::pair<int, int> commitTake (const juce::AudioBuffer<float>& src, int len, int shiftEarlier = 0)
     {
         if (takes.empty() && length.load() > 0)
         {
@@ -134,7 +137,9 @@ public:
                 for (int c = 0; c < 2; ++c) old.copyFrom (c, 0, data, c, 0, old.getNumSamples());
             }
             takes.push_back (std::move (old));
+            currentTake = 0;
         }
+        const int prev = currentTake;
         juce::AudioBuffer<float> t (2, len);
         const int sh = len > 0 ? ((shiftEarlier % len) + len) % len : 0;
         for (int c = 0; c < 2; ++c)
@@ -145,6 +150,17 @@ public:
         takes.push_back (std::move (t));
         if ((int) takes.size() > maxTakes) takes.erase (takes.begin());
         applyTake ((int) takes.size() - 1);
+        return { prev, currentTake };
+    }
+
+    // Make the track silent without dropping its take history (used when undoing the first recording).
+    void silence()
+    {
+        juce::SpinLock::ScopedLockType l (lock);
+        length = 0;
+        ++revision;
+        currentTake = -1;
+        resetEdit();
     }
 
     void applyTake (int i)

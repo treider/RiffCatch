@@ -1,6 +1,7 @@
 #pragma once
 #include "audio/AudioEngine.h"
 #include "project/Exporter.h"
+#include "ui/Undo.h"
 
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
@@ -132,6 +133,41 @@ inline juce::String runEngineSelfTest()
         for (int s = 0; s < len; ++s) finite &= std::isfinite (edited.getSample (0, s));
         check (onGrid, "every moved hit now sounds on the grid (within 4 ms)");
         check (finite, "re-timed audio has no NaN/inf");
+    }
+
+    // ---- undo building blocks
+    {
+        AudioEngine e2;
+        e2.prepareForTest (sr, 2);
+        const int sl = e2.addTrackAt (3);
+        check (sl == 3 && e2.order.size() == 1, "addTrackAt reuses the requested slot");
+        auto& t = e2.tracks[sl];
+        juce::AudioBuffer<float> a (2, 1000), b (2, 1000);
+        a.clear(); b.clear();
+        for (int i = 0; i < 1000; ++i) { a.setSample (0, i, 0.25f); b.setSample (0, i, 0.5f); }
+        const auto p1 = t.commitTake (a, 1000);
+        check (p1.first == -1 && p1.second == 0 && t.length.load() == 1000, "first commit reports prev=-1, new=0");
+        const auto p2 = t.commitTake (b, 1000);
+        check (p2.first == 0 && p2.second == 1 && std::abs (t.data.getSample (0, 5) - 0.5f) < 1.0e-6f, "second commit reports prev=0, new=1");
+        t.applyTake (p2.first);
+        check (std::abs (t.data.getSample (0, 5) - 0.25f) < 1.0e-6f, "undo of a take restores the previous take");
+        t.applyTake (p2.second);
+        check (std::abs (t.data.getSample (0, 5) - 0.5f) < 1.0e-6f, "redo of a take brings the new take back");
+
+        juce::UndoManager um;
+        int value = 1;
+        um.beginNewTransaction ("set");
+        um.perform (new LambdaAction ([&] { value = 2; }, [&] { value = 1; }));
+        check (value == 2, "perform applies the change");
+        um.undo();
+        check (value == 1, "undo reverts it");
+        um.redo();
+        check (value == 2, "redo re-applies it");
+
+        t.silence();
+        check (t.length.load() == 0 && t.takes.size() == 2, "silence() mutes the track but keeps take history");
+        e2.removeTrack (sl);
+        check (e2.order.empty() && ! t.active.load(), "removeTrack frees the slot");
     }
 
     log << (ok ? "ALL OK" : "FAILURES") << "\n";

@@ -20,6 +20,7 @@ MainComponent::MainComponent()
     {
         auto* r = new TrackRow (engine, i);
         r->onReleaseFocus = [this] { grabKeyboardFocus(); };
+        r->onUndoable  = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
         r->onDelete    = [this] (TrackRow* row) { deleteTrack (row); };
         r->onDragStart = [this] (TrackRow* row) { list.dragStart (row); };
         r->onDragMove  = [this] (TrackRow* row, int dy) { list.dragMove (row, dy); };
@@ -27,6 +28,19 @@ MainComponent::MainComponent()
         rows.add (r);
         list.addChildComponent (r);
     }
+    master.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
+    list.onReordered = [this] (std::vector<int> before, std::vector<int> after)
+    {
+        record ("Reorder tracks",
+                [this, after] { engine.order = after; list.layoutRows(); },
+                [this, before] { engine.order = before; list.layoutRows(); });
+    };
+    engine.onTakeCommitted = [this] (int slot, int prev, int cur)
+    {
+        record ("Recording",
+                [this, slot, cur] { engine.tracks[slot].applyTake (cur); },
+                [this, slot, prev] { auto& t = engine.tracks[slot]; if (prev >= 0) t.applyTake (prev); else t.silence(); });
+    };
     viewport.setViewedComponent (&list, false);
     viewport.setScrollBarsShown (true, false);
     addAndMakeVisible (viewport);
@@ -100,6 +114,14 @@ MainComponent::MainComponent()
     bpmLabel.setTooltip ("Tempo (double-click to type, 30-300)");
     bpmLabel.onTextChange = [this] { setBpm (bpmLabel.getText().getDoubleValue()); grabKeyboardFocus(); };
     addAndMakeVisible (bpmLabel);
+
+    for (auto* b : { &undoBtn, &redoBtn })
+    {
+        b->setWantsKeyboardFocus (false);
+        addAndMakeVisible (b);
+    }
+    undoBtn.onClick = [this] { doUndo (false); };
+    redoBtn.onClick = [this] { doUndo (true); };
 
     tapBtn.setTooltip ("Tap tempo (T)");
     tapBtn.setWantsKeyboardFocus (false);
@@ -206,6 +228,7 @@ void MainComponent::refreshStrips()
     projectLabel.setText (projectDir == juce::File() ? "Untitled" : projectDir.getFileName(), juce::dontSendNotification);
     addBtn.setEnabled (engine.getNumTracks() < AudioEngine::maxTracks);
     resized();
+    list.layoutRows();
     repaint();
 }
 
@@ -301,11 +324,66 @@ void MainComponent::doExport (const juce::File& f, int kind, int loops)
     if (ok) setStatus ("Exported " + f.getFullPathName());
     else juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export failed", err);
 }
+void MainComponent::record (const juce::String& name, std::function<void()> redo, std::function<void()> undo)
+{
+    undoManager.beginNewTransaction (name);
+    undoManager.perform (new LambdaAction (std::move (redo), std::move (undo)));
+}
+
+void MainComponent::syncRows()
+{
+    changeListenerCallback (nullptr);   // input choices for (re)activated rows
+    refreshStrips();
+}
+
+MainComponent::TrackSnap MainComponent::captureTrack (int slot)
+{
+    TrackSnap s;
+    auto& t = engine.tracks[slot];
+    s.slot = slot; s.valid = true;
+    s.name = t.name; s.vol = t.volume.load(); s.pan = t.pan.load();
+    s.mute = t.mute.load(); s.solo = t.solo.load(); s.input = t.inputCode.load(); s.nudge = t.nudge.load();
+    s.orderPos = (int) (std::find (engine.order.begin(), engine.order.end(), slot) - engine.order.begin());
+    const auto len = (int) t.length.load();
+    if (len > 0)
+    {
+        s.audio.setSize (2, len);
+        juce::SpinLock::ScopedLockType l (t.lock);
+        for (int c = 0; c < 2; ++c) s.audio.copyFrom (c, 0, t.data, c, 0, len);
+    }
+    return s;
+}
+
+int MainComponent::restoreTrack (const TrackSnap& s)
+{
+    const int slot = engine.addTrackAt (s.slot);
+    if (slot < 0) return -1;
+    auto& t = engine.tracks[slot];
+    t.name = s.name; t.volume = s.vol; t.pan = s.pan; t.mute = s.mute; t.solo = s.solo;
+    t.inputCode = s.input; t.nudge = s.nudge;
+    if (s.audio.getNumSamples() > 0) { auto copy = s.audio; t.setAudio (std::move (copy)); }
+    engine.order.erase (std::remove (engine.order.begin(), engine.order.end(), slot), engine.order.end());
+    engine.order.insert (engine.order.begin() + juce::jmin (s.orderPos, (int) engine.order.size()), slot);
+    return slot;
+}
+
 void MainComponent::addTrack()
 {
-    if (engine.addTrack() < 0) return;
-    changeListenerCallback (nullptr);
-    refreshStrips();
+    if (engine.getNumTracks() >= AudioEngine::maxTracks) return;
+    auto slot = std::make_shared<int> (-1);
+    auto snap = std::make_shared<TrackSnap>();
+    record ("Add track",
+            [this, slot, snap]
+            {
+                *slot = snap->valid ? restoreTrack (*snap) : engine.addTrackAt (*slot);
+                syncRows();
+            },
+            [this, slot, snap]
+            {
+                *snap = captureTrack (*slot);
+                engine.removeTrack (*slot);
+                syncRows();
+            });
     viewport.setViewPosition (0, list.contentHeight());
 }
 
@@ -314,15 +392,36 @@ void MainComponent::deleteTrack (TrackRow* row)
     const int slot = row->slot();
     auto doDelete = [this, slot]
     {
-        engine.removeTrack (slot);
-        rows[slot]->setVisible (false);
-        refreshStrips();
+        auto snap = std::make_shared<TrackSnap>();
+        record ("Delete track",
+                [this, slot, snap]
+                {
+                    *snap = captureTrack (slot);
+                    engine.removeTrack (slot);
+                    syncRows();
+                },
+                [this, snap]
+                {
+                    restoreTrack (*snap);
+                    syncRows();
+                });
     };
     if (engine.tracks[slot].length.load() == 0) { doDelete(); return; }
     juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::WarningIcon, "Delete track",
-                                        "Delete \"" + engine.tracks[slot].name + "\" and its recording? This cannot be undone.",
+                                        "Delete \"" + engine.tracks[slot].name + "\" and its recording? You can undo this with Ctrl+Z.",
                                         "Delete", "Cancel", this,
                                         juce::ModalCallbackFunction::create ([doDelete] (int r) { if (r == 1) doDelete(); }));
+}
+
+void MainComponent::doUndo (bool redo)
+{
+    const auto st = engine.getState();
+    if (st == AudioEngine::Recording || st == AudioEngine::CountIn) { setStatus ("Stop recording first"); return; }
+    if (redo ? ! undoManager.canRedo() : ! undoManager.canUndo()) return;
+    const auto what = redo ? undoManager.getRedoDescription() : undoManager.getUndoDescription();
+    if (redo) undoManager.redo(); else undoManager.undo();
+    refreshStrips();
+    setStatus ((redo ? "Redo: " : "Undo: ") + what);
 }
 void MainComponent::setStatus (const juce::String& s)
 {
@@ -355,6 +454,8 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
         if (code == 'O') { openProject(); return true; }
         if (code == 'N') { newProject(); return true; }
         if (code == 'T') { addTrack(); return true; }
+        if (code == 'Z') { doUndo (mods.isShiftDown()); return true; }
+        if (code == 'Y') { doUndo (true); return true; }
         if (code >= '1' && code <= '8')
         {
             const int n = code - '1';
@@ -394,6 +495,10 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
 void MainComponent::timerCallback()
 {
     engine.pollRecording();
+    undoBtn.setEnabled (undoManager.canUndo());
+    redoBtn.setEnabled (undoManager.canRedo());
+    undoBtn.setTooltip (undoManager.canUndo() ? "Undo " + undoManager.getUndoDescription() + " (Ctrl+Z)" : "Nothing to undo");
+    redoBtn.setTooltip (undoManager.canRedo() ? "Redo " + undoManager.getRedoDescription() + " (Ctrl+Shift+Z)" : "Nothing to redo");
 
     const auto st = engine.getState();
     recBtn.setToggleState (st == AudioEngine::Recording || st == AudioEngine::CountIn, juce::dontSendNotification);
@@ -492,7 +597,9 @@ void MainComponent::resized()
     countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (18);
     latLabel.setBounds (sb.removeFromLeft (120));
     latAdjust.setBounds (sb.removeFromLeft (80).withSizeKeepingCentre (80, 24)); sb.removeFromLeft (12);
-    projectLabel.setBounds (sb.removeFromRight (150));
+    projectLabel.setBounds (sb.removeFromRight (130));
+    redoBtn.setBounds (sb.removeFromRight (56)); sb.removeFromRight (6);
+    undoBtn.setBounds (sb.removeFromRight (56)); sb.removeFromRight (10);
     statusLabel.setBounds (sb);
 
     r.removeFromTop (10);
@@ -527,6 +634,7 @@ void MainComponent::showAudioSettings()
 
 void MainComponent::newProject()
 {
+    undoManager.clearUndoHistory();
     engine.removeAllTracks();
     engine.masterVolume = 1.0f;
     engine.bpm = 120.0; engine.loopBars = 4; engine.loopEnabled = true;
@@ -579,6 +687,7 @@ void MainComponent::openProject()
 void MainComponent::doOpen (const juce::File& dir)
 {
     juce::String err;
+    undoManager.clearUndoHistory();
     if (ProjectIO::load (engine, dir, err))
     {
         projectDir = dir;

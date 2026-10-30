@@ -2,6 +2,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Theme.h"
 #include "audio/AudioEngine.h"
+#include "Undo.h"
 
 // One horizontal track row: header controls + waveform lane.
 class TrackRow : public juce::Component
@@ -24,6 +25,7 @@ public:
     juce::MouseCursor getMouseCursor() override;
 
     std::function<void (TrackRow*)> onDelete, onDragStart, onDragEnd;
+    UndoPush onUndoable;
     std::function<void()> onReleaseFocus;   // give keyboard focus back to main window (shortcuts)
     std::function<void (TrackRow*, int)> onDragMove;
 
@@ -50,6 +52,15 @@ private:
     juce::Label takeLabel;
     int shownTakes = -1, shownCurrent = -1;
     void takeStep (int d);
+    void push (const juce::String& name, std::function<void()> redo, std::function<void()> undo) { if (onUndoable) onUndoable (name, std::move (redo), std::move (undo)); }
+    void commitVol();
+    void commitPan();
+    void pushHitEdit (const juce::String& name, const std::vector<Hit>& before);
+    float lastVol = 1.0f, lastPan = 0.0f;
+    juce::String lastName;
+    bool draggingFader = false, draggingPan = false;
+    std::vector<Hit> hitsBeforeDrag;
+    int nudgeBeforeEdit = 0;
     void showHitsMenu();
     void quantize (double division, float strength);
     int hitAt (int x) const;
@@ -86,8 +97,12 @@ public:
     void tick();
     void paint (juce::Graphics&) override;
     void resized() override;
+    UndoPush onUndoable;
 
 private:
+    float lastMaster = 1.0f;
+    bool dragging = false;
+    void commitMaster();
     AudioEngine& engine;
     juce::Label title, dbLabel;
     juce::Slider fader;
@@ -124,6 +139,7 @@ public:
     void dragStart (TrackRow*);
     void dragMove (TrackRow*, int dy);
     void dragEnd (TrackRow*);
+    std::function<void (std::vector<int> before, std::vector<int> after)> onReordered;
     void resized() override { layoutRows(); }
 
 private:

@@ -74,7 +74,8 @@ void AudioEngine::pollRecording()
         if (seq != tr.seenSeq)
         {
             tr.seenSeq = seq;
-            tr.commitTake (tr.stage[tr.completedStage.load()], sessionLen, getCompensationSamples());
+            const auto pc = tr.commitTake (tr.stage[tr.completedStage.load()], sessionLen, getCompensationSamples());
+            if (onTakeCommitted) onTakeCommitted (i, pc.first, pc.second);
             ++tr.sessionCommits;
         }
 
@@ -92,7 +93,8 @@ void AudioEngine::pollRecording()
             {
                 auto& sb = tr.stage[tr.writeStage.load()];
                 if (written < sessionLen) sb.clear ((int) written, sessionLen - (int) written);
-                tr.commitTake (sb, sessionLen, getCompensationSamples());
+                const auto pc = tr.commitTake (sb, sessionLen, getCompensationSamples());
+                if (onTakeCommitted) onTakeCommitted (i, pc.first, pc.second);
             }
         }
     }
@@ -111,6 +113,18 @@ int AudioEngine::addTrack()
             return i;
         }
     return -1;
+}
+
+int AudioEngine::addTrackAt (int slot)
+{
+    if (slot >= 0 && slot < maxTracks && ! tracks[slot].active.load())
+    {
+        tracks[slot].resetToDefaults (slot);
+        tracks[slot].active = true;
+        order.push_back (slot);
+        return slot;
+    }
+    return addTrack();
 }
 
 void AudioEngine::removeTrack (int slot)

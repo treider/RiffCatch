@@ -3,6 +3,7 @@
 #include "audio/AudioEngine.h"
 #include "ui/Theme.h"
 #include "ui/TrackRow.h"
+#include "ui/Undo.h"
 
 class MainComponent : public juce::Component,
                       private juce::Timer,
@@ -33,12 +34,26 @@ private:
     void toggleRecord();
     void togglePlay();
     void tapTempo();
+    void record (const juce::String& name, std::function<void()> redo, std::function<void()> undo);
+    void doUndo (bool redo);
+    void syncRows();
+    struct TrackSnap
+    {
+        int slot = -1, orderPos = 0, input = 0, nudge = 0;
+        juce::String name;
+        float vol = 1.0f, pan = 0.0f;
+        bool mute = false, solo = false, valid = false;
+        juce::AudioBuffer<float> audio;
+    };
+    TrackSnap captureTrack (int slot);
+    int restoreTrack (const TrackSnap&);
     void exportMenu();
     void doExport (const juce::File&, int kind, int loops);
     void saveLatencyAdjust();
     void setBpm (double v);
     void updateSettingsFromEngine();
 
+    juce::UndoManager undoManager;
     juce::ApplicationProperties props;
     juce::AudioDeviceManager deviceManager;
     AudioEngine engine;
@@ -53,7 +68,7 @@ private:
     IconButton recBtn  { IconButton::Record, Theme::red };
     IconButton playBtn { IconButton::Play,   Theme::green };
     IconButton stopBtn { IconButton::Stop,   Theme::blue };
-    juce::TextButton addBtn { "+ Track" }, exportBtn { "Export" }, newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" }, audioBtn { "Audio" };
+    juce::TextButton undoBtn { "Undo" }, redoBtn { "Redo" }, addBtn { "+ Track" }, exportBtn { "Export" }, newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" }, audioBtn { "Audio" };
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
     juce::Label bpmLabel;
     juce::TextButton tapBtn { "Tap" }, loopBtn { "Loop" }, clickBtn { "Click" };
