@@ -88,21 +88,7 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     addAndMakeVisible (fader);
     addAndMakeVisible (meter);
 
-    nudge.setSliderStyle (juce::Slider::LinearBar);
-    nudge.setRange (-100.0, 100.0, 0.1);
-    nudge.setNumDecimalPlacesToDisplay (1);
-    nudge.setTextValueSuffix (" ms");
-    nudge.setDoubleClickReturnValue (true, 0.0);
-    nudge.setColour (juce::Slider::trackColourId, accent.withAlpha (0.35f));
-    nudge.setColour (juce::Slider::textBoxTextColourId, Theme::text);
-    nudge.setColour (juce::Slider::textBoxOutlineColourId, Theme::border);
-    nudge.setWantsKeyboardFocus (false);
-    nudge.setTooltip ("Nudge this track in time: + later, - earlier (drag, double-click to reset)");
-    nudge.onValueChange = [this]
-    {
-        track().nudge = (int) std::lround (nudge.getValue() * engine.getSampleRate() / 1000.0);
-    };
-    addAndMakeVisible (nudge);
+
 
     dbLabel.setJustificationType (juce::Justification::centredRight);
     dbLabel.setColour (juce::Label::textColourId, Theme::dim);
@@ -162,7 +148,6 @@ void TrackRow::refreshFromTrack()
     solo.setToggleState (t.solo.load(), juce::dontSendNotification);
     pan.setValue (t.pan.load(), juce::dontSendNotification);
     fader.setValue (gainToFader (t.volume.load()), juce::dontSendNotification);
-    nudge.setValue (t.nudge.load() * 1000.0 / juce::jmax (1.0, engine.getSampleRate()), juce::dontSendNotification);
     if (input.indexOfItemId (t.inputCode.load() + 1) >= 0)
         input.setSelectedId (t.inputCode.load() + 1, juce::dontSendNotification);
     updateDb();
@@ -285,7 +270,10 @@ void TrackRow::paint (juce::Graphics& g)
 
     if (clipW > 1.0f && (done > 0 || live))
     {
-        auto clip = w.withWidth (clipW);
+        const float nudgePx = live ? 0.0f : (float) (tr.nudge.load() / juce::jmax (1.0, sr) * pxPerSec);
+        auto drawClip = [&] (float dx)
+        {
+        auto clip = w.withWidth (clipW).translated (dx, 0.0f);
         const auto col = live ? Theme::red : accent;
         auto strip = clip.removeFromTop ((float) clipStripH);
         g.setColour (col);
@@ -294,6 +282,8 @@ void TrackRow::paint (juce::Graphics& g)
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
         juce::String title = live ? juce::String ("Recording") : tr.name;
         if (! live && tr.takes.size() > 1) title << "   take " << (tr.currentTake + 1) << "/" << (int) tr.takes.size();
+        if (! live && tr.nudge.load() != 0)
+            title << "   " << (tr.nudge.load() > 0 ? "+" : "") << juce::String (tr.nudge.load() * 1000.0 / juce::jmax (1.0, sr), 1) << " ms";
         g.drawText (title, strip.reduced (5.0f, 0.0f), juce::Justification::centredLeft);
 
         g.setColour (col.withMultipliedBrightness (0.30f).withMultipliedSaturation (0.8f));
@@ -329,6 +319,11 @@ void TrackRow::paint (juce::Graphics& g)
             else
                 drawLane (mn, mx, clip);
         }
+        };
+        drawClip (nudgePx);
+        // a one-loop take wraps around when nudged, exactly like it plays back
+        if (! live && nudgePx != 0.0f && engine.loopEnabled.load() && clipW >= w.getWidth() - 3.0f)
+            drawClip (nudgePx + (nudgePx > 0.0f ? -clipW : clipW));
     }
     else
     {
@@ -453,26 +448,62 @@ void TrackRow::quantize (double division, float strength)
     t.applyEdit (sr);
 }
 
+juce::MouseCursor TrackRow::getMouseCursor()
+{
+    if (! track().editing && track().length.load() > 0 && wave.contains (getMouseXYRelative()))
+        return juce::MouseCursor::LeftRightResizeCursor;
+    return juce::Component::getMouseCursor();
+}
+
+// Drag the clip sideways to nudge the track in time (right-drag always, left-drag when not editing hits).
 void TrackRow::mouseDown (const juce::MouseEvent& e)
 {
     auto& t = track();
     dragHit = -1;
-    if (! t.editing || ! wave.contains (e.getPosition())) return;
-    const int h = hitAt (e.x);
-    if (h < 0) return;
-    if (e.mods.isPopupMenu())      // right-click removes a hit
-    {
-        t.hits.erase (t.hits.begin() + h);
-        t.applyEdit (engine.getSampleRate());
-        repaint();
-        return;
-    }
-    dragHit = h;
-}
+    nudging = false;
+    if (! wave.contains (e.getPosition())) return;
 
+    if (t.editing)
+    {
+        const int h = hitAt (e.x);
+        if (h >= 0)
+        {
+            if (e.mods.isPopupMenu())      // right-click on a hit removes it
+            {
+                t.hits.erase (t.hits.begin() + h);
+                t.applyEdit (engine.getSampleRate());
+                repaint();
+            }
+            else
+                dragHit = h;
+            return;
+        }
+        if (! e.mods.isPopupMenu()) return;   // left-drag in empty space does nothing while editing hits
+    }
+
+    if (t.length.load() > 0 && (e.mods.isPopupMenu() || e.mods.isLeftButtonDown()))
+    {
+        nudging = true;
+        nudgeStartX = e.x;
+        nudgeStartVal = t.nudge.load();
+    }
+}
 void TrackRow::mouseDrag (const juce::MouseEvent& e)
 {
     auto& t = track();
+    if (nudging)
+    {
+        const double sr = engine.getSampleRate();
+        double total = nudgeStartVal + (e.x - nudgeStartX) / (wave.getWidth() / viewSeconds) * sr;
+        if (e.mods.isShiftDown())        // Shift = snap to 1/16 notes
+        {
+            const double step = engine.getSamplesPerBeat() / 4.0;
+            total = std::round (total / step) * step;
+        }
+        track().nudge = (int) juce::jlimit (-2.0 * sr, 2.0 * sr, total);
+        repaint (wave);
+        return;
+    }
     if (dragHit < 0 || dragHit >= (int) t.hits.size()) return;
     const juce::int64 gap = (juce::int64) (0.02 * engine.getSampleRate());
     const auto lo = (dragHit == 0 ? 0 : t.hits[(size_t) dragHit - 1].dst) + gap;
@@ -484,6 +515,7 @@ void TrackRow::mouseDrag (const juce::MouseEvent& e)
 
 void TrackRow::mouseUp (const juce::MouseEvent&)
 {
+    nudging = false;
     if (dragHit >= 0)
     {
         track().applyEdit (engine.getSampleRate());   // re-render once, when the marker is released
@@ -495,7 +527,8 @@ void TrackRow::mouseUp (const juce::MouseEvent&)
 void TrackRow::mouseDoubleClick (const juce::MouseEvent& e)
 {
     auto& t = track();
-    if (! t.editing || ! wave.contains (e.getPosition())) return;
+    if (! wave.contains (e.getPosition())) return;
+    if (! t.editing) { t.nudge = 0; repaint (wave); return; }   // double-click resets the nudge
     const double sr = engine.getSampleRate();
     const int h = hitAt (e.x);
     if (h >= 0) { t.hits[(size_t) h].dst = t.hits[(size_t) h].src; t.applyEdit (sr); repaint(); return; }
@@ -519,7 +552,7 @@ void TrackRow::resized()
     r.removeFromLeft (4);
     grip.setBounds (r.removeFromLeft (16));
     r.removeFromLeft (6);
-    auto header = r.removeFromLeft (392);
+    auto header = r.removeFromLeft (336);
     r.removeFromLeft (8);
     meter.setBounds (r.removeFromRight (14));
     r.removeFromRight (6);
@@ -547,8 +580,6 @@ void TrackRow::resized()
     solo.setBounds (l2.removeFromLeft (bw).withSizeKeepingCentre (bw, 30)); l2.removeFromLeft (8);
     pan.setBounds (l2.removeFromLeft (44));
     l2.removeFromLeft (6);
-    nudge.setBounds (l2.removeFromRight (74).withSizeKeepingCentre (74, 22));
-    l2.removeFromRight (6);
     dbLabel.setBounds (l2.removeFromRight (56));
     fader.setBounds (l2);
 }

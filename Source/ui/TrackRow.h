@@ -7,7 +7,7 @@
 class TrackRow : public juce::Component
 {
 public:
-    static constexpr int waveLeft = 436, waveRightInset = 30, clipStripH = 14;   // lane geometry shared with the Ruler
+    static constexpr int waveLeft = 380, waveRightInset = 30, clipStripH = 14;   // lane geometry shared with the Ruler
     TrackRow (AudioEngine& e, int slot);
 
     int slot() const noexcept { return index; }
@@ -21,6 +21,7 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
+    juce::MouseCursor getMouseCursor() override;
 
     std::function<void (TrackRow*)> onDelete, onDragStart, onDragEnd;
     std::function<void()> onReleaseFocus;   // give keyboard focus back to main window (shortcuts)
@@ -56,6 +57,8 @@ private:
     juce::int64 xToSample (float x) const;
     juce::TextButton hitsBtn { "Hits" };
     int dragHit = -1;
+    bool nudging = false;
+    int nudgeStartX = 0, nudgeStartVal = 0;
     float riseDb = 6.0f;
 
     Grip grip { *this };
@@ -63,7 +66,7 @@ private:
     juce::ComboBox input;
     LevelMeter inMeter, meter;
     juce::TextButton arm { "R" }, mute { "M" }, solo { "S" }, del { juce::String::fromUTF8 ("\xC3\x97") };
-    juce::Slider pan, fader, nudge;
+    juce::Slider pan, fader;
     juce::Rectangle<int> wave, nameBar;
 
     // waveform min/max cache (incremental, 256 samples per bin)
