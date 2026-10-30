@@ -79,6 +79,18 @@ inline juce::String runEngineSelfTest()
     check (Exporter::bounceWav (*eng, tmp, 2, err), "bounceWav succeeds " + err);
     check (tmp.getSize() > 2 * loopLen * 2 * 3, "exported WAV has 2 loops of 24-bit stereo (" + juce::String (tmp.getSize()) + " bytes)");
     tmp.deleteFile();
+    if (Exporter::mp3Available)
+    {
+        auto mp3 = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("rc_selftest_export.mp3");
+        juce::String e2;
+        check (Exporter::bounceMp3 (*eng, mp3, 2, 192, e2), "bounceMp3 succeeds " + e2);
+        juce::MemoryBlock mb; mp3.loadFileAsData (mb);
+        const auto* b = (const unsigned char*) mb.getData();
+        const bool sync = mb.getSize() > 4 && ((b[0] == 0xFF && (b[1] & 0xE0) == 0xE0) || (b[0] == 'I' && b[1] == 'D' && b[2] == '3'));
+        // 2 loops @120 BPM, 1 bar each = 4 s at 192 kbps = ~96 kB
+        check (sync && mb.getSize() > 60000 && mb.getSize() < 130000, "MP3 has valid frame sync and plausible size (" + juce::String ((int) mb.getSize()) + " bytes)");
+        mp3.deleteFile();
+    }
 
     log << (ok ? "ALL OK" : "FAILURES") << "\n";
     return log;

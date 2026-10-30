@@ -1,9 +1,12 @@
 #include "Exporter.h"
 #include <juce_audio_formats/juce_audio_formats.h>
+#if RC_MP3
+ #include <lame.h>
+#endif
 
 namespace Exporter
 {
-bool bounceWav (AudioEngine& e, const juce::File& file, int loops, juce::String& error)
+static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix, juce::String& error)
 {
     const double sr = e.getSampleRate();
     const bool loopMode = e.loopEnabled.load();
@@ -17,7 +20,7 @@ bool bounceWav (AudioEngine& e, const juce::File& file, int loops, juce::String&
     const juce::int64 total = passLen * juce::jmax (1, loopMode ? loops : 1);
     if (total > (juce::int64) sr * 3600) { error = "Export too long."; return false; }
 
-    juce::AudioBuffer<float> mix (2, (int) total);
+    mix.setSize (2, (int) total);
     mix.clear();
 
     bool anySolo = false;
@@ -52,6 +55,14 @@ bool bounceWav (AudioEngine& e, const juce::File& file, int loops, juce::String&
         }
     }
     mix.applyGain (e.masterVolume.load());
+    return true;
+}
+
+bool bounceWav (AudioEngine& e, const juce::File& file, int loops, juce::String& error)
+{
+    juce::AudioBuffer<float> mix;
+    if (! renderMix (e, loops, mix, error)) return false;
+    const double sr = e.getSampleRate();
 
     file.deleteFile();
     std::unique_ptr<juce::FileOutputStream> os (file.createOutputStream());
@@ -62,5 +73,54 @@ bool bounceWav (AudioEngine& e, const juce::File& file, int loops, juce::String&
     os.release();
     if (! w->writeFromAudioSampleBuffer (mix, 0, mix.getNumSamples())) { error = "Write failed"; return false; }
     return true;
+}
+
+bool bounceMp3 (AudioEngine& e, const juce::File& file, int loops, int kbps, juce::String& error)
+{
+#if RC_MP3
+    juce::AudioBuffer<float> mix;
+    if (! renderMix (e, loops, mix, error)) return false;
+
+    for (int c = 0; c < 2; ++c)   // LAME expects +-1.0 floats; avoid overs
+        juce::FloatVectorOperations::clip (mix.getWritePointer (c), mix.getReadPointer (c), -1.0f, 1.0f, mix.getNumSamples());
+
+    lame_t gf = lame_init();
+    if (gf == nullptr) { error = "LAME init failed"; return false; }
+    lame_set_in_samplerate (gf, (int) std::lround (e.getSampleRate()));
+    lame_set_num_channels (gf, 2);
+    lame_set_mode (gf, JOINT_STEREO);
+    lame_set_brate (gf, kbps);
+    lame_set_quality (gf, 2);
+    if (lame_init_params (gf) < 0) { lame_close (gf); error = "LAME could not be configured"; return false; }
+
+    file.deleteFile();
+    std::unique_ptr<juce::FileOutputStream> os (file.createOutputStream());
+    if (os == nullptr) { lame_close (gf); error = "Could not write " + file.getFullPathName(); return false; }
+
+    constexpr int block = 8192;
+    std::vector<unsigned char> out ((size_t) (block * 5 / 4 + 7200));
+    bool ok = true;
+    for (int pos = 0; pos < mix.getNumSamples() && ok; pos += block)
+    {
+        const int n = juce::jmin (block, mix.getNumSamples() - pos);
+        const int bytes = lame_encode_buffer_ieee_float (gf, mix.getReadPointer (0) + pos, mix.getReadPointer (1) + pos,
+                                                         n, out.data(), (int) out.size());
+        if (bytes < 0) { error = "LAME encode error " + juce::String (bytes); ok = false; }
+        else if (bytes > 0) ok = os->write (out.data(), (size_t) bytes);
+    }
+    if (ok)
+    {
+        const int bytes = lame_encode_flush (gf, out.data(), (int) out.size());
+        if (bytes > 0) ok = os->write (out.data(), (size_t) bytes);
+    }
+    lame_close (gf);
+    os->flush();
+    if (! ok && error.isEmpty()) error = "Write failed";
+    return ok;
+#else
+    juce::ignoreUnused (e, file, loops, kbps);
+    error = "This build was made without LAME (MP3 support).";
+    return false;
+#endif
 }
 }

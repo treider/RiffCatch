@@ -67,7 +67,7 @@ MainComponent::MainComponent()
         addAndMakeVisible (b);
     }
     saveBtn.setColour (juce::TextButton::buttonColourId, Theme::blue.withAlpha (0.25f));
-    exportBtn.setTooltip ("Bounce master to WAV");
+    exportBtn.setTooltip ("Bounce master to WAV or MP3");
     exportBtn.onClick = [this] { exportMenu(); };
     newBtn.onClick   = [this] { newProject(); };
     openBtn.onClick  = [this] { openProject(); };
@@ -247,41 +247,60 @@ void MainComponent::saveLatencyAdjust()
     if (auto* f = props.getUserSettings()) { f->setValue ("latencyAdjustMs", latAdjust.getValue()); f->saveIfNeeded(); }
 }
 
+// Menu item id = kind * 100 + loops. kind: 1 = WAV, 2..4 = MP3 192/256/320 kbps
 void MainComponent::exportMenu()
 {
+    const bool looping = engine.loopEnabled.load();
+    auto addFormat = [&] (juce::PopupMenu& m, int kind, const juce::String& title)
+    {
+        if (looping)
+        {
+            juce::PopupMenu sub;
+            for (int loops : { 1, 2, 4, 8 })
+                sub.addItem (kind * 100 + loops, juce::String (loops) + (loops == 1 ? " loop" : " loops"));
+            m.addSubMenu (title, sub);
+        }
+        else
+            m.addItem (kind * 100 + 1, title + " (full length)");
+    };
+
     juce::PopupMenu m;
-    if (engine.loopEnabled.load())
+    addFormat (m, 1, "WAV 24-bit");
+    if (Exporter::mp3Available)
     {
-        m.addItem (1, "WAV - 1 loop");
-        m.addItem (2, "WAV - 2 loops");
-        m.addItem (4, "WAV - 4 loops");
-        m.addItem (8, "WAV - 8 loops");
+        m.addSeparator();
+        addFormat (m, 2, "MP3 192 kbps");
+        addFormat (m, 3, "MP3 256 kbps");
+        addFormat (m, 4, "MP3 320 kbps");
     }
-    else
-        m.addItem (1, "WAV - full length");
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&exportBtn), [this] (int loops)
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&exportBtn), [this] (int id)
     {
-        if (loops <= 0) return;
-        chooser = std::make_unique<juce::FileChooser> ("Export WAV",
-            juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (
-                (projectDir == juce::File() ? juce::String ("RiffCatch") : projectDir.getFileName()) + ".wav"), "*.wav");
+        if (id <= 0) return;
+        const int kind = id / 100, loops = id % 100;
+        const bool mp3 = kind > 1;
+        const juce::String ext = mp3 ? "mp3" : "wav";
+        const auto base = projectDir == juce::File() ? juce::String ("RiffCatch") : projectDir.getFileName();
+        chooser = std::make_unique<juce::FileChooser> (mp3 ? "Export MP3" : "Export WAV",
+            juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (base + "." + ext), "*." + ext);
         chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                                   | juce::FileBrowserComponent::warnAboutOverwriting,
-                              [this, loops] (const juce::FileChooser& fc)
+                              [this, kind, loops, ext] (const juce::FileChooser& fc)
                               {
                                   auto f = fc.getResult();
-                                  if (f != juce::File()) doExportWav (f.withFileExtension ("wav"), loops);
+                                  if (f != juce::File()) doExport (f.withFileExtension (ext), kind, loops);
                               });
     });
 }
 
-void MainComponent::doExportWav (const juce::File& f, int loops)
+void MainComponent::doExport (const juce::File& f, int kind, int loops)
 {
     juce::String err;
-    if (Exporter::bounceWav (engine, f, loops, err)) setStatus ("Exported " + f.getFullPathName());
+    const int kbps = kind == 2 ? 192 : kind == 3 ? 256 : 320;
+    const bool ok = kind == 1 ? Exporter::bounceWav (engine, f, loops, err)
+                              : Exporter::bounceMp3 (engine, f, loops, kbps, err);
+    if (ok) setStatus ("Exported " + f.getFullPathName());
     else juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export failed", err);
 }
-
 void MainComponent::addTrack()
 {
     if (engine.addTrack() < 0) return;

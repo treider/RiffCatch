@@ -3,3 +3,4 @@ third_party/asio_sdk/
 *.user
 .vs/
 
+third_party/lame/

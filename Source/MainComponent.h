@@ -34,7 +34,7 @@ private:
     void togglePlay();
     void tapTempo();
     void exportMenu();
-    void doExportWav (const juce::File&, int loops);
+    void doExport (const juce::File&, int kind, int loops);
     void saveLatencyAdjust();
     void setBpm (double v);
     void updateSettingsFromEngine();

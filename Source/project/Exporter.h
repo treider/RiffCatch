@@ -4,7 +4,14 @@
 
 namespace Exporter
 {
+    constexpr bool mp3Available =
+#if RC_MP3
+        true;
+#else
+        false;
+#endif
+
     // Offline bounce of the master mix (tracks only, no click). `loops` = how many times the loop is rendered.
-    // Writes 24-bit stereo WAV. Returns false with an error message on failure.
-    bool bounceWav (AudioEngine& engine, const juce::File& file, int loops, juce::String& error);
+    bool bounceWav (AudioEngine& engine, const juce::File& file, int loops, juce::String& error);   // 24-bit stereo
+    bool bounceMp3 (AudioEngine& engine, const juce::File& file, int loops, int kbps, juce::String& error);
 }
