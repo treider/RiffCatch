@@ -393,7 +393,7 @@ void MainComponent::timerCallback()
 
     if (st == AudioEngine::CountIn)
     {
-        const auto left = (int) std::ceil ((double) (engine.getCountInLength() - engine.getCountInPosition()) / spb - 1.0e-6);
+        const auto left = (int) std::ceil ((double) (engine.getCountInLength() - engine.getCountInPosition()) / sr - 1.0e-6);   // seconds remaining
         barLabel.setText ("Count-in " + juce::String (juce::jmax (1, left)), juce::dontSendNotification);
         barLabel.setColour (juce::Label::textColourId, Theme::yellow);
     }
