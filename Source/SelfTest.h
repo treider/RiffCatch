@@ -172,11 +172,23 @@ inline juce::String runEngineSelfTest()
         const auto p1 = t.commitTake (a, 1000);
         check (p1.first == -1 && p1.second == 0 && t.length.load() == 1000, "first commit reports prev=-1, new=0");
         const auto p2 = t.commitTake (b, 1000);
-        check (p2.first == 0 && p2.second == 1 && std::abs (t.data.getSample (0, 5) - 0.5f) < 1.0e-6f, "second commit reports prev=0, new=1");
+        check (p2.first == 0 && p2.second == 1 && std::abs (t.data.getSample (0, 500) - 0.5f) < 1.0e-6f, "second commit reports prev=0, new=1");
         t.applyTake (p2.first);
-        check (std::abs (t.data.getSample (0, 5) - 0.25f) < 1.0e-6f, "undo of a take restores the previous take");
+        check (std::abs (t.data.getSample (0, 500) - 0.25f) < 1.0e-6f, "undo of a take restores the previous take");
         t.applyTake (p2.second);
-        check (std::abs (t.data.getSample (0, 5) - 0.5f) < 1.0e-6f, "redo of a take brings the new take back");
+        check (std::abs (t.data.getSample (0, 0)) < 0.05f && std::abs (t.data.getSample (0, 999)) < 0.05f, "loop seam is faded (no click at take start/end)");
+        {   // region editing: copy, silence, restore
+            auto reg = t.copyRegion (100, 200);
+            check (reg.getNumSamples() == 100 && std::abs (reg.getSample (0, 50) - 0.5f) < 1.0e-6f, "copyRegion returns the selected samples");
+            juce::AudioBuffer<float> z (2, 100); z.clear();
+            t.writeRegion (100, z);
+            check (t.data.getSample (0, 150) == 0.0f && std::abs (t.data.getSample (0, 99) - 0.5f) < 1.0e-6f && std::abs (t.data.getSample (0, 200) - 0.5f) < 1.0e-6f, "writeRegion silences only the selection");
+            t.writeRegion (100, reg);
+            check (std::abs (t.data.getSample (0, 150) - 0.5f) < 1.0e-6f, "writeRegion restores the region (undo)");
+            t.writeRegion (950, reg);
+            check (t.length.load() == 1000, "writeRegion never extends the take");
+        }
+        check (std::abs (t.data.getSample (0, 500) - 0.5f) < 1.0e-6f, "redo of a take brings the new take back");
 
         juce::UndoManager um;
         int value = 1;

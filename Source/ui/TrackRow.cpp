@@ -375,6 +375,14 @@ void TrackRow::paint (juce::Graphics& g)
         {
             g.setColour (col.brighter (0.35f));
             const double spp = sr * viewSeconds / w.getWidth();     // samples per pixel
+            // auto-zoom: scale the drawing so the loudest peak of the take fills the lane height
+            float peak = 0.0f;
+            for (juce::int64 k = 0; k < done; ++k)
+            {
+                peak = juce::jmax (peak, mx[(size_t) k], -mn[(size_t) k]);
+                if (stereo) peak = juce::jmax (peak, mx2[(size_t) k], -mn2[(size_t) k]);
+            }
+            const float gain = juce::jlimit (1.0f, 40.0f, 0.95f / juce::jmax (0.001f, peak));
             auto drawLane = [&] (const std::vector<float>& lo, const std::vector<float>& hi, juce::Rectangle<float> area)
             {
                 const float mid = area.getCentreY(), half = area.getHeight() * 0.5f - 2.0f;
@@ -385,8 +393,8 @@ void TrackRow::paint (juce::Graphics& g)
                     const auto b1 = juce::jmin (done, juce::jmax (b0 + 1, (juce::int64) ((x + 1) * spp / binSize)));
                     float mnv = 0.0f, mxv = 0.0f;
                     for (auto k = b0; k < b1; ++k) { mnv = juce::jmin (mnv, lo[(size_t) k]); mxv = juce::jmax (mxv, hi[(size_t) k]); }
-                    const float y1 = mid - juce::jlimit (0.0f, 1.0f, mxv) * half;
-                    const float y2 = mid - juce::jlimit (-1.0f, 0.0f, mnv) * half;
+                    const float y1 = mid - juce::jlimit (0.0f, 1.0f, mxv * gain) * half;
+                    const float y2 = mid - juce::jlimit (-1.0f, 0.0f, mnv * gain) * half;
                     g.fillRect ((float) (area.getX() + x), y1, 1.0f, juce::jmax (1.0f, y2 - y1));
                 }
             };
@@ -412,6 +420,19 @@ void TrackRow::paint (juce::Graphics& g)
         g.setColour (Theme::dim);
         g.setFont (12.0f);
         g.drawText (armed ? "Armed - press R to record" : "Empty", wave, juce::Justification::centred);
+    }
+
+    if (selEnd > len) selEnd = len;
+    if (selStart >= selEnd) selStart = selEnd = 0;
+    if (hasSelection() && ! tr.editing)
+    {
+        const int nd = tr.nudge.load();
+        const float x0 = sampleToX (selStart + nd), x1 = sampleToX (selEnd + nd);
+        g.setColour (Theme::text.withAlpha (0.16f));
+        g.fillRect (x0, w.getY(), x1 - x0, w.getHeight());
+        g.setColour (Theme::text.withAlpha (0.75f));
+        g.fillRect (x0, w.getY(), 1.0f, w.getHeight());
+        g.fillRect (x1 - 1.0f, w.getY(), 1.0f, w.getHeight());
     }
 
     if (tr.editing)
@@ -486,6 +507,7 @@ void TrackRow::showHitsMenu()
     {
         auto& tr = track();
         const double sr = engine.getSampleRate();
+        if (id == 1 || id == 6 || id == 7) clearSelection();
         switch (id)
         {
             case 1:
@@ -538,7 +560,7 @@ void TrackRow::quantize (double division, float strength)
 juce::MouseCursor TrackRow::getMouseCursor()
 {
     if (! track().editing && track().length.load() > 0 && wave.contains (getMouseXYRelative()))
-        return juce::MouseCursor::LeftRightResizeCursor;
+        return juce::MouseCursor::IBeamCursor;
     return juce::Component::getMouseCursor();
 }
 
@@ -548,6 +570,7 @@ void TrackRow::mouseDown (const juce::MouseEvent& e)
     auto& t = track();
     dragHit = -1;
     nudging = false;
+    selecting = false;
     if (! wave.contains (e.getPosition())) return;
 
     if (t.editing)
@@ -573,16 +596,33 @@ void TrackRow::mouseDown (const juce::MouseEvent& e)
         if (! e.mods.isPopupMenu()) return;   // left-drag in empty space does nothing while editing hits
     }
 
-    if (t.length.load() > 0 && (e.mods.isPopupMenu() || e.mods.isLeftButtonDown()))
+    if (t.length.load() <= 0) return;
+    if (e.mods.isPopupMenu())          // right button: drag = nudge in time, click = clip menu
     {
         nudging = true;
         nudgeStartX = e.x;
         nudgeStartVal = t.nudge.load();
     }
+    else if (e.mods.isLeftButtonDown())   // left button: select a region (Shift = snap to 1/16)
+    {
+        selecting = true;
+        selAnchor = xToTake ((float) e.x, e.mods.isShiftDown());
+        selStart = selEnd = selAnchor;
+        if (onSelectionStarted) onSelectionStarted (this);
+        repaint (wave);
+    }
 }
 void TrackRow::mouseDrag (const juce::MouseEvent& e)
 {
     auto& t = track();
+    if (selecting)
+    {
+        const auto cur = xToTake ((float) e.x, e.mods.isShiftDown());
+        selStart = juce::jmin (selAnchor, cur);
+        selEnd = juce::jmax (selAnchor, cur);
+        repaint (wave);
+        return;
+    }
     if (nudging)
     {
         const double sr = engine.getSampleRate();
@@ -605,13 +645,25 @@ void TrackRow::mouseDrag (const juce::MouseEvent& e)
     repaint (wave);
 }
 
-void TrackRow::mouseUp (const juce::MouseEvent&)
+void TrackRow::mouseUp (const juce::MouseEvent& e)
 {
+    if (selecting)
+    {
+        selecting = false;
+        if (std::abs (e.getDistanceFromDragStartX()) < 3) { selStart = selEnd = 0; repaint (wave); }   // a plain click clears
+        if (onReleaseFocus) onReleaseFocus();
+        return;
+    }
     if (nudging)
     {
         const int before = nudgeStartVal, after = track().nudge.load();
         if (before != after)
             push ("Nudge", [this, after] { track().nudge = after; repaint(); }, [this, before] { track().nudge = before; repaint(); });
+        else if (! e.mouseWasDraggedSinceMouseDown())
+        {
+            nudging = false;
+            showClipMenu();
+        }
     }
     nudging = false;
     if (dragHit >= 0)
@@ -660,6 +712,118 @@ void TrackRow::mouseDoubleClick (const juce::MouseEvent& e)
     t.hits.insert (t.hits.begin() + (long) at, { s0 + (juce::int64) std::llround (f * (double) (s1 - s0)), dst });
     pushHitEdit ("Add hit", before);
     repaint();
+}
+
+// ---------------------------------------------------------------- selection editing
+
+juce::int64 TrackRow::xToTake (float x, bool snap) const
+{
+    double t = (double) xToSample (x);
+    if (snap)
+    {
+        const double step = engine.getSamplesPerBeat() / 4.0;     // 1/16 notes
+        t = std::round (t / step) * step;
+    }
+    const auto& tr = engine.tracks[index];
+    return juce::jlimit<juce::int64> (0, tr.length.load(), (juce::int64) std::llround (t) - tr.nudge.load());
+}
+
+void TrackRow::selectionCommand (SelCmd cmd)
+{
+    auto& t = track();
+    const auto st = engine.getState();
+    auto say = [this] (const juce::String& s) { if (onStatus) onStatus (s); };
+    if (st == AudioEngine::Recording || st == AudioEngine::CountIn) { say ("Stop recording first"); return; }
+    if (t.editing) { say ("Leave hit editing first"); return; }
+    const juce::int64 len = t.length.load();
+    if (len <= 0) return;
+
+    juce::int64 s0 = selStart, s1 = juce::jmin (selEnd, len);
+    if (cmd == SelPaste)
+    {
+        if (clipboard.getNumSamples() == 0) { say ("Nothing to paste"); return; }
+        if (! hasSelection())    // no selection: paste at the playhead
+        {
+            const juce::int64 pos = st == AudioEngine::Stopped ? engine.getCursor() : engine.getPosition();
+            s0 = pos - t.nudge.load();
+        }
+        if (s0 < 0 || s0 >= len) { say ("Playhead is outside this track"); return; }
+        s1 = juce::jmin<juce::int64> (len, s0 + clipboard.getNumSamples());
+    }
+    else if (! hasSelection() || s1 <= s0) { say ("Select a region first: drag in the waveform"); return; }
+
+    auto before = std::make_shared<juce::AudioBuffer<float>> (t.copyRegion (s0, s1));
+    auto after = std::make_shared<juce::AudioBuffer<float>> (2, before->getNumSamples());
+    const int n = before->getNumSamples();
+    juce::String name;
+
+    switch (cmd)
+    {
+        case SelCopy:
+            clipboard = *before;
+            say ("Copied " + juce::String ((double) n / juce::jmax (1.0, engine.getSampleRate()), 2) + " s");
+            return;
+        case SelSilence: case SelCut:
+            if (cmd == SelCut) clipboard = *before;
+            after->clear();
+            name = cmd == SelCut ? "Cut" : "Silence";
+            break;
+        case SelFadeIn: case SelFadeOut:
+            for (int c = 0; c < 2; ++c)
+            {
+                after->copyFrom (c, 0, *before, c, 0, n);
+                auto* d = after->getWritePointer (c);
+                for (int i = 0; i < n; ++i)
+                {
+                    const float g = (float) (i + 1) / (float) (n + 1);
+                    d[i] *= cmd == SelFadeIn ? g : 1.0f - g;
+                }
+            }
+            name = cmd == SelFadeIn ? "Fade in" : "Fade out";
+            break;
+        case SelPaste:
+            for (int c = 0; c < 2; ++c) after->copyFrom (c, 0, clipboard, c, 0, n);
+            name = "Paste";
+            selStart = s0; selEnd = s1;
+            break;
+    }
+
+    t.resetEdit();   // older hit-edit undo steps must not touch the changed audio
+    push (name,
+          [this, s0, after] { track().writeRegion (s0, *after); repaint(); },
+          [this, s0, before] { track().writeRegion (s0, *before); repaint(); });
+}
+
+void TrackRow::showClipMenu()
+{
+    auto& t = track();
+    if (t.editing || t.length.load() <= 0) return;
+    const bool sel = hasSelection();
+    juce::PopupMenu m;
+    m.addItem (1, "Silence selection\tDel", sel);
+    m.addItem (2, "Cut\tCtrl+X", sel);
+    m.addItem (3, "Copy\tCtrl+C", sel);
+    m.addItem (4, "Paste\tCtrl+V", clipboard.getNumSamples() > 0);
+    m.addSeparator();
+    m.addItem (5, "Fade in", sel);
+    m.addItem (6, "Fade out", sel);
+    m.addSeparator();
+    m.addItem (7, "Duplicate track\tCtrl+D");
+    m.showMenuAsync (juce::PopupMenu::Options(), [this] (int id)
+    {
+        switch (id)
+        {
+            case 1: selectionCommand (SelSilence); break;
+            case 2: selectionCommand (SelCut); break;
+            case 3: selectionCommand (SelCopy); break;
+            case 4: selectionCommand (SelPaste); break;
+            case 5: selectionCommand (SelFadeIn); break;
+            case 6: selectionCommand (SelFadeOut); break;
+            case 7: if (onDuplicate) onDuplicate (this); break;
+            default: break;
+        }
+        if (onReleaseFocus) onReleaseFocus();
+    });
 }
 
 void TrackRow::resized()

@@ -31,6 +31,14 @@ public:
     std::function<void()> onReleaseFocus;   // give keyboard focus back to main window (shortcuts)
     std::function<void (TrackRow*, int)> onDragMove;
 
+    // --- selection editing (drag in the waveform to select) ---
+    enum SelCmd { SelSilence, SelCut, SelCopy, SelPaste, SelFadeIn, SelFadeOut };
+    bool hasSelection() const noexcept { return selEnd > selStart; }
+    void clearSelection() { if (selEnd > selStart) { selStart = selEnd = 0; repaint (wave); } }
+    void selectionCommand (SelCmd cmd);
+    std::function<void (TrackRow*)> onSelectionStarted, onDuplicate;
+    std::function<void (const juce::String&)> onStatus;
+
 private:
     struct Grip : juce::Component
     {
@@ -71,7 +79,11 @@ private:
     juce::TextButton hitsBtn { "Hits" };
     int dragHit = -1;
     int lastGlowState = -1;
-    bool nudging = false;
+    bool nudging = false, selecting = false;
+    juce::int64 selStart = 0, selEnd = 0, selAnchor = 0;      // selection in take samples
+    juce::int64 xToTake (float x, bool snap) const;
+    void showClipMenu();
+    static inline juce::AudioBuffer<float> clipboard;
     int nudgeStartX = 0, nudgeStartVal = 0;
     float riseDb = 6.0f;
 

@@ -24,6 +24,13 @@ MainComponent::MainComponent()
         r->onUndoable  = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
         r->onArmChanged = [this] { warnIfMultipleArmed(); };
         r->onDelete    = [this] (TrackRow* row) { deleteTrack (row); };
+        r->onDuplicate = [this] (TrackRow* row) { duplicateTrack (row->slot()); };
+        r->onStatus    = [this] (const juce::String& s) { setStatus (s); };
+        r->onSelectionStarted = [this] (TrackRow* row)
+        {
+            selSlot = row->slot();
+            for (auto* o : rows) if (o != row) o->clearSelection();
+        };
         r->onDragStart = [this] (TrackRow* row) { list.dragStart (row); };
         r->onDragMove  = [this] (TrackRow* row, int dy) { list.dragMove (row, dy); };
         r->onDragEnd   = [this] (TrackRow* row) { list.dragEnd (row); };
@@ -169,9 +176,8 @@ MainComponent::MainComponent()
     addAndMakeVisible (countInBox);
 
     latLabel.setColour (juce::Label::textColourId, Theme::dim);
-    latLabel.setJustificationType (juce::Justification::centredRight);
+    latLabel.setJustificationType (juce::Justification::centredLeft);
     latLabel.setTooltip ("Round-trip latency reported by the audio driver. Recordings are shifted earlier by this amount (plus the adjustment) so they sit on the grid.");
-    addAndMakeVisible (latLabel);
     latAdjust.setSliderStyle (juce::Slider::LinearBar);
     latAdjust.setRange (-50.0, 50.0, 0.5);
     latAdjust.setNumDecimalPlacesToDisplay (1);
@@ -183,7 +189,6 @@ MainComponent::MainComponent()
     latAdjust.setWantsKeyboardFocus (false);
     latAdjust.setTooltip ("Extra latency compensation in ms (fine-tune until recordings sit on the click)");
     latAdjust.onValueChange = [this] { saveLatencyAdjust(); };
-    addAndMakeVisible (latAdjust);
     if (auto* f = props.getUserSettings()) latAdjust.setValue (f->getDoubleValue ("latencyAdjustMs", 0.0), juce::sendNotification);
 
     barLabel.setJustificationType (juce::Justification::centredLeft);
@@ -411,6 +416,24 @@ void MainComponent::deleteTrack (TrackRow* row)
                                         juce::ModalCallbackFunction::create ([doDelete] (int r) { if (r == 1) doDelete(); }));
 }
 
+void MainComponent::duplicateTrack (int src)
+{
+    if (engine.getNumTracks() >= AudioEngine::maxTracks) { setStatus ("Track limit reached"); return; }
+    auto snap = std::make_shared<TrackSnap> (captureTrack (src));
+    snap->name += " copy";
+    snap->orderPos += 1;     // right below the original
+    auto slot = std::make_shared<int> (-1);
+    record ("Duplicate track",
+            [this, slot, snap] { snap->slot = *slot; *slot = restoreTrack (*snap); syncRows(); },
+            [this, slot] { engine.removeTrack (*slot); syncRows(); });
+}
+
+TrackRow* MainComponent::selectionRow()
+{
+    if (selSlot < 0 || selSlot >= rows.size() || ! engine.tracks[selSlot].active.load()) return nullptr;
+    return rows[selSlot];
+}
+
 void MainComponent::doUndo (bool redo)
 {
     const auto st = engine.getState();
@@ -477,6 +500,14 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
         if (code == 'O') { openProject(); return true; }
         if (code == 'N') { newProject(); return true; }
         if (code == 'T') { addTrack(); return true; }
+        if (code == 'C' || code == 'X' || code == 'V')
+        {
+            if (auto* r = selectionRow())
+                r->selectionCommand (code == 'C' ? TrackRow::SelCopy : code == 'X' ? TrackRow::SelCut : TrackRow::SelPaste);
+            else setStatus ("Select a region first: drag in a waveform");
+            return true;
+        }
+        if (code == 'D') { if (auto* r = selectionRow()) duplicateTrack (r->slot()); return true; }
         if (code == 'Z') { doUndo (mods.isShiftDown()); return true; }
         if (code == 'Y') { doUndo (true); return true; }
         if (code >= '1' && code <= '8')
@@ -501,6 +532,12 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
         else stopTransport();
         return true;
     }
+    if (k == juce::KeyPress::deleteKey || k == juce::KeyPress::backspaceKey)
+    {
+        if (auto* r = selectionRow()) r->selectionCommand (TrackRow::SelSilence);
+        return true;
+    }
+    if (k == juce::KeyPress::escapeKey) { for (auto* r : rows) r->clearSelection(); return true; }
     if (code == 'R') { toggleRecord(); return true; }
     if (code == 'T') { tapTempo(); return true; }
     if (code == 'C') { clickBtn.setToggleState (! clickBtn.getToggleState(), juce::sendNotification); return true; }
@@ -548,7 +585,7 @@ void MainComponent::timerCallback()
         c->setEnabled (idle);
 
     const double sr = juce::jmax (1.0, engine.getSampleRate());
-    latLabel.setText ("Latency " + juce::String (engine.deviceLatency.load() * 1000.0 / sr, 1) + " ms +", juce::dontSendNotification);
+    latLabel.setText ("Latency " + juce::String (engine.deviceLatency.load() * 1000.0 / sr, 1) + " ms  +  manual adjustment", juce::dontSendNotification);
     const double spb = engine.getSamplesPerBeat();
     const double secs = engine.getPosition() / sr;
     const int m = (int) (secs / 60.0);
@@ -634,8 +671,6 @@ void MainComponent::resized()
     clickVol.setBounds (sb.removeFromLeft (90));  sb.removeFromLeft (18);
     countCaption.setBounds (sb.removeFromLeft (64));
     countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (18);
-    latLabel.setBounds (sb.removeFromLeft (120));
-    latAdjust.setBounds (sb.removeFromLeft (80).withSizeKeepingCentre (80, 24)); sb.removeFromLeft (12);
     redoBtn.setBounds (sb.removeFromRight (56)); sb.removeFromRight (6);
     undoBtn.setBounds (sb.removeFromRight (56)); sb.removeFromRight (10);
     statusLabel.setBounds (sb);
@@ -655,8 +690,41 @@ void MainComponent::resized()
 void MainComponent::showAudioSettings()
 {
     if (audioDialog != nullptr) { audioDialog->toFront (true); return; }
-    auto* sel = new juce::AudioDeviceSelectorComponent (deviceManager, 0, 8, 0, 8, false, false, true, false);
-    sel->setSize (540, 480);
+    struct AudioPanel : juce::Component
+    {
+        AudioPanel (juce::AudioDeviceManager& dm, juce::Label& lab, juce::Slider& adj)
+            : selector (dm, 0, 8, 0, 8, false, false, true, false), label (lab), adjust (adj)
+        {
+            addAndMakeVisible (selector);
+            addAndMakeVisible (label);
+            addAndMakeVisible (adjust);
+            hint.setText ("Recordings are shifted earlier by the driver latency plus this value. Leave at 0 unless takes consistently land early/late.",
+                          juce::dontSendNotification);
+            hint.setColour (juce::Label::textColourId, Theme::dim);
+            hint.setFont (juce::Font (juce::FontOptions (12.0f)));
+            addAndMakeVisible (hint);
+            setSize (540, 560);
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds();
+            auto bottom = r.removeFromBottom (84).reduced (14, 6);
+            selector.setBounds (r);
+            auto row = bottom.removeFromTop (28);
+            label.setBounds (row.removeFromLeft (260));
+            adjust.setBounds (row.removeFromLeft (100).withSizeKeepingCentre (100, 24));
+            bottom.removeFromTop (4);
+            hint.setBounds (bottom);
+        }
+        void paint (juce::Graphics& g) override
+        {
+            g.setColour (Theme::border);
+            g.fillRect (14, getHeight() - 84, getWidth() - 28, 1);
+        }
+        juce::AudioDeviceSelectorComponent selector;
+        juce::Label& label; juce::Slider& adjust; juce::Label hint;
+    };
+    auto* sel = new AudioPanel (deviceManager, latLabel, latAdjust);
     juce::DialogWindow::LaunchOptions o;
     o.content.setOwned (sel);
     o.dialogTitle = "Audio settings";

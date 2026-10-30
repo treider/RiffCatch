@@ -147,10 +147,49 @@ public:
             t.copyFrom (c, 0, src, c, sh, len - sh);
             if (sh > 0) t.copyFrom (c, len - sh, src, c, 0, sh);
         }
+        declickSeam (t, len, (len - sh) % juce::jmax (1, len));
         takes.push_back (std::move (t));
         if ((int) takes.size() > maxTakes) takes.erase (takes.begin());
         applyTake ((int) takes.size() - 1);
         return { prev, currentTake };
+    }
+
+    // --- region editing (message thread): used by selection cut/fade/paste, all undoable by swapping regions ---
+    juce::AudioBuffer<float> copyRegion (juce::int64 s0, juce::int64 s1)
+    {
+        const auto len = length.load();
+        s0 = juce::jlimit<juce::int64> (0, len, s0);
+        s1 = juce::jlimit<juce::int64> (s0, len, s1);
+        juce::AudioBuffer<float> out (2, (int) (s1 - s0));
+        juce::SpinLock::ScopedLockType l (lock);
+        for (int c = 0; c < 2; ++c) out.copyFrom (c, 0, data, c, (int) s0, out.getNumSamples());
+        return out;
+    }
+
+    void writeRegion (juce::int64 s0, const juce::AudioBuffer<float>& src)   // overwrite, clipped to the take length
+    {
+        juce::SpinLock::ScopedLockType l (lock);
+        const auto n = juce::jmin<juce::int64> ((juce::int64) src.getNumSamples(), length.load() - s0);
+        if (s0 < 0 || n <= 0) return;
+        for (int c = 0; c < 2; ++c) data.copyFrom (c, (int) s0, src, c, 0, (int) n);
+        ++revision;
+    }
+
+    // Short fades remove the click where a pass starts/ends (or where the loop seam falls).
+    static constexpr int declickSamples = 96;     // ~2 ms
+    static void declickSeam (juce::AudioBuffer<float>& b, int len, int seam)
+    {
+        if (len < declickSamples * 4) return;
+        for (int c = 0; c < b.getNumChannels(); ++c)
+        {
+            auto* d = b.getWritePointer (c);
+            for (int i = 0; i < declickSamples; ++i)
+            {
+                const float g = (float) (i + 1) / (float) (declickSamples + 1);
+                d[(seam + i) % len] *= g;                                  // fade in after the seam
+                d[((seam - 1 - i) % len + len) % len] *= g;                // fade out before it
+            }
+        }
     }
 
     // Make the track silent without dropping its take history (used when undoing the first recording).
@@ -180,13 +219,19 @@ public:
     {
         juce::SpinLock::ScopedLockType l (lock);
         const auto len = (int) length.load();
-        if (n <= 0 || len <= n) return;
-        for (int c = 0; c < 2; ++c)
-        {
-            auto* d = data.getWritePointer (c);
-            std::memmove (d, d + n, sizeof (float) * (size_t) (len - n));
-            juce::FloatVectorOperations::clear (d + (len - n), n);
-        }
+        if (n > 0 && len > n)
+            for (int c = 0; c < 2; ++c)
+            {
+                auto* d = data.getWritePointer (c);
+                std::memmove (d, d + n, sizeof (float) * (size_t) (len - n));
+                juce::FloatVectorOperations::clear (d + (len - n), n);
+            }
+        if (len > declickSamples * 4)       // fade in the first ~2 ms so the take never starts with a click
+            for (int c = 0; c < 2; ++c)
+            {
+                auto* d = data.getWritePointer (c);
+                for (int i = 0; i < declickSamples; ++i) d[i] *= (float) (i + 1) / (float) (declickSamples + 1);
+            }
         ++revision;
     }
 

@@ -30,6 +30,9 @@ private:
     void refreshStrips();
     void addTrack();
     void deleteTrack (TrackRow*);
+    void duplicateTrack (int slot);
+    TrackRow* selectionRow();
+    int selSlot = -1;
     void setStatus (const juce::String&, int ticks = 90);
     void stopTransport();
     void disarmAll();
