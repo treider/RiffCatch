@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "project/ProjectIO.h"
+#include "project/Exporter.h"
 
 MainComponent::MainComponent()
 {
@@ -59,13 +60,15 @@ MainComponent::MainComponent()
     stopBtn.onClick = [this] { engine.stop(); };
     addBtn.onClick  = [this] { addTrack(); };
 
-    for (auto* b : { &addBtn, &newBtn, &openBtn, &saveBtn, &audioBtn })
+    for (auto* b : { &addBtn, &exportBtn, &newBtn, &openBtn, &saveBtn, &audioBtn })
     {
         b->setWantsKeyboardFocus (false);
         b->setColour (juce::TextButton::buttonColourId, Theme::raised);
         addAndMakeVisible (b);
     }
     saveBtn.setColour (juce::TextButton::buttonColourId, Theme::blue.withAlpha (0.25f));
+    exportBtn.setTooltip ("Bounce master to WAV");
+    exportBtn.onClick = [this] { exportMenu(); };
     newBtn.onClick   = [this] { newProject(); };
     openBtn.onClick  = [this] { openProject(); };
     saveBtn.onClick  = [this] { saveProject (false); };
@@ -142,6 +145,24 @@ MainComponent::MainComponent()
     };
     addAndMakeVisible (countInBox);
 
+    latLabel.setColour (juce::Label::textColourId, Theme::dim);
+    latLabel.setJustificationType (juce::Justification::centredRight);
+    latLabel.setTooltip ("Round-trip latency reported by the audio driver. Recordings are shifted earlier by this amount (plus the adjustment) so they sit on the grid.");
+    addAndMakeVisible (latLabel);
+    latAdjust.setSliderStyle (juce::Slider::LinearBar);
+    latAdjust.setRange (-50.0, 50.0, 0.5);
+    latAdjust.setNumDecimalPlacesToDisplay (1);
+    latAdjust.setTextValueSuffix (" ms");
+    latAdjust.setDoubleClickReturnValue (true, 0.0);
+    latAdjust.setColour (juce::Slider::trackColourId, Theme::teal.withAlpha (0.35f));
+    latAdjust.setColour (juce::Slider::textBoxTextColourId, Theme::text);
+    latAdjust.setColour (juce::Slider::textBoxOutlineColourId, Theme::border);
+    latAdjust.setWantsKeyboardFocus (false);
+    latAdjust.setTooltip ("Extra latency compensation in ms (fine-tune until recordings sit on the click)");
+    latAdjust.onValueChange = [this] { saveLatencyAdjust(); };
+    addAndMakeVisible (latAdjust);
+    if (auto* f = props.getUserSettings()) latAdjust.setValue (f->getDoubleValue ("latencyAdjustMs", 0.0), juce::sendNotification);
+
     barLabel.setJustificationType (juce::Justification::centredLeft);
     barLabel.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 16.0f, juce::Font::plain)));
     barLabel.setColour (juce::Label::textColourId, Theme::cyan);
@@ -217,6 +238,47 @@ void MainComponent::tapTempo()
         setBpm (60000.0 / ((taps.back() - taps.front()) / (double) (taps.size() - 1)));
     else
         setStatus ("Keep tapping...");
+}
+
+void MainComponent::saveLatencyAdjust()
+{
+    engine.latencyAdjustMs = (float) latAdjust.getValue();
+    if (auto* f = props.getUserSettings()) { f->setValue ("latencyAdjustMs", latAdjust.getValue()); f->saveIfNeeded(); }
+}
+
+void MainComponent::exportMenu()
+{
+    juce::PopupMenu m;
+    if (engine.loopEnabled.load())
+    {
+        m.addItem (1, "WAV - 1 loop");
+        m.addItem (2, "WAV - 2 loops");
+        m.addItem (4, "WAV - 4 loops");
+        m.addItem (8, "WAV - 8 loops");
+    }
+    else
+        m.addItem (1, "WAV - full length");
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&exportBtn), [this] (int loops)
+    {
+        if (loops <= 0) return;
+        chooser = std::make_unique<juce::FileChooser> ("Export WAV",
+            juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (
+                (projectDir == juce::File() ? juce::String ("RiffCatch") : projectDir.getFileName()) + ".wav"), "*.wav");
+        chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                  | juce::FileBrowserComponent::warnAboutOverwriting,
+                              [this, loops] (const juce::FileChooser& fc)
+                              {
+                                  auto f = fc.getResult();
+                                  if (f != juce::File()) doExportWav (f.withFileExtension ("wav"), loops);
+                              });
+    });
+}
+
+void MainComponent::doExportWav (const juce::File& f, int loops)
+{
+    juce::String err;
+    if (Exporter::bounceWav (engine, f, loops, err)) setStatus ("Exported " + f.getFullPathName());
+    else juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export failed", err);
 }
 
 void MainComponent::addTrack()
@@ -322,6 +384,7 @@ void MainComponent::timerCallback()
         c->setEnabled (idle);
 
     const double sr = juce::jmax (1.0, engine.getSampleRate());
+    latLabel.setText ("Latency " + juce::String (engine.deviceLatency.load() * 1000.0 / sr, 1) + " ms +", juce::dontSendNotification);
     const double spb = engine.getSamplesPerBeat();
     const double secs = engine.getPosition() / sr;
     const int m = (int) (secs / 60.0);
@@ -393,7 +456,8 @@ void MainComponent::resized()
     saveBtn.setBounds (bar.removeFromRight (64));  bar.removeFromRight (6);
     openBtn.setBounds (bar.removeFromRight (64));  bar.removeFromRight (6);
     newBtn.setBounds (bar.removeFromRight (56));   bar.removeFromRight (12);
-    addBtn.setBounds (bar.removeFromRight (84));   bar.removeFromRight (12);
+    addBtn.setBounds (bar.removeFromRight (84));   bar.removeFromRight (6);
+    exportBtn.setBounds (bar.removeFromRight (70)); bar.removeFromRight (12);
     r.removeFromTop (8);
     settingsArea = r.removeFromTop (46);
     auto sb = settingsArea.reduced (14, 8);
@@ -405,7 +469,9 @@ void MainComponent::resized()
     clickBtn.setBounds (sb.removeFromLeft (56));  sb.removeFromLeft (6);
     clickVol.setBounds (sb.removeFromLeft (90));  sb.removeFromLeft (18);
     countCaption.setBounds (sb.removeFromLeft (64));
-    countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (16);
+    countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (18);
+    latLabel.setBounds (sb.removeFromLeft (120));
+    latAdjust.setBounds (sb.removeFromLeft (80).withSizeKeepingCentre (80, 24)); sb.removeFromLeft (12);
     projectLabel.setBounds (sb.removeFromRight (150));
     statusLabel.setBounds (sb);
 

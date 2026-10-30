@@ -1,5 +1,6 @@
 #pragma once
 #include "audio/AudioEngine.h"
+#include "project/Exporter.h"
 
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
@@ -13,6 +14,9 @@ inline juce::String runEngineSelfTest()
     eng->prepareForTest (sr, 2);
     eng->bpm = 120.0; eng->loopBars = 1; eng->loopEnabled = true; eng->countInSeconds = 2.0f;
     eng->clickEnabled = true;
+    eng->latencyAdjustMs = 10.0f;                       // 480 samples of compensation @48k
+    const int comp = eng->getCompensationSamples();
+    check (comp == 480, "latency compensation = 480 samples (got " + juce::String (comp) + ")");
     const int slot = eng->addTrack();
     eng->tracks[slot].armed = true;
     eng->tracks[slot].volume = 0.0f;   // mute monitoring so only click energy is measured on the output
@@ -63,11 +67,18 @@ inline juce::String runEngineSelfTest()
     auto& tr = eng->tracks[slot];
     check (tr.length.load() == loopLen, "track length = exactly one loop (" + juce::String (tr.length.load()) + ")");
     check ((int) tr.takes.size() == 2, "two completed passes kept as takes (" + juce::String ((int) tr.takes.size()) + ")");
-    const float expected = (float) (recStart + loopLen) * 1.0e-7f;   // pass 2 starts one loop after pass 1
+    const float expected = (float) (recStart + loopLen + comp) * 1.0e-7f;   // pass 2 starts one loop after pass 1
     check (tr.length.load() == loopLen && std::abs (tr.data.getSample (0, 0) - expected) < 1.0e-4f,
-           "last completed pass wins; partial pass 3 discarded");
+           "last completed pass wins, shifted earlier by latency compensation; partial pass 3 discarded");
     tr.applyTake (0);
-    check (std::abs (tr.data.getSample (0, 0) - (float) recStart * 1.0e-7f) < 1.0e-4f, "take 1 can be restored");
+    check (std::abs (tr.data.getSample (0, 0) - (float) (recStart + comp) * 1.0e-7f) < 1.0e-4f, "take 1 can be restored");
+
+    tr.volume = 1.0f;
+    auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("rc_selftest_export.wav");
+    juce::String err;
+    check (Exporter::bounceWav (*eng, tmp, 2, err), "bounceWav succeeds " + err);
+    check (tmp.getSize() > 2 * loopLen * 2 * 3, "exported WAV has 2 loops of 24-bit stereo (" + juce::String (tmp.getSize()) + " bytes)");
+    tmp.deleteFile();
 
     log << (ok ? "ALL OK" : "FAILURES") << "\n";
     return log;

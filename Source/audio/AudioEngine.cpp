@@ -4,6 +4,7 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
 {
     sampleRate = device->getCurrentSampleRate();
     numInputs = device->getActiveInputChannels().countNumberOfSetBits();
+    deviceLatency = device->getInputLatencyInSamples() + device->getOutputLatencyInSamples();
     playPos = 0; countPos = 0;
     state = Stopped;
     masterCur = masterVolume.load();
@@ -43,7 +44,7 @@ bool AudioEngine::record()
         else          { tr.prepareRecording (0, sampleRate.load()); tr.recToStage = false; }
         tr.seenSeq = tr.stageSeq.load();
         tr.sessionCommits = 0; tr.idleTicks = 0;
-        tr.recSession = loopMode;
+        tr.recSession = true;
         tr.stagePos = 0;
         tr.recActive = true;
     }
@@ -75,7 +76,7 @@ void AudioEngine::pollRecording()
         if (seq != tr.seenSeq)
         {
             tr.seenSeq = seq;
-            tr.commitTake (tr.stage[tr.completedStage.load()], sessionLen);
+            tr.commitTake (tr.stage[tr.completedStage.load()], sessionLen, getCompensationSamples());
             ++tr.sessionCommits;
         }
 
@@ -87,11 +88,13 @@ void AudioEngine::pollRecording()
             tr.recActive = false;
             tr.idleTicks = 0;
             const auto written = tr.stagePos.load();
-            if (tr.sessionCommits == 0 && written > 0)   // nothing completed yet: keep what was played
+            if (! tr.recToStage.load())
+                tr.shiftEarlier (getCompensationSamples());
+            else if (tr.sessionCommits == 0 && written > 0)   // nothing completed yet: keep what was played
             {
                 auto& sb = tr.stage[tr.writeStage.load()];
                 if (written < sessionLen) sb.clear ((int) written, sessionLen - (int) written);
-                tr.commitTake (sb, sessionLen);
+                tr.commitTake (sb, sessionLen, getCompensationSamples());
             }
         }
     }
@@ -230,11 +233,33 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
         if (playing && ! recording && haveData)
         {
             const auto len = tr.length.load();
-            if (pos < len && tr.data.getNumSamples() >= len)
+            const int nd = tr.nudge.load();
+            if (len > 0 && tr.data.getNumSamples() >= len)
             {
-                pbL = tr.data.getReadPointer (0) + pos;
-                pbR = tr.data.getReadPointer (1) + pos;
-                pbAvail = (int) juce::jmin<juce::int64> (n, len - pos);
+                if (nd == 0)
+                {
+                    if (pos < len)
+                    {
+                        pbL = tr.data.getReadPointer (0) + pos;
+                        pbR = tr.data.getReadPointer (1) + pos;
+                        pbAvail = (int) juce::jmin<juce::int64> (n, len - pos);
+                    }
+                }
+                else   // manual nudge: shifted read, circular when the take is exactly one loop
+                {
+                    const bool wrap = loopEnabled.load() && std::abs (len - loopLen) <= 2;
+                    const float* dl = tr.data.getReadPointer (0);
+                    const float* dr = tr.data.getReadPointer (1);
+                    for (int i = 0; i < n; ++i)
+                    {
+                        auto idx = pos + i - nd;
+                        if (wrap) { idx %= len; if (idx < 0) idx += len; }
+                        const bool ok = idx >= 0 && idx < len;
+                        nudgeL[i] = ok ? dl[idx] : 0.0f;
+                        nudgeR[i] = ok ? dr[idx] : 0.0f;
+                    }
+                    pbL = nudgeL; pbR = nudgeR; pbAvail = n;
+                }
             }
         }
 

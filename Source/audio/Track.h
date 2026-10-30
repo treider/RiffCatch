@@ -41,6 +41,7 @@ public:
     static constexpr int maxTakes = 10;
     std::vector<juce::AudioBuffer<float>> takes;
     int currentTake = -1;
+    std::atomic<int> nudge { 0 };         // manual timing offset in samples (+ = later)
     std::atomic<int> inputCode { 0 };     // 0..N-1 = mono input N, 100+i = stereo pair (i, i+1)
     std::atomic<float> peakL { 0.0f }, peakR { 0.0f };   // peak since last UI read
 
@@ -58,7 +59,7 @@ public:
     void resetToDefaults (int index)
     {
         name = "Track " + juce::String (index + 1);
-        volume = 1.0f; pan = 0.0f; mute = false; solo = false; armed = false; inputCode = 0;
+        volume = 1.0f; pan = 0.0f; mute = false; solo = false; armed = false; inputCode = 0; nudge = 0;
         clearAudio();
     }
 
@@ -89,7 +90,8 @@ public:
     }
 
     // Replace track audio with a completed loop pass; older audio is kept as a take.
-    void commitTake (const juce::AudioBuffer<float>& src, int len)
+    // shiftEarlier: input/output latency compensation, circular because the take loops.
+    void commitTake (const juce::AudioBuffer<float>& src, int len, int shiftEarlier = 0)
     {
         if (takes.empty() && length.load() > 0)
         {
@@ -101,7 +103,12 @@ public:
             takes.push_back (std::move (old));
         }
         juce::AudioBuffer<float> t (2, len);
-        for (int c = 0; c < 2; ++c) t.copyFrom (c, 0, src, c, 0, len);
+        const int sh = len > 0 ? ((shiftEarlier % len) + len) % len : 0;
+        for (int c = 0; c < 2; ++c)
+        {
+            t.copyFrom (c, 0, src, c, sh, len - sh);
+            if (sh > 0) t.copyFrom (c, len - sh, src, c, 0, sh);
+        }
         takes.push_back (std::move (t));
         if ((int) takes.size() > maxTakes) takes.erase (takes.begin());
         applyTake ((int) takes.size() - 1);
@@ -116,6 +123,21 @@ public:
         data.setSize (2, src.getNumSamples(), false, false, true);
         for (int c = 0; c < 2; ++c) data.copyFrom (c, 0, src, c, 0, src.getNumSamples());
         length = src.getNumSamples();
+        ++revision;
+    }
+
+    // Linear (non-loop) recordings: drop the first n samples so the take lines up with the grid.
+    void shiftEarlier (int n)
+    {
+        juce::SpinLock::ScopedLockType l (lock);
+        const auto len = (int) length.load();
+        if (n <= 0 || len <= n) return;
+        for (int c = 0; c < 2; ++c)
+        {
+            auto* d = data.getWritePointer (c);
+            std::memmove (d, d + n, sizeof (float) * (size_t) (len - n));
+            juce::FloatVectorOperations::clear (d + (len - n), n);
+        }
         ++revision;
     }
 

@@ -88,6 +88,22 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     addAndMakeVisible (fader);
     addAndMakeVisible (meter);
 
+    nudge.setSliderStyle (juce::Slider::LinearBar);
+    nudge.setRange (-100.0, 100.0, 0.1);
+    nudge.setNumDecimalPlacesToDisplay (1);
+    nudge.setTextValueSuffix (" ms");
+    nudge.setDoubleClickReturnValue (true, 0.0);
+    nudge.setColour (juce::Slider::trackColourId, accent.withAlpha (0.35f));
+    nudge.setColour (juce::Slider::textBoxTextColourId, Theme::text);
+    nudge.setColour (juce::Slider::textBoxOutlineColourId, Theme::border);
+    nudge.setWantsKeyboardFocus (false);
+    nudge.setTooltip ("Nudge this track in time: + later, - earlier (drag, double-click to reset)");
+    nudge.onValueChange = [this]
+    {
+        track().nudge = (int) std::lround (nudge.getValue() * engine.getSampleRate() / 1000.0);
+    };
+    addAndMakeVisible (nudge);
+
     dbLabel.setJustificationType (juce::Justification::centredRight);
     dbLabel.setColour (juce::Label::textColourId, Theme::dim);
     dbLabel.setFont (juce::Font (juce::FontOptions (12.0f)));
@@ -139,6 +155,7 @@ void TrackRow::refreshFromTrack()
     solo.setToggleState (t.solo.load(), juce::dontSendNotification);
     pan.setValue (t.pan.load(), juce::dontSendNotification);
     fader.setValue (gainToFader (t.volume.load()), juce::dontSendNotification);
+    nudge.setValue (t.nudge.load() * 1000.0 / juce::jmax (1.0, engine.getSampleRate()), juce::dontSendNotification);
     if (input.indexOfItemId (t.inputCode.load() + 1) >= 0)
         input.setSelectedId (t.inputCode.load() + 1, juce::dontSendNotification);
     updateDb();
@@ -324,7 +341,7 @@ void TrackRow::resized()
     r.removeFromLeft (4);
     grip.setBounds (r.removeFromLeft (16));
     r.removeFromLeft (6);
-    auto header = r.removeFromLeft (336);
+    auto header = r.removeFromLeft (392);
     r.removeFromLeft (8);
     meter.setBounds (r.removeFromRight (14));
     r.removeFromRight (6);
@@ -351,6 +368,8 @@ void TrackRow::resized()
     solo.setBounds (l2.removeFromLeft (bw).withSizeKeepingCentre (bw, 30)); l2.removeFromLeft (8);
     pan.setBounds (l2.removeFromLeft (44));
     l2.removeFromLeft (6);
+    nudge.setBounds (l2.removeFromRight (74).withSizeKeepingCentre (74, 22));
+    l2.removeFromRight (6);
     dbLabel.setBounds (l2.removeFromRight (56));
     fader.setBounds (l2);
 }

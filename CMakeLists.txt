@@ -29,6 +29,7 @@ target_sources(RiffCatch PRIVATE
   Source/MainComponent.cpp
   Source/audio/AudioEngine.cpp
   Source/project/ProjectIO.cpp
+  Source/project/Exporter.cpp
   Source/ui/TrackRow.cpp)
 
 target_include_directories(RiffCatch PRIVATE Source)

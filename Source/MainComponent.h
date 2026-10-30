@@ -33,6 +33,9 @@ private:
     void toggleRecord();
     void togglePlay();
     void tapTempo();
+    void exportMenu();
+    void doExportWav (const juce::File&, int loops);
+    void saveLatencyAdjust();
     void setBpm (double v);
     void updateSettingsFromEngine();
 
@@ -50,12 +53,13 @@ private:
     IconButton recBtn  { IconButton::Record, Theme::red };
     IconButton playBtn { IconButton::Play,   Theme::green };
     IconButton stopBtn { IconButton::Stop,   Theme::blue };
-    juce::TextButton addBtn { "+ Track" }, newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" }, audioBtn { "Audio" };
+    juce::TextButton addBtn { "+ Track" }, exportBtn { "Export" }, newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" }, audioBtn { "Audio" };
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
     juce::Label bpmLabel;
     juce::TextButton tapBtn { "Tap" }, loopBtn { "Loop" }, clickBtn { "Click" };
     juce::ComboBox barsBox, countInBox;
-    juce::Slider clickVol;
+    juce::Slider clickVol, latAdjust;
+    juce::Label latLabel;
     std::vector<double> taps;
 
     juce::File projectDir;

@@ -40,6 +40,14 @@ public:
     std::atomic<bool> clickEnabled { true };
     std::atomic<float> clickVolume { 0.5f };
 
+    // Latency compensation: device-reported in+out latency plus a manual adjustment (ms)
+    std::atomic<int> deviceLatency { 0 };
+    std::atomic<float> latencyAdjustMs { 0.0f };
+    int getCompensationSamples() const noexcept
+    {
+        return juce::jmax (0, deviceLatency.load() + (int) std::lround (latencyAdjustMs.load() * sampleRate.load() / 1000.0));
+    }
+
     // Track slots (message thread). `order` is the display/save order of active slots.
     int getNumTracks() const noexcept { return (int) order.size(); }
     int addTrack();                  // returns slot index or -1
@@ -66,7 +74,7 @@ private:
     std::atomic<int> numInputs { 0 };
     int sessionLen = 0;                         // loop length (samples) of current record session
 
-    float mixL[chunk] {}, mixR[chunk] {};
+    float mixL[chunk] {}, mixR[chunk] {}, nudgeL[chunk] {}, nudgeR[chunk] {};
     float masterCur = 1.0f;
 
     // click voice (audio thread)
