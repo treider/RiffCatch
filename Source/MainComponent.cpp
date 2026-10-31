@@ -37,6 +37,15 @@ MainComponent::MainComponent()
         rows.add (r);
         list.addChildComponent (r);
     }
+    drumPanel.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
+    drumPanel.onLayoutChanged = [this]
+    {
+        resized();
+        if (auto* f = props.getUserSettings()) { f->setValue ("drumsExpanded", drumPanel.isExpanded()); f->saveIfNeeded(); }
+    };
+    drumPanel.onReleaseFocus = [this] { grabKeyboardFocus(); };
+    addAndMakeVisible (drumPanel);
+    if (auto* f = props.getUserSettings()) drumPanel.setExpanded (f->getBoolValue ("drumsExpanded", true));
     master.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
     list.onReordered = [this] (std::vector<int> before, std::vector<int> after)
     {
@@ -236,6 +245,7 @@ void MainComponent::refreshStrips()
     for (auto* r : rows)
         if (engine.tracks[r->slot()].active.load()) r->refreshFromTrack();
     master.refreshFromEngine();
+    drumPanel.refreshFromEngine();
     updateSettingsFromEngine();
     projectLabel.setText (projectDir == juce::File() ? "Untitled" : projectDir.getFileName(), juce::dontSendNotification);
     resized();
@@ -671,8 +681,10 @@ void MainComponent::timerCallback()
         view = juce::jmax (30.0, std::ceil ((longest / sr + 1.0) / 30.0) * 30.0);
     for (auto* r : rows) r->setView (view, barSecs);
     ruler.setView (view, barSecs);
+    drumPanel.setView (view, barSecs);
     ruler.repaint();
     master.tick();
+    drumPanel.tick();
 
     if (statusTicks > 0 && --statusTicks == 0) statusLabel.setText ({}, juce::dontSendNotification);
 }
@@ -738,6 +750,8 @@ void MainComponent::resized()
     r.removeFromTop (10);
     master.setBounds (r.removeFromBottom (56));
     r.removeFromBottom (10);
+    drumPanel.setBounds (r.removeFromBottom (drumPanel.preferredHeight()));
+    r.removeFromBottom (10);
 
     auto rulerRow = r.removeFromTop (26);
     viewport.setBounds (r);
@@ -802,6 +816,7 @@ void MainComponent::newProject()
     undoManager.clearUndoHistory();
     engine.removeAllTracks();
     engine.masterVolume = 1.0f;
+    engine.drums.resetAll();
     engine.bpm = 120.0; engine.loopBars = 4; engine.loopEnabled = true;
     engine.countInBars = 1; engine.clickEnabled = true; engine.clickVolume = 0.5f;
     engine.addTrack();

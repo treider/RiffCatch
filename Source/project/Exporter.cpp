@@ -15,6 +15,8 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
     juce::int64 passLen = loopMode ? loopLen : 0;
     if (! loopMode)
         for (int slot : e.order) passLen = juce::jmax<juce::int64> (passLen, e.tracks[slot].length.load() + juce::jmax (0, e.tracks[slot].offset.load()));
+    if (! loopMode && e.drums.hasAnySteps())
+        passLen = juce::jmax<juce::int64> (passLen, (juce::int64) std::ceil (e.drums.patternSteps() * e.getSamplesPerBeat() / 4.0));
     if (passLen <= 0) { error = "Nothing to export - no recorded audio."; return false; }
 
     const juce::int64 total = passLen * juce::jmax (1, loopMode ? loops : 1);
@@ -23,7 +25,7 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
     mix.setSize (2, (int) total);
     mix.clear();
 
-    bool anySolo = false;
+    bool anySolo = e.drums.solo.load();
     for (int slot : e.order) anySolo |= e.tracks[slot].solo.load();
 
     for (int slot : e.order)
@@ -50,6 +52,18 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
             if (idx < 0 || idx >= len) continue;
             ml[p] += dl[idx] * gl;
             mr[p] += dr[idx] * gr;
+        }
+    }
+    // drum machine: rendered on the same absolute clock (loop passes continue the pattern phase)
+    if (! e.drums.mute.load() && (! anySolo || e.drums.solo.load()) && e.drums.hasAnySteps())
+    {
+        DrumMachine dm;
+        dm.copyFrom (e.drums);
+        dm.prepare (sr);
+        for (juce::int64 p = 0; p < total; p += 4096)
+        {
+            const int n = (int) juce::jmin<juce::int64> (4096, total - p);
+            dm.process (p, n, e.getSamplesPerBeat() / 4.0, dm.volume.load(), mix.getWritePointer (0) + p, mix.getWritePointer (1) + p, true);
         }
     }
     mix.applyGain (e.masterVolume.load());

@@ -71,6 +71,28 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
     root->setProperty ("loop", juce::var (loop));
     root->setProperty ("tracks", tracks);
 
+    {   // drum machine: pattern as one string per voice ('0' off, '1' hit, '2' accent)
+        auto& dm = e.drums;
+        auto* d = new juce::DynamicObject();
+        d->setProperty ("bars", dm.bars.load());
+        d->setProperty ("volume", (double) dm.volume.load());
+        d->setProperty ("mute", dm.mute.load());
+        d->setProperty ("solo", dm.solo.load());
+        juce::Array<juce::var> voices;
+        for (int v = 0; v < DrumMachine::numVoices; ++v)
+        {
+            auto* vo = new juce::DynamicObject();
+            juce::String pat;
+            for (int k = 0; k < DrumMachine::maxSteps; ++k) pat << (char) ('0' + juce::jlimit (0, 2, (int) dm.steps[v][k].load()));
+            vo->setProperty ("steps", pat);
+            vo->setProperty ("level", (double) dm.level[v].load());
+            vo->setProperty ("mute", dm.voiceMute[v].load());
+            voices.add (juce::var (vo));
+        }
+        d->setProperty ("voices", voices);
+        root->setProperty ("drums", juce::var (d));
+    }
+
     if (! dir.getChildFile ("project.json").replaceWithText (juce::JSON::toString (juce::var (root))))
     {
         error = "Could not write project.json";
@@ -140,6 +162,28 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
     e.countInBars = json.hasProperty ("countInBars") ? juce::jlimit (0, 2, (int) json.getProperty ("countInBars", 1))
                                                      : ((double) json.getProperty ("countInSeconds", 3.0) > 0.0 ? 1 : 0);
     e.masterVolume = (float) (double) json.getProperty ("masterVolume", 1.0);
+    {   // drum machine (absent in older projects)
+        auto& dm = e.drums;
+        dm.resetAll();
+        const auto d = json["drums"];
+        if (d.isObject())
+        {
+            dm.bars = juce::jlimit (1, DrumMachine::maxBars, (int) d.getProperty ("bars", 1));
+            dm.volume = (float) (double) d.getProperty ("volume", 0.8);
+            dm.mute = (bool) d.getProperty ("mute", false);
+            dm.solo = (bool) d.getProperty ("solo", false);
+            if (auto* vs = d["voices"].getArray())
+                for (int v = 0; v < juce::jmin (vs->size(), (int) DrumMachine::numVoices); ++v)
+                {
+                    const auto vo = vs->getReference (v);
+                    const auto pat = vo["steps"].toString();
+                    for (int k = 0; k < juce::jmin (pat.length(), (int) DrumMachine::maxSteps); ++k)
+                        dm.steps[v][k] = (uint8_t) juce::jlimit (0, 2, (int) (pat[k] - '0'));
+                    dm.level[v] = (float) (double) vo.getProperty ("level", 1.0);
+                    dm.voiceMute[v] = (bool) vo.getProperty ("mute", false);
+                }
+        }
+    }
     if (count == 0) e.addTrack();
     return true;
 }

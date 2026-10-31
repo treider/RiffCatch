@@ -21,7 +21,7 @@ void AudioEngine::play()
     else if (state.load() == Recording) state = Playing;
 }
 
-void AudioEngine::stop() { state = Stopped; }   // audio thread returns the playhead to the cursor
+void AudioEngine::stop() { state = Stopped; drumReset = true; }   // audio thread returns the playhead to the cursor
 
 void AudioEngine::seek (juce::int64 pos)
 {
@@ -189,14 +189,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* in, int 
 // Processes up to n samples; may process fewer when a boundary (count-in end, loop end) is reached.
 int AudioEngine::processChunk (const float* const* in, int numIn, float* const* out, int numOut, int offset, int n)
 {
-    if (const auto j = jumpTo.exchange (-1); j >= 0) { playPos = j; countPos = 0; }
+    if (drumReset.exchange (false)) drums.reset();
+    if (const auto j = jumpTo.exchange (-1); j >= 0) { playPos = j; countPos = 0; drumPass = 0; drums.reset(); }
 
     auto st = (State) state.load();
     const double sr = sampleRate.load();
     const double spb = getSamplesPerBeat();
     const auto loopLen = getLoopLength();
 
-    if (st == Stopped) { playPos = cursorPos.load(); countPos = 0; }
+    if (st == Stopped) { playPos = cursorPos.load(); countPos = 0; drumPass = 0; }
 
     if (st == CountIn && countPos.load() >= countInLen.load())   // count-in finished -> record at bar 1
     {
@@ -227,6 +228,7 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
 
     bool anySolo = false;
     for (int t = 0; t < maxTracks; ++t) anySolo |= tracks[t].active.load() && tracks[t].solo.load();
+    anySolo |= drums.solo.load();
 
     bool recordFull = false;
 
@@ -349,6 +351,13 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
         }
     }
 
+    // ---- drum machine: runs on the transport clock; keeps its phase across loop passes
+    {
+        if (drumSr != sr) { drums.prepare (sr); drumSr = sr; }
+        const bool dAudible = ! drums.mute.load() && (! anySolo || drums.solo.load());
+        drums.process (looping ? drumPass * loopLen + pos : pos, n, spb / 4.0, dAudible ? drums.volume.load() : 0.0f, mixL, mixR, playing);
+    }
+
     // ---- click (sample-accurate: beats derived from the transport sample counter)
     const bool clickOn = st == CountIn || (playing && clickEnabled.load());
     int trig[4]; float trigFreq[4]; int nTrig = 0;
@@ -425,6 +434,7 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
         if (looping && newPos >= loopLen)
         {
             newPos = 0;
+            ++drumPass;
             if (st == Recording)   // loop pass complete: hand the staging buffer to the UI thread
                 for (int t = 0; t < maxTracks; ++t)
                 {

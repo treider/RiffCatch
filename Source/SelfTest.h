@@ -266,7 +266,69 @@ inline juce::String runEngineSelfTest()
                "loop recording from bar 3 keeps bars 3-4 as one clip (len " + juce::String (t6.length.load()) + ")");
     }
 
+    // ---- drum machine: sample-accurate steps, phase kept across loop passes
+    {
+        std::vector<float> zin (block, 0.0f), dl (block), dr (block);
+        const float* zi[2] = { zin.data(), zin.data() };
+        float* zo[2] = { dl.data(), dr.data() };
+        juce::AudioIODeviceCallbackContext cd;
+        auto energy = [] (const std::vector<float>& v, juce::int64 a, juce::int64 b)
+        {
+            double e = 0.0;
+            for (juce::int64 i = a; i < b && i < (juce::int64) v.size(); ++i) e += std::abs (v[(size_t) i]);
+            return e;
+        };
+
+        AudioEngine ed;
+        ed.prepareForTest (sr, 2);
+        ed.bpm = 120.0; ed.loopBars = 1; ed.loopEnabled = true; ed.countInBars = 0; ed.clickEnabled = false;
+        ed.drums.volume = 1.0f;
+        ed.drums.steps[DrumMachine::Hat][0] = 2;
+        ed.drums.steps[DrumMachine::Hat][4] = 2;        // beat 2 = sample 24000
+        ed.play();
+        std::vector<float> cap;
+        for (int i = 0; i < 96000 / block; ++i)
+        {
+            ed.audioDeviceIOCallbackWithContext (zi, 2, zo, 2, block, cd);
+            cap.insert (cap.end(), dl.begin(), dl.end());
+        }
+        check (energy (cap, 0, 2000) > 5.0, "drum step 1 sounds at the start of the bar");
+        check (energy (cap, 12000, 23990) < 0.01, "silent between hits (hat has decayed)");
+        check (energy (cap, 24000, 26000) > 5.0, "drum step 5 sounds exactly on beat 2");
+        check (energy (cap, 48000, 96000) < 0.01, "no hits where the pattern has none");
+
+        // two-bar pattern over a one-bar loop: step 16 (bar 2) must sound in the second pass only
+        AudioEngine ee;
+        ee.prepareForTest (sr, 2);
+        ee.bpm = 120.0; ee.loopBars = 1; ee.loopEnabled = true; ee.countInBars = 0; ee.clickEnabled = false;
+        ee.drums.volume = 1.0f;
+        ee.drums.bars = 2;
+        ee.drums.steps[DrumMachine::Snare][16] = 2;
+        ee.play();
+        std::vector<float> cap2;
+        for (int i = 0; i < 192000 / block; ++i)
+        {
+            ee.audioDeviceIOCallbackWithContext (zi, 2, zo, 2, block, cd);
+            cap2.insert (cap2.end(), dl.begin(), dl.end());
+        }
+        check (energy (cap2, 0, 96000) < 0.01, "6-over-4 style: bar 2 of the pattern is silent in loop pass 1");
+        check (energy (cap2, 96000, 98000) > 5.0, "bar 2 of the pattern sounds in loop pass 2 (phase kept across passes)");
+
+        // export renders the same drums
+        AudioEngine ex;
+        ex.prepareForTest (sr, 2);
+        ex.bpm = 120.0; ex.loopBars = 1; ex.loopEnabled = true;
+        ex.drums.volume = 1.0f;
+        ex.drums.steps[DrumMachine::Kick][0] = 2;
+        auto wav = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("rc_selftest_drums.wav");
+        juce::String derr;
+        check (Exporter::bounceWav (ex, wav, 1, derr), "export works with drums only " + derr);
+        check (wav.getSize() > 96000 * 2 * 3, "exported drum loop has the expected length");
+        wav.deleteFile();
+    }
+
     log << (ok ? "ALL OK" : "FAILURES") << "\n";
+
 
     return log;
 }

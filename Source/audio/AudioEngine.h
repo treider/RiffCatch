@@ -3,6 +3,7 @@
 #include <atomic>
 #include <vector>
 #include "Track.h"
+#include "DrumMachine.h"
 
 // Audio-thread entry point. Owns the sample-counting transport clock that
 // count-in, click, loop and record start are all synchronised to.
@@ -65,6 +66,7 @@ public:
     int getNumInputs() const noexcept { return numInputs.load(); }
 
     Track tracks[maxTracks];
+    DrumMachine drums;
     std::atomic<float> masterVolume { 1.0f };
     std::atomic<float> masterPeakL { 0.0f }, masterPeakR { 0.0f };
     std::atomic<float> inputLevel[16] {};   // decaying peak per active input channel
@@ -82,6 +84,9 @@ private:
     std::atomic<juce::int64> cursorPos { 0 };    // where Play starts; the stopped playhead
     std::atomic<double> sampleRate { 44100.0 };
     std::atomic<int> numInputs { 0 };
+    juce::int64 drumPass = 0;                   // completed loop passes since playback started (drum phase)
+    double drumSr = 0.0;
+    std::atomic<bool> drumReset { false };
     int sessionLen = 0;                         // loop length (samples) of current record session
 
     float mixL[chunk] {}, mixR[chunk] {}, nudgeL[chunk] {}, nudgeR[chunk] {};

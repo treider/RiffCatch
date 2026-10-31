@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(RiffCatch VERSION 0.19 LANGUAGES C CXX)   # bump the minor version every iteration
+project(RiffCatch VERSION 0.20 LANGUAGES C CXX)   # bump the minor version every iteration
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -54,7 +54,8 @@ target_sources(RiffCatch PRIVATE
   Source/audio/HitEditor.cpp
   Source/project/ProjectIO.cpp
   Source/project/Exporter.cpp
-  Source/ui/TrackRow.cpp)
+  Source/ui/TrackRow.cpp
+  Source/ui/DrumPanel.cpp)
 
 target_include_directories(RiffCatch PRIVATE Source)
 

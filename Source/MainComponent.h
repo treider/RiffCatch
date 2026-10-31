@@ -3,6 +3,7 @@
 #include "audio/AudioEngine.h"
 #include "ui/Theme.h"
 #include "ui/TrackRow.h"
+#include "ui/DrumPanel.h"
 #include "ui/Undo.h"
 
 class MainComponent : public juce::Component,
@@ -69,6 +70,7 @@ private:
     TrackList list { engine, rows };
     juce::Viewport viewport;
     MasterStrip master { engine };
+    DrumPanel drumPanel { engine };
     Ruler ruler { engine };
 
     IconButton recBtn  { IconButton::Record, Theme::red };
