@@ -699,7 +699,9 @@ void TrackRow::mouseDrag (const juce::MouseEvent& e)
             v = std::round (v / step) * step;
         }
         const double maxV = engine.loopEnabled.load() ? (double) engine.getLoopLength() - 1.0 : sr * 600.0;   // beyond the loop end it is cut off
-        track().offset = (int) juce::jlimit (0.0, maxV, v);
+        // the clip may start before bar 1 (negative offset): the part before time 0 is simply not played, and comes back when you move the clip right again
+        const double minV = -(double) juce::jmax<juce::int64> (0, track().length.load() - 1);
+        track().offset = (int) juce::jlimit (minV, maxV, v);
         repaint (wave);
         return;
     }

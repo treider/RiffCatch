@@ -135,7 +135,7 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
         tr.echoOn = (bool) t.getProperty ("echo", false);
         tr.echoDiv = juce::jlimit (0, (int) TrackFx::numDivs - 1, (int) t.getProperty ("echoDiv", (int) TrackFx::Quarter));
         tr.reverbOn = (bool) t.getProperty ("reverb", false);
-        tr.offset = juce::jmax (0, (int) std::lround ((double) (t.hasProperty ("offsetMs") ? t.getProperty ("offsetMs", 0.0) : t.getProperty ("nudgeMs", 0.0)) * devRate / 1000.0));
+        tr.offset = ((int) std::lround ((double) (t.hasProperty ("offsetMs") ? t.getProperty ("offsetMs", 0.0) : t.getProperty ("nudgeMs", 0.0)) * devRate / 1000.0));
 
         auto file = dir.getChildFile (t["file"].toString());
         if (t["file"].toString().isNotEmpty() && file.existsAsFile())
