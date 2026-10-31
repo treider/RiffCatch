@@ -448,13 +448,13 @@ inline juce::String runEngineSelfTest()
         // a hand-made project.json with hostile values
         pdir.createDirectory();
         const auto longNotes = juce::String::repeatedString ("x", 50000);
-        pdir.getChildFile ("project.json").replaceWithText (
+        pdir.getChildFile ("p.riffcatch").replaceWithText (
             "{\"tracks\":[{\"name\":\"" + juce::String::repeatedString ("n", 500) + "\",\"volume\":1e9,\"pan\":-50,\"input\":-5,\"offsetMs\":1e15,\"file\":\"..\\\\..\\\\x.wav\"}],"
             "\"bpm\":99999,\"timeSignature\":\"99/3\",\"notes\":\"" + longNotes + "\"}");
         auto he = std::make_unique<AudioEngine>();
         he->prepareForTest (48000.0, 2);
         juce::String herr;
-        check (ProjectIO::load (*he, pdir, herr), "a hostile project.json still loads (values are clamped)");
+        check (ProjectIO::load (*he, pdir.getChildFile ("p.riffcatch"), herr), "a hostile project file still loads (values are clamped)");
         const auto& ht = he->tracks[he->order.front()];
         check (ht.volume.load() <= 4.0f && std::abs (ht.pan.load()) <= 1.0f && ht.inputCode.load() >= 0 && ht.name.length() <= ProjectIO::maxNameLength
                && std::abs (ht.offset.load()) <= 48000 * 60 * 20 && ht.length.load() == 0, "hostile track values are clamped and the escaping file is ignored");
@@ -470,15 +470,19 @@ inline juce::String runEngineSelfTest()
         se->prepareForTest (48000.0, 2);
         se->addTrack();
         se->tracks[se->order.front()].setAudio (juce::AudioBuffer<float> (2, 4800));
-        check (! ProjectIO::save (*se, foreign, serr) && foreign.getChildFile ("track1.wav").loadFileAsString() == "my precious file", "saving into a foreign non-empty folder is refused");
+        check (! ProjectIO::save (*se, foreign.getChildFile ("foreign.riffcatch"), serr) && foreign.getChildFile ("track1.wav").loadFileAsString() == "my precious file", "saving into a foreign non-empty folder is refused");
         // a real project folder: stale track files are removed, unrelated files are kept
         const auto mine = root.getChildFile ("mine");
-        check (ProjectIO::save (*se, mine, serr), "saving into a new folder works");
+        check (ProjectIO::save (*se, ProjectIO::fileInFolder (mine), serr), "saving into a new folder works");
         mine.getChildFile ("track7.wav").replaceWithText ("not written by RiffCatch");
         se->tracks[se->order.front()].clearAudio();
-        const bool saved2 = ProjectIO::save (*se, mine, serr);
+        const bool saved2 = ProjectIO::save (*se, ProjectIO::fileInFolder (mine), serr);
         check (saved2 && ! mine.getChildFile ("track1.wav").existsAsFile() && mine.getChildFile ("track7.wav").existsAsFile(),
                "only the files RiffCatch wrote are cleaned up (saved " + juce::String ((int) saved2) + ", err " + serr + ", track1 exists " + juce::String ((int) mine.getChildFile ("track1.wav").existsAsFile()) + ", track7 exists " + juce::String ((int) mine.getChildFile ("track7.wav").existsAsFile()) + ")");
+        check (! ProjectIO::save (*se, mine.getChildFile ("other.riffcatch"), serr) && ! mine.getChildFile ("other.riffcatch").existsAsFile(),
+               "a second project in the same folder is refused");
+        check (ProjectIO::isProjectFile (juce::File ("C:\\music\\song1\\song1.riffcatch")) && ! ProjectIO::isProjectFile (juce::File ("C:\\music\\song1\\project.json")),
+               "only .riffcatch files count as projects");
         root.deleteRecursively();
     }
     {   // Catch: always-on ring
@@ -559,10 +563,10 @@ inline juce::String runEngineSelfTest()
         auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("riffcatch-ts-test");
         dir.deleteRecursively();
         juce::String err;
-        check (ProjectIO::save (pe, dir, err), "time signature test: saved");
+        check (ProjectIO::save (pe, ProjectIO::fileInFolder (dir), err), "time signature test: saved");
         auto pe2P = std::make_unique<AudioEngine>(); auto& pe2 = *pe2P;
         pe2.prepareForTest (44100.0, 2);
-        check (ProjectIO::load (pe2, dir, err) && pe2.tsNum.load() == 6 && pe2.tsDen.load() == 8 && pe2.drums.barSteps.load() == 12, "time signature round-trips through the project file");
+        check (ProjectIO::load (pe2, ProjectIO::fileInFolder (dir), err) && pe2.tsNum.load() == 6 && pe2.tsDen.load() == 8 && pe2.drums.barSteps.load() == 12, "time signature round-trips through the project file");
         dir.deleteRecursively();
     }
     {   // silence trimming
@@ -610,10 +614,10 @@ inline juce::String runEngineSelfTest()
         auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("riffcatch-notes-test");
         dir.deleteRecursively();
         juce::String err;
-        check (ProjectIO::save (ne, dir, err), "notes test: project saved");
+        check (ProjectIO::save (ne, ProjectIO::fileInFolder (dir), err), "notes test: project saved");
         auto ne2P = std::make_unique<AudioEngine>(); auto& ne2 = *ne2P;
         ne2.prepareForTest (44100.0, 2);
-        check (ProjectIO::load (ne2, dir, err), "notes test: project loaded");
+        check (ProjectIO::load (ne2, ProjectIO::fileInFolder (dir), err), "notes test: project loaded");
         check (ne2.projectNotes == ne.projectNotes, "project notes round-trip");
         dir.deleteRecursively();
     }

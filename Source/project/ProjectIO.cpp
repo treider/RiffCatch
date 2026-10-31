@@ -11,20 +11,28 @@ bool isSafeTrackFile (const juce::File& dir, const juce::String& name)
     return dir.getChildFile (name).getParentDirectory() == dir;
 }
 
-bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
+bool save (AudioEngine& e, const juce::File& projectFile, juce::String& error)
 {
+    const auto dir = projectFile.getParentDirectory();
     // never write into a folder that holds somebody else's files
-    if (dir.exists() && ! dir.getChildFile ("project.json").existsAsFile()
-        && dir.getNumberOfChildFiles (juce::File::findFilesAndDirectories) > 0)
+    if (dir.exists() && ! projectFile.existsAsFile())
     {
-        error = "\"" + dir.getFileName() + "\" is not empty and is not a RiffCatch project. Choose a new or empty folder.";
-        return false;
+        if (dir.getNumberOfChildFiles (juce::File::findFiles, "*.riffcatch") > 0)
+        {
+            error = "\"" + dir.getFileName() + "\" already holds another RiffCatch project. Give this one its own folder.";
+            return false;
+        }
+        if (dir.getNumberOfChildFiles (juce::File::findFilesAndDirectories) > 0)
+        {
+            error = "\"" + dir.getFileName() + "\" is not empty and is not a RiffCatch project. Choose a new or empty folder.";
+            return false;
+        }
     }
     if (! dir.createDirectory()) { error = "Could not create " + dir.getFullPathName(); return false; }
 
     // the track files an earlier save of this project wrote: only these may be cleaned up later
     juce::StringArray ownedBefore;
-    const auto oldJson = juce::JSON::parse (dir.getChildFile ("project.json"));    // kept alive while its array is read
+    const auto oldJson = juce::JSON::parse (projectFile);    // kept alive while its array is read
     if (auto* oldTracks = oldJson["tracks"].getArray())
         for (auto& t : *oldTracks)
             if (isSafeTrackFile (dir, t["file"].toString())) ownedBefore.add (t["file"].toString());
@@ -85,7 +93,7 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
     auto* root = new juce::DynamicObject();
     root->setProperty ("version", 1);
     root->setProperty ("appVersion", JUCE_APPLICATION_VERSION_STRING);
-    root->setProperty ("name", dir.getFileName());
+    root->setProperty ("name", projectFile.getFileNameWithoutExtension());
     root->setProperty ("bpm", e.bpm.load());
     root->setProperty ("timeSignature", juce::String (e.tsNum.load()) + "/" + juce::String (e.tsDen.load()));
     root->setProperty ("notes", e.projectNotes.substring (0, maxNotesLength));
@@ -121,19 +129,21 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
         root->setProperty ("drums", juce::var (d));
     }
 
-    if (! dir.getChildFile ("project.json").replaceWithText (juce::JSON::toString (juce::var (root))))
+    if (! projectFile.replaceWithText (juce::JSON::toString (juce::var (root))))
     {
-        error = "Could not write project.json";
+        error = "Could not write " + projectFile.getFileName();
         return false;
     }
     return true;
 }
 
-bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
+bool load (AudioEngine& e, const juce::File& projectFile, juce::String& error)
 {
-    auto json = juce::JSON::parse (dir.getChildFile ("project.json"));
+    const auto dir = projectFile.getParentDirectory();
+    if (! projectFile.existsAsFile()) { error = "Project file not found: " + projectFile.getFullPathName(); return false; }
+    auto json = juce::JSON::parse (projectFile);
     auto* arr = json["tracks"].getArray();
-    if (! json.isObject() || arr == nullptr) { error = "Not a RiffCatch project: " + dir.getFullPathName(); return false; }
+    if (! json.isObject() || arr == nullptr) { error = "Not a RiffCatch project: " + projectFile.getFullPathName(); return false; }
 
     e.removeAllTracks();
 

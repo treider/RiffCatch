@@ -4,6 +4,7 @@
 #include "ui/ThemeEditor.h"
 #include "audio/SilenceTrim.h"
 #include "audio/MidiPedal.h"
+#include "WinFileAssoc.h"
 #include "ui/TrackRow.h"
 #include "ui/DrumPanel.h"
 #include "ui/MixerPanel.h"
@@ -32,15 +33,19 @@ private:
     void newProject();
     void openProject();
     void saveProject (bool saveAs);
-    void doSave (const juce::File& dir);
+    void doSave (const juce::File& file);
     void importAudio();
     void doImport (const juce::File& file);
     static juce::File autosaveDir();
+    static juce::File autosaveFile() { return autosaveDir().getChildFile ("autosave.riffcatch"); }
     void autosaveTick();
     void offerRestore();
     int autosaveTicks = 0, editCounter = 0;
     juce::int64 lastAutosaveSig = 0;
-    void doOpen (const juce::File& dir);
+    void doOpen (const juce::File& file);
+public:
+    void openFromCommandLine (const juce::String& commandLine);   // a .riffcatch path from Explorer or a second start
+private:
     void refreshStrips();
     void addTrack();
     void deleteTrack (TrackRow*);
@@ -53,6 +58,8 @@ private:
     void applyTheme (int index);
     void refreshTheme();
     void updateNotesButton();
+    void addRecent (const juce::File& dir);
+    juce::RecentlyOpenedFilesList recent;
     void editNotes();
     void openThemeEditor();
     void mouseEnter (const juce::MouseEvent&) override;
@@ -122,6 +129,12 @@ private:
                fadeInBtn { ToolButton::FadeIn }, fadeOutBtn { ToolButton::FadeOut }, dupBtn { ToolButton::Duplicate },
         selectAllBtn { ToolButton::SelectAll }, reverseBtn { ToolButton::Reverse }, cropBtn { ToolButton::Crop };
     ToolButton fileBtn { ToolButton::Menu };
+    ToolButton folderBtn { ToolButton::Folder };
+    juce::File workDir() const;
+    void setWorkDir (const juce::File& dir);
+    void openCurrentFolder();
+    void chooseWorkDir();
+    void refreshFolderTip();
     AddTrackButton addTrackBtn;
     juce::TextButton notesBtn { "Notes" };
     // Catch (always-on capture) and the one-button looper
@@ -148,7 +161,7 @@ private:
     juce::Label latLabel;
     std::vector<double> taps;
 
-    juce::File projectDir;
+    juce::File projectFile;          // the open .riffcatch file (empty = untitled)
     int statusTicks = 0;
     juce::Rectangle<int> barArea, settingsArea;
     bool hoverTip = false;     // info bar currently shows a hover hint

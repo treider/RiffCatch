@@ -3,6 +3,7 @@
 #include "ui/Theme.h"
 #include "SelfTest.h"
 #include "WinTitleBar.h"
+#include "WinFileAssoc.h"
 
 class RiffCatchApp : public juce::JUCEApplication
 {
@@ -36,7 +37,17 @@ public:
             }
             laf.applyColours();
         }
-        juce::LookAndFeel::setDefaultLookAndFeel (&laf); window = std::make_unique<MainWindow> (getApplicationName() + " v" + getApplicationVersion()); }
+        juce::LookAndFeel::setDefaultLookAndFeel (&laf); window = std::make_unique<MainWindow> (getApplicationName() + " v" + getApplicationVersion());
+        if (! FileAssoc::isRegistered()) FileAssoc::registerForUser();   // makes .riffcatch files open here; the exe path is kept up to date
+    }
+    // one window only: starting a project file again (double-click) opens it in the running app instead of a second instance
+    bool moreThanOneInstanceAllowed() override { return false; }
+    void anotherInstanceStarted (const juce::String& commandLine) override
+    {
+        if (window == nullptr) return;
+        if (auto* mc = dynamic_cast<MainComponent*> (window->getContentComponent())) mc->openFromCommandLine (commandLine);
+        window->toFront (true);
+    }
     void shutdown() override { window.reset(); juce::LookAndFeel::setDefaultLookAndFeel (nullptr); }
     void systemRequestedQuit() override { quit(); }
 

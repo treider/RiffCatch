@@ -184,6 +184,8 @@ MainComponent::MainComponent()
     {
         if (auto* f = props.getUserSettings()) { f->setValue ("tunerRef", hz); f->saveIfNeeded(); }
     });
+    recent.setMaxNumberOfItems (10);
+    if (auto* f = props.getUserSettings()) recent.restoreFromString (f->getValue ("recentProjects"));
     pedal.onTrigger = [this] { looperPress(); };
     pedal.onLearned = [this] (const juce::String& d)
     {
@@ -193,6 +195,9 @@ MainComponent::MainComponent()
     if (auto* f = props.getUserSettings()) pedal.set (f->getIntValue ("pedalType", 0), f->getIntValue ("pedalNumber", -1));
     pedal.open();
 
+    folderBtn.onClick = [this] { openCurrentFolder(); grabKeyboardFocus(); };
+    addAndMakeVisible (folderBtn);
+    refreshFolderTip();
     notesBtn.setClickingTogglesState (false);
     notesBtn.setWantsKeyboardFocus (false);
     notesBtn.setTooltip ("Project notes (a dot of colour means there are notes)");
@@ -391,9 +396,9 @@ MainComponent::MainComponent()
         setSize (juce::jmin (1400, area.getWidth() - 40), juce::jmin (940, area.getHeight() - 60));
     }
     startTimerHz (30);
-    {   // optional: a project folder passed on the command line is opened at start
+    {   // a .riffcatch file passed on the command line (double-click in Explorer) is opened at start
         const auto arg = juce::JUCEApplication::getCommandLineParameters().removeCharacters ("\"").trim();
-                if (arg.isNotEmpty() && ! arg.startsWith ("--") && juce::File (arg).isDirectory()) doOpen (juce::File (arg));
+        if (arg.isNotEmpty() && ! arg.startsWith ("--") && ProjectIO::isProjectFile (juce::File (arg)) && juce::File (arg).existsAsFile()) doOpen (juce::File (arg));
         else juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)] { if (safe != nullptr) safe->offerRestore(); });
     }
 }
@@ -424,7 +429,7 @@ void MainComponent::refreshStrips()
     mixer.refreshFromEngine();
     drumPanel.refreshFromEngine();
     updateSettingsFromEngine();
-    projectLabel.setText (projectDir == juce::File() ? "Untitled" : projectDir.getFileName(), juce::dontSendNotification);
+    projectLabel.setText (projectFile == juce::File() ? "Untitled" : projectFile.getFileNameWithoutExtension(), juce::dontSendNotification);
     resized();
     list.layoutRows();
     repaint();
@@ -478,6 +483,21 @@ void MainComponent::fileMenu()
     };
     addKey (1, "New project", "Ctrl+N");
     addKey (2, "Open...", "Ctrl+O");
+    {
+        recent.removeNonExistentFiles();
+        juce::PopupMenu rm;
+        int shown = 0;
+        for (int i = 0; i < recent.getNumFiles() && shown < 10; ++i)
+        {
+            const auto f = recent.getFile (i);
+            if (! f.existsAsFile() || ! ProjectIO::isProjectFile (f)) continue;      // folders from before v0.47 are skipped
+            rm.addItem (700 + i, f.getFileNameWithoutExtension() + "    (" + f.getParentDirectory().getFullPathName() + ")");
+            ++shown;
+        }
+        if (shown == 0) rm.addItem (699, "No recent projects", false);
+        else { rm.addSeparator(); rm.addItem (698, "Clear list"); }
+        m.addSubMenu ("Open recent", rm);
+    }
     m.addSeparator();
     addKey (3, "Save", "Ctrl+S");
     addKey (4, "Save as...", "Ctrl+Shift+S");
@@ -486,6 +506,8 @@ void MainComponent::fileMenu()
     m.addSeparator();
     m.addItem (7, "Import audio...");
     m.addItem (6, "Audio settings...");
+    m.addItem (9, "Work folder...  (" + workDir().getFileName() + ")");
+    m.addItem (8, "Open .riffcatch files with RiffCatch (register)");
     m.addSeparator();
     juce::PopupMenu themes;
     for (int i = 0; i < Theme::numPresets(); ++i)
@@ -519,7 +541,13 @@ void MainComponent::fileMenu()
             case 5: exportMenu(); break;
             case 6: showAudioSettings(); break;
             case 7: importAudio(); break;
+            case 9: chooseWorkDir(); break;
+            case 8: setStatus (FileAssoc::registerForUser() ? ".riffcatch files now open with this RiffCatch" : "Could not register the file type", 200); break;
             case 290: openThemeEditor(); break;
+            case 698:
+                recent.clear();
+                if (auto* f = props.getUserSettings()) { f->setValue ("recentProjects", recent.toString()); f->saveIfNeeded(); }
+                break;
             case 600:
                 pedal.startLearning();
                 setStatus (pedal.getNumInputs() > 0 ? "Press your MIDI foot switch now (note or controller)..." : "No MIDI input found - connect the pedal and try again", 300);
@@ -530,7 +558,8 @@ void MainComponent::fileMenu()
                 setStatus ("Pedal forgotten");
                 break;
             default:
-                if (id >= 300 && id < 300 + Theme::numPresets()) applyTheme (id - 300);
+                if (id >= 700 && id < 720) { const auto f = recent.getFile (id - 700); if (f != juce::File()) doOpen (f); }
+                else if (id >= 300 && id < 300 + Theme::numPresets()) applyTheme (id - 300);
                 else if (id >= 500 && id < 500 + Theme::numPresets())
                 {
                     const int idx = id - 500, cur = Theme::current;
@@ -577,9 +606,9 @@ void MainComponent::exportMenu()
         const int kind = id / 100, loops = id % 100;
         const bool mp3 = kind > 1;
         const juce::String ext = mp3 ? "mp3" : "wav";
-        const auto base = projectDir == juce::File() ? juce::String ("RiffCatch") : projectDir.getFileName();
+        const auto base = projectFile == juce::File() ? juce::String ("RiffCatch") : projectFile.getFileNameWithoutExtension();
         chooser = std::make_unique<juce::FileChooser> (mp3 ? "Export MP3" : "Export WAV",
-            juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (base + "." + ext), "*." + ext);
+            workDir().getChildFile (base + "." + ext), "*." + ext);
         chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                                   | juce::FileBrowserComponent::warnAboutOverwriting,
                               [this, kind, loops, ext] (const juce::FileChooser& fc)
@@ -623,26 +652,26 @@ void MainComponent::autosaveTick()
     for (int slot : engine.order) { const auto len = engine.tracks[slot].length.load(); sig += len; any = any || len > 0; }
     if (! any || sig == lastAutosaveSig) return;
     juce::String err;
-    if (ProjectIO::save (engine, autosaveDir(), err)) lastAutosaveSig = sig;
+    if (ProjectIO::save (engine, autosaveFile(), err)) lastAutosaveSig = sig;
 }
 
 void MainComponent::offerRestore()
 {
-    const auto dir = autosaveDir();
-    if (! dir.getChildFile ("project.json").existsAsFile()) return;
+    const auto file = autosaveFile();
+    if (! file.existsAsFile()) return;
     auto opts = juce::MessageBoxOptions::makeOptionsOkCancel (juce::MessageBoxIconType::QuestionIcon, "Restore unsaved work?",
                     "RiffCatch did not close normally last time. Restore the automatic backup?", "Restore", "Discard");
-    juce::AlertWindow::showAsync (opts, [this, dir] (int result)
+    juce::AlertWindow::showAsync (opts, [this, file] (int result)
     {
         if (result == 1)
         {
-            doOpen (dir);
-            projectDir = juce::File();
+            doOpen (file);
+            projectFile = juce::File();
             projectLabel.setText ("restored", juce::dontSendNotification);
             setStatus ("Restored the automatic backup - save it to keep it");
         }
         else
-            dir.deleteRecursively();
+            autosaveDir().deleteRecursively();
     });
 }
 
@@ -1151,6 +1180,8 @@ void MainComponent::resized()
     for (auto* b : { &dupBtn, &fadeOutBtn, &fadeInBtn, &reverseBtn, &silenceBtn, &pasteBtn, &copyBtn, &cutBtn, &selectAllBtn, &cropBtn })
         { b->setBounds (bar.removeFromRight (32).withSizeKeepingCentre (32, 28)); bar.removeFromRight (4); }
     bar.removeFromRight (12);
+    folderBtn.setBounds (bar.removeFromRight (32).withSizeKeepingCentre (32, 28));
+    bar.removeFromRight (6);
     notesBtn.setBounds (bar.removeFromRight (64).withSizeKeepingCentre (64, 28));
     bar.removeFromRight (8);
     projectLabel.setBounds (bar);   // whatever is left of the top row
@@ -1479,6 +1510,59 @@ void MainComponent::syncTimeSigBox()
     drumPanel.refreshTemplates();
 }
 
+juce::File MainComponent::workDir() const
+{
+    const auto def = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("RiffCatch");
+    if (auto* f = const_cast<juce::ApplicationProperties&> (props).getUserSettings())
+    {
+        const auto s = f->getValue ("workDir");
+        if (s.isNotEmpty()) return juce::File (s);
+    }
+    return def;
+}
+
+void MainComponent::setWorkDir (const juce::File& dir)
+{
+    if (auto* f = props.getUserSettings()) { f->setValue ("workDir", dir.getFullPathName()); f->saveIfNeeded(); }
+    refreshFolderTip();
+    setStatus ("Work folder: " + dir.getFullPathName(), 200);
+}
+
+void MainComponent::chooseWorkDir()
+{
+    auto start = workDir();
+    if (! start.exists()) start = start.getParentDirectory();
+    chooser = std::make_unique<juce::FileChooser> ("Choose the work folder (where projects are saved and opened from)", start);
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                          [this] (const juce::FileChooser& fc)
+                          {
+                              const auto d = fc.getResult();
+                              if (d != juce::File() && d.isDirectory()) setWorkDir (d);
+                          });
+}
+
+// The folder of the open project, or the work folder while the project is untitled.
+void MainComponent::openCurrentFolder()
+{
+    const auto dir = projectFile != juce::File() ? projectFile.getParentDirectory() : workDir();
+    dir.createDirectory();
+    if (! dir.startAsProcess()) setStatus ("Could not open " + dir.getFullPathName());
+}
+
+void MainComponent::refreshFolderTip()
+{
+    const bool has = projectFile != juce::File();
+    folderBtn.setTooltip ((has ? "Open the project folder: " + projectFile.getParentDirectory().getFullPathName()
+                               : "Open the work folder: " + workDir().getFullPathName()));
+}
+
+void MainComponent::addRecent (const juce::File& dir)
+{
+    if (dir == autosaveFile()) return;
+    recent.addFile (dir);
+    if (auto* f = props.getUserSettings()) { f->setValue ("recentProjects", recent.toString()); f->saveIfNeeded(); }
+}
+
 void MainComponent::updateNotesButton()
 {
     notesBtn.setToggleState (engine.projectNotes.trim().isNotEmpty(), juce::dontSendNotification);
@@ -1517,38 +1601,46 @@ void MainComponent::newProject()
     updateNotesButton();
     engine.addTrack();
     engine.addTrack();
-    projectDir = juce::File();
+    projectFile = juce::File();
+    refreshFolderTip();
     refreshStrips();
 }
 
 void MainComponent::saveProject (bool saveAs)
 {
-    if (! saveAs && projectDir != juce::File()) { doSave (projectDir); return; }
-    chooser = std::make_unique<juce::FileChooser> ("Save project (a folder with this name is created)",
-                                                   juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("RiffCatch"),
-                                                   "");
-    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+    if (! saveAs && projectFile != juce::File()) { doSave (projectFile); return; }
+    workDir().createDirectory();
+    chooser = std::make_unique<juce::FileChooser> ("Save project as (a folder with this name is created)",
+                                                   workDir(),
+                                                   "*.riffcatch");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
                           [this] (const juce::FileChooser& fc)
                           {
                               auto f = fc.getResult();
-                              if (f != juce::File()) doSave (f.getParentDirectory().getChildFile (f.getFileNameWithoutExtension()));
+                              if (f == juce::File()) return;
+                              const auto name = f.getFileNameWithoutExtension();
+                              auto parent = f.getParentDirectory();
+                              // "song/song.riffcatch": make the folder, unless the chosen place already is that folder
+                              const auto folder = parent.getFileName() == name ? parent : parent.getChildFile (name);
+                              doSave (folder.getChildFile (name + ProjectIO::extension));
                           });
 }
 
-void MainComponent::doSave (const juce::File& dir)
+void MainComponent::doSave (const juce::File& file)
 {
     juce::String err;
-    if (ProjectIO::save (engine, dir, err))
+    if (ProjectIO::save (engine, file, err))
     {
-        projectDir = dir;
-        projectLabel.setText (dir.getFileName(), juce::dontSendNotification);
-        setStatus ("Saved to " + dir.getFullPathName());
+        projectFile = file;
+        refreshFolderTip();
+        addRecent (file);
+        projectLabel.setText (file.getFileNameWithoutExtension(), juce::dontSendNotification);
+        setStatus ("Saved to " + file.getFullPathName());
         autosaveDir().deleteRecursively();
     }
     else
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Save failed", err);
 }
-
 // ---- import an audio file as a new track (File > Import audio..., or drop a file on the window)
 void MainComponent::importAudio()
 {
@@ -1565,12 +1657,21 @@ void MainComponent::importAudio()
 
 bool MainComponent::isInterestedInFileDrag (const juce::StringArray& files)
 {
-    return files.size() > 0 && AudioImport::isAudioFile (juce::File (files[0]));
+    return files.size() > 0 && (AudioImport::isAudioFile (juce::File (files[0])) || ProjectIO::isProjectFile (juce::File (files[0])));
 }
 
 void MainComponent::filesDropped (const juce::StringArray& files, int, int)
 {
-    if (files.size() > 0) doImport (juce::File (files[0]));
+    if (files.size() == 0) return;
+    if (ProjectIO::isProjectFile (juce::File (files[0]))) doOpen (juce::File (files[0]));
+    else doImport (juce::File (files[0]));
+}
+
+void MainComponent::openFromCommandLine (const juce::String& commandLine)
+{
+    const auto arg = commandLine.removeCharacters ("\"").trim();
+    if (arg.isNotEmpty() && ! arg.startsWith ("--") && ProjectIO::isProjectFile (juce::File (arg)) && juce::File (arg).existsAsFile())
+        doOpen (juce::File (arg));
 }
 
 void MainComponent::doImport (const juce::File& file)
@@ -1632,9 +1733,11 @@ void MainComponent::doImport (const juce::File& file)
 
 void MainComponent::openProject()
 {
-    chooser = std::make_unique<juce::FileChooser> ("Open project folder",
-                                                   juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("RiffCatch"));
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+    workDir().createDirectory();
+    chooser = std::make_unique<juce::FileChooser> ("Open project",
+                                                   workDir(),
+                                                   "*.riffcatch");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [this] (const juce::FileChooser& fc)
                           {
                               auto f = fc.getResult();
@@ -1642,16 +1745,18 @@ void MainComponent::openProject()
                           });
 }
 
-void MainComponent::doOpen (const juce::File& dir)
+void MainComponent::doOpen (const juce::File& file)
 {
     juce::String err;
     undoManager.clearUndoHistory();
-    if (ProjectIO::load (engine, dir, err))
+    if (ProjectIO::load (engine, file, err))
     {
-        projectDir = dir;
+        projectFile = file;
+        refreshFolderTip();
+        addRecent (file);
         refreshStrips();
         updateNotesButton();
-        setStatus ("Opened " + dir.getFileName());
+        setStatus ("Opened " + file.getFileNameWithoutExtension());
     }
     else
     {

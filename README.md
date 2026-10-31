@@ -44,7 +44,10 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 - Chromatic tuner in the mixer area, fed from the input of the armed track (or track 1). Scrolling cent ruler, note name, Hz and cents, adjustable A reference (430-450 Hz, remembered)
 
 ### Export and projects
-- Projects saved as one WAV per track plus `project.json`
+- A project is a folder with a `<name>.riffcatch` project file (JSON) and one WAV per track. Save as asks for a name and creates the folder; double-click a `.riffcatch` file (registered for your user automatically, or via File > Open .riffcatch files with RiffCatch) or drop it on the window to open it. Only one RiffCatch window runs at a time
+- File > Open recent lists the last ten projects
+- A configurable work folder (File > Work folder...) is where Save as, Open and Export start. The folder button in the top bar opens the current project folder in Explorer (the work folder while untitled)
+- Project files are read defensively: track files must sit in the project folder, sizes and values are limited, and saving refuses folders that hold other files
 - Export mix to WAV or MP3 (LAME)
 - Free-text project notes (Notes button in the top bar), saved with the project and the autosave
 
@@ -79,7 +82,7 @@ MP3 export uses LAME (LGPL). Extract the LAME 3.100 source to `third_party/lame`
 RiffCatch.exe --selftest
 ```
 
-Writes `selftest.txt` next to the executable and ends with `ALL OK` when everything passes.
+Writes `selftest.txt` next to the executable and ends with `ALL OK` when everything passes. Close any running RiffCatch first: only one instance runs at a time, so a second start is handed to the running one.
 
 ## License
 
