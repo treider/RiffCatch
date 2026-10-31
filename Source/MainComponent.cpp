@@ -92,6 +92,18 @@ MainComponent::MainComponent()
                 [this, slot, prev] { auto& t = engine.tracks[slot]; if (prev >= 0) t.applyTake (prev); else t.silence(); });
     };
     viewport.setViewedComponent (&list, false);
+    list.onEmptyMenu = [this]
+    {
+        juce::PopupMenu m;
+        const bool room = engine.getNumTracks() < AudioEngine::maxTracks;
+        m.addItem (1, "Import audio to new track...", room);
+        m.addItem (2, "Add new track", room);
+        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int id)
+        {
+            if (id == 1) importAudio();
+            else if (id == 2) addTrack();
+        });
+    };
     viewport.setScrollBarsShown (false, false, true, false);   // wheel scrolling, no scrollbar that would narrow the rows
     addAndMakeVisible (viewport);
     addAndMakeVisible (mixer);

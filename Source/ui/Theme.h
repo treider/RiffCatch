@@ -560,8 +560,8 @@ private:
         g.setColour (Theme::deep);
         g.fillRect (r);
         const float p = pos (level), hp = pos (hold);
-        // flat colour zones: green up to -18 dB, yellow up to -6 dB, red above
-        const float zoneY = (-18.0f + 60.0f) / 66.0f, zoneR = (-6.0f + 60.0f) / 66.0f;
+        // solid bar in the theme colours: accent up to -18 dB, secondary up to -3 dB, red only for clipping
+        const float zoneY = (-18.0f + 60.0f) / 66.0f, zoneR = (-3.0f + 60.0f) / 66.0f;
         auto zone = [&] (float from, float to, juce::Colour c)
         {
             const float a = juce::jmin (p, to);
@@ -570,15 +570,15 @@ private:
             if (horizontal) g.fillRect (r.getX() + r.getWidth() * from, r.getY(), r.getWidth() * (a - from), r.getHeight());
             else            g.fillRect (r.getX(), r.getBottom() - r.getHeight() * a, r.getWidth(), r.getHeight() * (a - from));
         };
-        zone (0.0f, zoneY, Theme::green);
-        zone (zoneY, zoneR, Theme::yellow);
+        zone (0.0f, zoneY, Theme::accent);
+        zone (zoneY, zoneR, Theme::purple);
         zone (zoneR, 1.0f, Theme::red);
         if (hp > 0.02f)
         {
             g.setColour (Theme::text.withAlpha (0.8f));
             if (horizontal) g.fillRect (r.getX() + r.getWidth() * hp - 1.5f, r.getY(), 1.5f, r.getHeight());
             else            g.fillRect (r.getX(), r.getBottom() - r.getHeight() * hp, r.getWidth(), 1.5f);
-        }        segments (g, r, horizontal);
+        }
     }
 
     static void segments (juce::Graphics& g, juce::Rectangle<float> r, bool horiz)
