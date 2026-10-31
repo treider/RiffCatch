@@ -20,8 +20,9 @@ static void styleToggle (juce::TextButton& b, juce::Colour on)
 {
     b.setClickingTogglesState (true);
     b.setColour (juce::TextButton::buttonOnColourId, on);
-    b.setColour (juce::TextButton::buttonColourId, Theme::raised.brighter (0.45f));   // clearly lighter than the card when off
-    b.setColour (juce::TextButton::textColourOffId, Theme::text);
+    b.setColour (juce::TextButton::textColourOffId, on);
+    b.getProperties().set ("outline", (int) on.withAlpha (0.55f).getARGB());
+    b.setColour (juce::TextButton::buttonColourId, Theme::deep);              // recessed when off, filled with its colour when on
     b.setColour (juce::TextButton::textColourOnId, Theme::deep);
     b.setWantsKeyboardFocus (false);
 }
@@ -56,6 +57,10 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
 
     input.onChange = [this] { track().inputCode = input.getSelectedId() - 1; };
     input.setWantsKeyboardFocus (false);
+    input.setColour (juce::ComboBox::backgroundColourId, Theme::deep);               // recessed, with an accent outline for contrast
+    input.setColour (juce::ComboBox::outlineColourId, accent.withAlpha (0.55f));
+    input.setColour (juce::ComboBox::arrowColourId, accent);
+    input.setColour (juce::ComboBox::textColourId, Theme::text);
     input.onChange = [this] { track().inputCode = input.getSelectedId() - 1; if (onReleaseFocus) onReleaseFocus(); };
     addAndMakeVisible (input);
     inMeter.setHorizontal (true);
@@ -295,7 +300,7 @@ void TrackRow::paint (juce::Graphics& g)
     const bool recNow = track().recActive.load() && engine.getState() == AudioEngine::Recording;
     const auto glow = (recNow || armedNow) ? Theme::red : accent;      // armed tracks turn red
     juce::Path card;
-    card.addRoundedRectangle (b, 8.0f);
+    card.addRoundedRectangle (b, Theme::radiusLg);
     g.reduceClipRegion (card);                                          // everything below is clipped to a rounded card
     g.setColour (Theme::panel);
     g.fillRect (b);
@@ -314,7 +319,7 @@ void TrackRow::paint (juce::Graphics& g)
     // ---- clip lane
     auto w = wave.toFloat();
     g.setColour (Theme::deep);
-    g.fillRoundedRectangle (w, 6.0f);
+    g.fillRoundedRectangle (w, Theme::radius);
     if (w.isEmpty()) return;
 
     g.saveState();
@@ -360,10 +365,10 @@ void TrackRow::paint (juce::Graphics& g)
         auto clip = w.withWidth (clipW).translated (dx, 0.0f);
         const auto col = live ? Theme::red : accent;
         g.setColour (col.withMultipliedBrightness (0.92f));
-        g.fillRoundedRectangle (clip, 4.0f);                        // solid clip body
+        g.fillRoundedRectangle (clip, Theme::radius - 1.0f);                        // solid clip body
         auto strip = clip.removeFromTop ((float) clipStripH);
         juce::Path sp;
-        sp.addRoundedRectangle (strip.getX(), strip.getY(), strip.getWidth(), strip.getHeight(), 4.0f, 4.0f, true, true, false, false);
+        sp.addRoundedRectangle (strip.getX(), strip.getY(), strip.getWidth(), strip.getHeight(), Theme::radius - 1.0f, Theme::radius - 1.0f, true, true, false, false);
         g.setColour (col);
         g.fillPath (sp);
         g.setColour (Theme::deep);
@@ -469,7 +474,7 @@ void TrackRow::paint (juce::Graphics& g)
     }
     g.restoreState();
     g.setColour (glow.withAlpha (recNow ? 0.8f : armedNow ? 0.55f : 0.22f));
-    g.drawRoundedRectangle (b.reduced (0.5f), 8.0f, 1.0f);              // solid 1 px border, low opacity
+    g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);              // solid 1 px border, low opacity
 }
 
 // ---------------------------------------------------------------- hit editing
@@ -925,7 +930,7 @@ void MasterStrip::paint (juce::Graphics& g)
     {
         juce::Graphics::ScopedSaveState s (g);
         juce::Path card;
-        card.addRoundedRectangle (b, 10.0f);
+        card.addRoundedRectangle (b, Theme::radiusLg);
         g.reduceClipRegion (card);
         g.setColour (Theme::panel);
         g.fillRect (b);
@@ -933,7 +938,7 @@ void MasterStrip::paint (juce::Graphics& g)
         g.fillRect (b.withWidth (4.0f));
     }
     g.setColour (Theme::border.withAlpha (0.55f));
-    g.drawRoundedRectangle (b.reduced (0.5f), 10.0f, 1.0f);
+    g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
 }
 
 void MasterStrip::resized()
@@ -1033,7 +1038,7 @@ void Ruler::paint (juce::Graphics& g)
     // same rounded dark lane as the clips below, so the ruler reads as part of the track area
     const juce::Rectangle<float> pill (x0, 3.0f, wdt, (float) getHeight() - 6.0f);
     g.setColour (Theme::panel);
-    g.fillRoundedRectangle (pill, 6.0f);
+    g.fillRoundedRectangle (pill, Theme::radius);
 
     juce::Graphics::ScopedSaveState clip (g);
     g.reduceClipRegion (pill.toNearestInt());

@@ -680,22 +680,22 @@ void MainComponent::paint (juce::Graphics& g)
     {
         const auto f = barArea.getUnion (settingsArea).toFloat();     // one merged top panel, settings row slightly darker
         g.setColour (Theme::panel);
-        g.fillRoundedRectangle (f, 10.0f);
+        g.fillRoundedRectangle (f, Theme::radiusLg);
         {
             juce::Graphics::ScopedSaveState ss (g);
             juce::Path p;
-            p.addRoundedRectangle (f, 10.0f);
+            p.addRoundedRectangle (f, Theme::radiusLg);
             g.reduceClipRegion (p);
             g.setColour (Theme::panel.darker (0.28f));
             g.fillRect (settingsArea);
         }
         g.setColour (Theme::border.withAlpha (0.55f));
-        g.drawRoundedRectangle (f.reduced (0.5f), 10.0f, 1.0f);
+        g.drawRoundedRectangle (f.reduced (0.5f), Theme::radiusLg, 1.0f);
     }
     g.setColour (Theme::raised);
-    g.fillRoundedRectangle (bpmLabel.getBounds().toFloat(), 6.0f);
+    g.fillRoundedRectangle (bpmLabel.getBounds().toFloat(), Theme::radius);
     g.setColour (Theme::deep);                                            // clock in a dark display box
-    g.fillRoundedRectangle (timeLabel.getBounds().toFloat(), 7.0f);
+    g.fillRoundedRectangle (timeLabel.getBounds().toFloat(), Theme::radius);
 }
 
 void MainComponent::resized()

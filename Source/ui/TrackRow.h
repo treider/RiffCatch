@@ -4,6 +4,21 @@
 #include "audio/AudioEngine.h"
 #include "Undo.h"
 
+// Record-arm button drawn as a record dot (filled red button with dark dot when armed).
+class ArmButton : public juce::TextButton
+{
+public:
+    ArmButton() = default;
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        const bool on = getToggleState();
+        getLookAndFeel().drawButtonBackground (g, *this, findColour (on ? buttonOnColourId : buttonColourId), over, down);
+        const auto c = getLocalBounds().toFloat().getCentre();
+        g.setColour (on ? Theme::deep : Theme::red);
+        g.fillEllipse (c.x - 5.5f, c.y - 5.5f, 11.0f, 11.0f);
+    }
+};
+
 // One horizontal track row: header controls + waveform lane.
 class TrackRow : public juce::Component
 {
@@ -92,7 +107,8 @@ private:
     juce::Label nameLabel, dbLabel;
     juce::ComboBox input;
     LevelMeter inMeter, meter;
-    juce::TextButton arm { "R" }, mute { "M" }, solo { "S" }, del { juce::String::fromUTF8 ("\xC3\x97") };
+    ArmButton arm;
+    juce::TextButton mute { "M" }, solo { "S" }, del { juce::String::fromUTF8 ("\xC3\x97") };
     juce::Slider pan, fader;
     juce::Rectangle<int> wave, nameBar;
 

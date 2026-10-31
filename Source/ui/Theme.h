@@ -21,6 +21,9 @@ namespace Theme
     inline const juce::Colour purple { 0xffbb9af7 };
     inline const juce::Colour teal   { 0xff73daca };
 
+    inline constexpr float radius = 4.0f;     // controls: buttons, boxes, menus, lanes
+    inline constexpr float radiusLg = 6.0f;   // panels and track cards
+
     inline juce::Colour trackColour (int i)
     {
         const juce::Colour c[] = { blue, cyan, green, yellow, orange, purple, teal, red };
@@ -55,7 +58,7 @@ public:
         setColour (juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
         setColour (juce::ComboBox::arrowColourId, dim);
         setColour (juce::ComboBox::focusedOutlineColourId, juce::Colours::transparentBlack);
-        setColour (juce::PopupMenu::backgroundColourId, panel);
+        setColour (juce::PopupMenu::backgroundColourId, panel.withAlpha (0.99f));   // not fully opaque: lets the menu window have rounded corners
         setColour (juce::PopupMenu::textColourId, text);
         setColour (juce::PopupMenu::highlightedBackgroundColourId, blue.withAlpha (0.3f));
         setColour (juce::PopupMenu::highlightedTextColourId, text);
@@ -83,7 +86,12 @@ public:
     {
         const auto b = juce::Rectangle<float> ((float) w, (float) h);
         g.setColour (box.findColour (juce::ComboBox::backgroundColourId).brighter (box.isMouseOver (true) ? 0.08f : 0.0f));
-        g.fillRoundedRectangle (b, 6.0f);
+        g.fillRoundedRectangle (b, Theme::radius);
+        if (const auto o = box.findColour (juce::ComboBox::outlineColourId); o.getAlpha() > 0)
+        {
+            g.setColour (o);
+            g.drawRoundedRectangle (b.reduced (0.5f), Theme::radius, 1.0f);
+        }
         juce::Path arrow;
         const float cx = (float) w - 14.0f, cy = (float) h * 0.5f;
         arrow.startNewSubPath (cx - 4.0f, cy - 2.0f);
@@ -99,7 +107,61 @@ public:
         auto c = bgc;
         if (down) c = c.darker (0.15f); else if (over) c = c.brighter (0.12f);
         g.setColour (c);
-        g.fillRoundedRectangle (b.getLocalBounds().toFloat().reduced (0.5f), 6.0f);
+        const auto r = b.getLocalBounds().toFloat().reduced (0.5f);
+        g.fillRoundedRectangle (r, Theme::radius);
+        if (b.getProperties().contains ("outline"))
+        {
+            g.setColour (juce::Colour ((juce::uint32) (int) b.getProperties()["outline"]));
+            g.drawRoundedRectangle (r, Theme::radius, 1.0f);
+        }
+    }
+
+    // ---- popup menus / dropdowns: rounded like everything else, same border as the bars
+    int getPopupMenuBorderSize() override { return 4; }
+
+    void drawPopupMenuBackground (juce::Graphics& g, int w, int h) override
+    {
+        const auto b = juce::Rectangle<float> ((float) w, (float) h).reduced (0.5f);
+        g.setColour (Theme::panel);
+        g.fillRoundedRectangle (b, Theme::radiusLg);
+        g.setColour (Theme::border.withAlpha (0.55f));
+        g.drawRoundedRectangle (b, Theme::radiusLg, 1.0f);
+    }
+
+    void drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator, bool isActive,
+                            bool isHighlighted, bool isTicked, bool hasSubMenu, const juce::String& text,
+                            const juce::String& shortcutKeyText, const juce::Drawable*, const juce::Colour*) override
+    {
+        if (isSeparator)
+        {
+            g.setColour (Theme::border);
+            g.fillRect (area.getX() + 8, area.getCentreY(), area.getWidth() - 16, 1);
+            return;
+        }
+        auto r = area.reduced (1, 0);
+        if (isHighlighted && isActive)
+        {
+            g.setColour (Theme::blue.withAlpha (0.28f));
+            g.fillRoundedRectangle (r.toFloat(), Theme::radius);
+        }
+        g.setColour (isActive ? Theme::text : Theme::dim.withAlpha (0.6f));
+        g.setFont (juce::Font (juce::FontOptions (14.0f)));
+        r.reduce (12, 0);
+        if (isTicked)
+            g.fillEllipse ((float) r.getX() - 8.0f, (float) r.getCentreY() - 2.5f, 5.0f, 5.0f);
+        g.drawText (text, r, juce::Justification::centredLeft);
+        if (shortcutKeyText.isNotEmpty())
+        {
+            g.setColour (Theme::dim);
+            g.drawText (shortcutKeyText, r, juce::Justification::centredRight);
+        }
+        if (hasSubMenu)
+        {
+            juce::Path p;
+            const float cx = (float) r.getRight() - 4.0f, cy = (float) r.getCentreY();
+            p.addTriangle (cx - 3.0f, cy - 4.0f, cx - 3.0f, cy + 4.0f, cx + 2.0f, cy);
+            g.fillPath (p);
+        }
     }
 
     void drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float, float,
@@ -108,7 +170,7 @@ public:
         if (style == juce::Slider::LinearBar)   // value box: flat rounded, like the buttons
         {
             g.setColour (Theme::raised);
-            g.fillRoundedRectangle (juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h), 6.0f);
+            g.fillRoundedRectangle (juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h), Theme::radius);
             return;
         }
         if (style != juce::Slider::LinearVertical && style != juce::Slider::LinearHorizontal)
@@ -197,7 +259,7 @@ public:
             bgc = bgc.interpolatedWith (juce::Colours::white, 0.12f + 0.12f * std::sin ((float) juce::Time::getMillisecondCounter() * 0.008f));
         if (down) bgc = bgc.darker (0.2f); else if (over) bgc = bgc.brighter (0.12f);
         g.setColour (bgc);
-        g.fillRoundedRectangle (b, 10.0f);
+        g.fillRoundedRectangle (b, Theme::radiusLg);
 
         g.setColour (on ? Theme::deep : colour);
         auto ic = b.withSizeKeepingCentre (b.getHeight() * 0.38f, b.getHeight() * 0.38f);
@@ -237,7 +299,7 @@ public:
         const bool en = isEnabled();
         g.setColour (en ? (down ? Theme::raised.darker (0.2f) : over ? Theme::raised.brighter (0.15f) : Theme::raised.withAlpha (0.7f))
                         : Theme::raised.withAlpha (0.3f));
-        g.fillRoundedRectangle (b, 7.0f);
+        g.fillRoundedRectangle (b, Theme::radius);
         const auto col = en ? Theme::text : Theme::dim.withAlpha (0.45f);
         g.setColour (col);
 
@@ -404,7 +466,7 @@ public:
         if (en && (over || down))
         {
             g.setColour (Theme::raised.withAlpha (down ? 0.9f : 0.55f));
-            g.fillRoundedRectangle (b, 6.0f);
+            g.fillRoundedRectangle (b, Theme::radius);
         }
         const auto col = ! en ? Theme::dim.withAlpha (0.4f) : (over || down) ? Theme::text : Theme::dim.brighter (0.25f);
         g.setColour (col);
