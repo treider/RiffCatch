@@ -354,6 +354,10 @@ void MainComponent::fileMenu()
     m.addItem (5, "Export...");
     m.addSeparator();
     m.addItem (6, "Audio settings...");
+    m.addSeparator();
+    juce::PopupMenu themes;
+    for (int i = 0; i < Theme::numPresets; ++i) themes.addItem (300 + i, Theme::presets[i].name, true, i == Theme::current);
+    m.addSubMenu ("Theme", themes);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileBtn), [this] (int id)
     {
         switch (id)
@@ -364,7 +368,7 @@ void MainComponent::fileMenu()
             case 4: saveProject (true); break;
             case 5: exportMenu(); break;
             case 6: showAudioSettings(); break;
-            default: break;
+            default: if (id >= 300 && id < 300 + Theme::numPresets) applyTheme (id - 300); break;
         }
         grabKeyboardFocus();
     });
@@ -659,6 +663,39 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
     }
     return false;
 }
+// Colours set per instance (labels, accent buttons) are re-applied whenever the theme changes.
+void MainComponent::restyle()
+{
+    titleLabel.setColour (juce::Label::textColourId, Theme::blue);
+    timeLabel.setColour (juce::Label::textColourId, Theme::text.withMultipliedBrightness (0.72f));
+    projectLabel.setColour (juce::Label::textColourId, Theme::dim);
+    for (auto* l : { &bpmCaption, &countCaption }) l->setColour (juce::Label::textColourId, Theme::dim);
+    bpmLabel.setColour (juce::Label::textColourId, Theme::accent);
+    barLabel.setColour (juce::Label::textColourId, Theme::accent);
+    clickBtn.setColour (juce::TextButton::buttonOnColourId, Theme::accent);
+    clickBtn.setColour (juce::TextButton::textColourOnId, Theme::onAccent);
+    clickVol.setColour (juce::Slider::trackColourId, Theme::accent);
+    recBtn.setIconColour (Theme::red);
+    playBtn.setIconColour (Theme::green);
+    stopBtn.setIconColour (Theme::text);
+    skipStartBtn.setIconColour (Theme::text);
+    skipEndBtn.setIconColour (Theme::text);
+    loopBtn.setIconColour (Theme::accent);
+    repaint();
+}
+
+void MainComponent::lookAndFeelChanged() { restyle(); }
+
+void MainComponent::applyTheme (int index)
+{
+    Theme::apply (index);
+    if (auto* laf = dynamic_cast<RiffLookAndFeel*> (&getLookAndFeel())) laf->applyColours();
+    if (auto* top = getTopLevelComponent()) top->sendLookAndFeelChange(); else sendLookAndFeelChange();
+    if (auto* peer = getPeer()) applyDarkTitleBar (peer, Theme::bg, Theme::text);
+    if (auto* f = props.getUserSettings()) { f->setValue ("theme", Theme::current); f->saveIfNeeded(); }
+    setStatus (juce::String ("Theme: ") + Theme::presets[Theme::current].name, 60);
+}
+
 // The info bar (the yellow field at the top right) also shows hover hints instead of pop-up tooltips.
 void MainComponent::mouseEnter (const juce::MouseEvent& e)
 {

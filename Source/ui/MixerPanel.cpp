@@ -12,7 +12,7 @@ static void styleFlatToggle (juce::TextButton& b, juce::Colour on)
     b.setColour (juce::TextButton::buttonColourId, Theme::raised);
     b.setColour (juce::TextButton::buttonOnColourId, on);
     b.setColour (juce::TextButton::textColourOffId, Theme::text);
-    b.setColour (juce::TextButton::textColourOnId, Theme::deep);
+    b.setColour (juce::TextButton::textColourOnId, Theme::onAccent);
     b.setWantsKeyboardFocus (false);
 }
 
@@ -166,6 +166,18 @@ void ChannelStrip::tick()
     syncFromEngine();
 }
 
+void ChannelStrip::lookAndFeelChanged()
+{
+    fader.setColour (juce::Slider::trackColourId, isMaster() ? Theme::purple : Theme::accent);
+    dbLabel.setColour (juce::Label::textColourId, Theme::dim);
+    if (! isMaster())
+    {
+        pan.setColour (juce::Slider::rotarySliderFillColourId, Theme::accent);
+        for (auto* b : { &muteBtn, &soloBtn, (juce::TextButton*) &echoBtn, (juce::TextButton*) &reverbBtn }) styleFlatToggle (*b, Theme::accent);
+    }
+    repaint();
+}
+
 void ChannelStrip::paint (juce::Graphics& g)
 {
     const auto b = getLocalBounds().toFloat();
@@ -183,6 +195,12 @@ void ChannelStrip::paint (juce::Graphics& g)
     g.setColour (Theme::border.withAlpha (0.55f));
     g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
 
+    {   // dark well around VU + fader, with a lighter ring
+        const auto well = meter.getBounds().getUnion (fader.getBounds()).toFloat().expanded (4.0f, 2.0f);
+        Theme::wellRing (g, well, 2.5f);
+        g.setColour (Theme::deep);
+        g.fillRoundedRectangle (well, Theme::radius);
+    }
     g.setColour (Theme::text);
     g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
     const juce::String label = isMaster() ? juce::String ("MASTER") : juce::String (pos + 1) + "  " + shownName;
@@ -284,6 +302,8 @@ void MixerPanel::tick()
 }
 
 void MixerPanel::paint (juce::Graphics&) {}
+
+void MixerPanel::lookAndFeelChanged() { title.setColour (juce::Label::textColourId, Theme::dim); }
 
 void MixerPanel::resized()
 {

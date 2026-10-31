@@ -99,7 +99,7 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
         b.setColour (juce::TextButton::buttonColourId, Theme::raised);
         b.setColour (juce::TextButton::buttonOnColourId, on);
         b.setColour (juce::TextButton::textColourOffId, Theme::text);
-        b.setColour (juce::TextButton::textColourOnId, Theme::deep);
+        b.setColour (juce::TextButton::textColourOnId, Theme::onAccent);
         b.setWantsKeyboardFocus (false);
     };
     styleToggle (muteBtn, Theme::accent);
@@ -146,6 +146,18 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
     addChildComponent (cymPitch);
 
     refreshFromEngine();
+}
+
+void DrumPanel::lookAndFeelChanged()
+{
+    pageLabel.setColour (juce::Label::textColourId, Theme::dim);
+    for (auto* b : { &muteBtn, &soloBtn })
+    {
+        b->setColour (juce::TextButton::buttonColourId, Theme::raised);
+        b->setColour (juce::TextButton::buttonOnColourId, Theme::accent);
+        b->setColour (juce::TextButton::textColourOffId, Theme::text);
+        b->setColour (juce::TextButton::textColourOnId, Theme::onAccent);
+    }
 }
 
 void DrumPanel::setExpanded (bool b)
@@ -293,6 +305,7 @@ void DrumPanel::paint (juce::Graphics& g)
     const auto& dm = engine.drums;
     const int vs = viewSteps(), ps = dm.patternSteps();
     const auto la = lanesArea();
+    Theme::wellRing (g, la.toFloat(), 3.0f);
     const double pps = (double) la.getWidth() / viewSeconds;
     const double stepS = stepSec();
     const float cellW = (float) (stepS * pps);

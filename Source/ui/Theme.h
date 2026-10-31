@@ -2,46 +2,120 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 
-// Tokyo Night Storm palette
+// Colour themes: six roles (Primary, Secondary, Accent, Background, Surface, Text) are mapped onto the app palette.
+// Red (record), yellow/orange (warnings, info) and green are fixed and never follow the theme.
 namespace Theme
 {
-    inline const juce::Colour bg     { 0xff1a1b26 };
-    inline const juce::Colour panel  { 0xff1f2133 };
-    inline const juce::Colour deep   { 0xff14151d };
-    inline const juce::Colour raised { 0xff292e42 };
-    inline const juce::Colour border { 0xff2f334d };
-    inline const juce::Colour text   { 0xffc0caf5 };
-    inline const juce::Colour dim    { 0xff565f89 };
-    inline const juce::Colour blue   { 0xff7aa2f7 };
-inline const juce::Colour accent { 0xff7aa2f7 };
-// Button tile: a subtle inverted gradient (a little darker at the top, lighter at the bottom)
-inline void fillTile (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c, float radius)
-{
-    g.setGradientFill (juce::ColourGradient (c.darker (0.14f), r.getX(), r.getY(), c.brighter (0.10f), r.getX(), r.getBottom(), false));
-    g.fillRoundedRectangle (r, radius);
-}   // the one UI colour (text/controls); yellow/orange stay for warnings and info
-    inline const juce::Colour cyan   { 0xff7dcfff };
+    inline juce::Colour bg     { 0xff1a1b26 };
+    inline juce::Colour panel  { 0xff1f2133 };
+    inline juce::Colour deep   { 0xff14151d };
+    inline juce::Colour raised { 0xff292e42 };
+    inline juce::Colour border { 0xff2f334d };
+    inline juce::Colour text   { 0xffc0caf5 };
+    inline juce::Colour dim    { 0xff565f89 };
+    inline juce::Colour blue   { 0xff7aa2f7 };     // Primary
+    inline juce::Colour accent { 0xff7aa2f7 };     // the one UI colour for controls (= Primary)
+    inline juce::Colour cyan   { 0xff7dcfff };     // Accent
+    inline juce::Colour purple { 0xffbb9af7 };     // Secondary (master)
+    inline juce::Colour onAccent { 0xff14151d };   // text/icons drawn on a filled accent
+    inline juce::Colour frame  { 0xff14151d };     // dark ring around buttons and boxes
     inline const juce::Colour green  { 0xff9ece6a };
     inline const juce::Colour yellow { 0xffe0af68 };
     inline const juce::Colour orange { 0xffff9e64 };
     inline const juce::Colour red    { 0xfff7768e };
-    inline const juce::Colour purple { 0xffbb9af7 };
     inline const juce::Colour teal   { 0xff73daca };
+    inline bool legacyTracks = true;               // Tokyo Night keeps its original eight clip colours
 
     inline constexpr float radius = 4.0f;     // controls: buttons, boxes, menus, lanes
     inline constexpr float radiusLg = 6.0f;   // panels and track cards
 
+    struct Preset { const char* name; juce::uint32 primary, secondary, accent, background, surface, text; };
+    inline const Preset presets[] =
+    {
+        { "Tokyo Night", 0xff7aa2f7, 0xffbb9af7, 0xff7dcfff, 0xff1a1b26, 0xff1f2133, 0xffc0caf5 },
+        { "Ocean",       0xff2563eb, 0xff0ea5e9, 0xff06b6d4, 0xff0f172a, 0xff1e293b, 0xfff1f5f9 },
+        { "Forest",      0xff059669, 0xff10b981, 0xff34d399, 0xff022c22, 0xff064e3b, 0xffd1fae5 },
+        { "Sunset",      0xffea580c, 0xfff59e0b, 0xfffbbf24, 0xff1c1917, 0xff292524, 0xfffef3c7 },
+        { "Midnight",    0xff6366f1, 0xff8b5cf6, 0xffa78bfa, 0xff0c0a1d, 0xff1e1b4b, 0xffe0e7ff },
+        { "Rose",        0xffbe123c, 0xffe11d48, 0xfffb7185, 0xff1c1917, 0xff3f1f1f, 0xffffe4e6 },
+        { "Lavender",    0xff8b5cf6, 0xffa78bfa, 0xffc4b5fd, 0xff1e1b4b, 0xff312e81, 0xffe9d5ff },
+        { "Coral",       0xfff43f5e, 0xfffb7185, 0xfffda4af, 0xff451a1a, 0xff7f1d1d, 0xffffe4e6 },
+        { "Mint",        0xff14b8a6, 0xff2dd4bf, 0xff5eead4, 0xff134e4a, 0xff0f766e, 0xffccfbf1 },
+    };
+    inline constexpr int numPresets = (int) (sizeof (presets) / sizeof (presets[0]));
+    inline int current = 0;
+
+    inline void apply (int index)
+    {
+        index = juce::jlimit (0, numPresets - 1, index);
+        current = index;
+        const auto& p = presets[index];
+        const juce::Colour B (p.background), S (p.surface), T (p.text);
+        blue = accent = juce::Colour (p.primary);
+        purple = juce::Colour (p.secondary);
+        cyan = juce::Colour (p.accent);
+        text = T;
+        legacyTracks = (index == 0);
+        if (index == 0)   // the original palette, exactly
+        {
+            bg = B; panel = S;
+            deep = juce::Colour (0xff14151d); raised = juce::Colour (0xff292e42); border = juce::Colour (0xff2f334d); dim = juce::Colour (0xff565f89);
+        }
+        else
+        {
+            bg = B; panel = S;
+            deep = B.darker (0.35f);
+            raised = S.interpolatedWith (T, 0.10f);
+            border = S.interpolatedWith (T, 0.18f);
+            dim = B.interpolatedWith (T, 0.50f);
+        }
+        frame = deep;
+        onAccent = accent.getPerceivedBrightness() > 0.55f ? juce::Colour (0xff14151d) : juce::Colour (0xfff8fafc);
+    }
+
     inline juce::Colour trackColour (int i)
     {
-        const juce::Colour c[] = { blue, cyan, green, yellow, orange, purple, teal, red };
+        juce::Colour c[8];
+        if (legacyTracks)
+        {
+            const juce::Colour l[] = { juce::Colour (0xff7aa2f7), juce::Colour (0xff7dcfff), juce::Colour (0xff9ece6a), juce::Colour (0xffe0af68),
+                                       juce::Colour (0xffff9e64), juce::Colour (0xffbb9af7), juce::Colour (0xff73daca), juce::Colour (0xfff7768e) };
+            for (int k = 0; k < 8; ++k) c[k] = l[k];
+        }
+        else   // hues around the theme's own colours
+        {
+            const juce::Colour base[3] = { blue, cyan, purple };
+            for (int k = 0; k < 8; ++k)
+            {
+                const float shift = k < 3 ? 0.0f : (k < 6 ? 0.09f : -0.09f);
+                c[k] = base[k % 3].withRotatedHue (shift);
+            }
+        }
         return i % 16 < 8 ? c[i % 8] : c[i % 8].darker (0.3f);   // second set of 8: same hues, deeper
     }
-}
 
+    // Flat button tile inside a dark ring (like the reference: a darker frame around every control).
+    inline void framedTile (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour fill, float ring = 2.5f)
+    {
+        const float ro = juce::jmin (7.0f, r.getHeight() * 0.3f);
+        g.setColour (frame);
+        g.fillRoundedRectangle (r, ro);
+        g.setColour (fill);
+        g.fillRoundedRectangle (r.reduced (ring), juce::jmax (2.0f, ro - ring * 0.6f));
+    }
+    // Ring around a dark well (lanes, meters): lighter than the dark inside it
+    inline void wellRing (juce::Graphics& g, juce::Rectangle<float> r, float grow = 3.0f)
+    {
+        g.setColour (border);
+        g.fillRoundedRectangle (r.expanded (grow), radiusLg + grow * 0.5f);
+    }
+}
 class RiffLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-    RiffLookAndFeel()
+    RiffLookAndFeel() { applyColours(); }
+
+    void applyColours()
     {
         using namespace Theme;
         setColour (juce::ResizableWindow::backgroundColourId, bg);
@@ -59,7 +133,7 @@ public:
         setColour (juce::TextButton::buttonColourId, raised);
         setColour (juce::TextButton::buttonOnColourId, blue);
         setColour (juce::TextButton::textColourOffId, text);
-        setColour (juce::TextButton::textColourOnId, deep);
+        setColour (juce::TextButton::textColourOnId, onAccent);
         setColour (juce::ComboBox::backgroundColourId, raised);
         setColour (juce::ComboBox::textColourId, text);
         setColour (juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
@@ -92,13 +166,7 @@ public:
     void drawComboBox (juce::Graphics& g, int w, int h, bool, int, int, int, int, juce::ComboBox& box) override
     {
         const auto b = juce::Rectangle<float> ((float) w, (float) h);
-        g.setColour (box.findColour (juce::ComboBox::backgroundColourId).brighter (box.isMouseOver (true) ? 0.08f : 0.0f));
-        g.fillRoundedRectangle (b, Theme::radius);
-        if (const auto o = box.findColour (juce::ComboBox::outlineColourId); o.getAlpha() > 0)
-        {
-            g.setColour (o);
-            g.drawRoundedRectangle (b.reduced (0.5f), Theme::radius, 1.0f);
-        }
+        Theme::framedTile (g, b, box.findColour (juce::ComboBox::backgroundColourId).brighter (box.isMouseOver (true) ? 0.08f : 0.0f), 2.0f);
         juce::Path arrow;
         const float cx = (float) w - 14.0f, cy = (float) h * 0.5f;
         arrow.startNewSubPath (cx - 4.0f, cy - 2.0f);
@@ -113,12 +181,12 @@ public:
     {
         auto c = bgc;
         if (down) c = c.darker (0.15f); else if (over) c = c.brighter (0.12f);
-        const auto r = b.getLocalBounds().toFloat().reduced (0.5f);
-        Theme::fillTile (g, r, c, Theme::radius);
+        const auto r = b.getLocalBounds().toFloat();
+        Theme::framedTile (g, r, c, r.getHeight() < 26.0f ? 2.0f : 2.5f);
         if (b.getProperties().contains ("outline"))
         {
             g.setColour (juce::Colour ((juce::uint32) (int) b.getProperties()["outline"]));
-            g.drawRoundedRectangle (r, Theme::radius, 1.0f);
+            g.drawRoundedRectangle (r.reduced (2.0f), Theme::radius, 1.0f);
         }
     }
 
@@ -257,6 +325,7 @@ class IconButton : public juce::Button
 {
 public:
     enum Icon { Play, Stop, Record, Plus, Loop, SkipStart, SkipEnd };
+    void setIconColour (juce::Colour c) { colour = c; repaint(); }
     IconButton (Icon i, juce::Colour c) : juce::Button ({}), icon (i), colour (c)
     {
         setWantsKeyboardFocus (false);
@@ -270,9 +339,9 @@ public:
         if (on && icon == Record)   // gentle pulse while recording
             bgc = bgc.interpolatedWith (juce::Colours::white, 0.12f + 0.12f * std::sin ((float) juce::Time::getMillisecondCounter() * 0.008f));
         if (down) bgc = bgc.darker (0.2f); else if (over) bgc = bgc.brighter (0.12f);
-        Theme::fillTile (g, b, bgc, Theme::radiusLg);
+        Theme::framedTile (g, getLocalBounds().toFloat(), bgc, 3.0f);
 
-        g.setColour (on ? Theme::deep : colour);
+        g.setColour (on ? Theme::onAccent : colour);
         auto ic = b.withSizeKeepingCentre (b.getHeight() * 0.38f, b.getHeight() * 0.38f);
         switch (icon)
         {
@@ -335,8 +404,8 @@ public:
     {
         auto b = getLocalBounds().toFloat().reduced (1.0f);
         const bool en = isEnabled();
-        Theme::fillTile (g, b, en ? (down ? Theme::raised.darker (0.2f) : over ? Theme::raised.brighter (0.15f) : Theme::raised.withAlpha (0.7f))
-                                  : Theme::raised.withAlpha (0.3f), Theme::radius);
+        Theme::framedTile (g, getLocalBounds().toFloat(), en ? (down ? Theme::raised.darker (0.2f) : over ? Theme::raised.brighter (0.15f) : Theme::raised)
+                                                              : Theme::raised.withAlpha (0.5f), 2.5f);
         const auto col = en ? Theme::text : Theme::dim.withAlpha (0.45f);
         g.setColour (col);
 

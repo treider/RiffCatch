@@ -28,7 +28,8 @@ public:
 
     int slot() const noexcept { return index; }
     void refreshFromTrack();
-    void syncMix();     // volume/pan/mute/solo changed elsewhere (mixer strip)
+    void syncMix();
+    void lookAndFeelChanged() override;     // volume/pan/mute/solo changed elsewhere (mixer strip)
     void setInputChoices (int numInputs);
     void setView (double seconds, double barSecs, double start = 0.0) { viewSeconds = seconds; barSeconds = barSecs; viewStart = start; }
     void tick();
@@ -50,6 +51,7 @@ public:
     // --- selection editing (drag in the waveform to select) ---
     enum SelCmd { SelSilence, SelCut, SelCopy, SelPaste, SelFadeIn, SelFadeOut, SelReverse };
     void selectAll();
+    void restyle();
     static bool hasClipboard() { return clipboard.getNumSamples() > 0; }
     bool hasSelection() const noexcept { return selEnd > selStart; }
     void clearSelection() { if (selEnd > selStart) { selStart = selEnd = 0; repaint (wave); } }

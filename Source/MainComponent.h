@@ -36,6 +36,9 @@ private:
     TrackRow* selectionRow();
     int selSlot = -1;
     void setStatus (const juce::String&, int ticks = 90);
+    void lookAndFeelChanged() override;
+    void restyle();
+    void applyTheme (int index);
     void mouseEnter (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
     void stopTransport();

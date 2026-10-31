@@ -22,7 +22,7 @@ static void styleFlat (juce::TextButton& b, juce::Colour on)
     b.setColour (juce::TextButton::buttonColourId, Theme::raised);            // grey tile with a light letter; filled when on
     b.setColour (juce::TextButton::buttonOnColourId, on);
     b.setColour (juce::TextButton::textColourOffId, Theme::text);
-    b.setColour (juce::TextButton::textColourOnId, Theme::deep);
+    b.setColour (juce::TextButton::textColourOnId, Theme::onAccent);
     b.setWantsKeyboardFocus (false);
 }
 
@@ -240,6 +240,26 @@ void TrackRow::refreshFromTrack()
     repaint();
 }
 
+void TrackRow::restyle()
+{
+    accent = Theme::trackColour (index);
+    input.setColour (juce::ComboBox::backgroundColourId, Theme::deep);
+    input.setColour (juce::ComboBox::outlineColourId, accent.withAlpha (0.55f));
+    input.setColour (juce::ComboBox::arrowColourId, accent);
+    input.setColour (juce::ComboBox::textColourId, Theme::text);
+    del.setColour (juce::TextButton::textColourOffId, Theme::dim);
+    pan.setColour (juce::Slider::rotarySliderFillColourId, accent);
+    styleFader (fader, accent, true);
+    dbLabel.setColour (juce::Label::textColourId, Theme::dim);
+    hitsBtn.setColour (juce::TextButton::buttonOnColourId, Theme::accent);
+    takeLabel.setColour (juce::Label::textColourId, Theme::text);
+    styleFlat (mute, Theme::accent);
+    styleFlat (solo, Theme::accent);
+    repaint();
+}
+
+void TrackRow::lookAndFeelChanged() { restyle(); }
+
 void TrackRow::syncMix()
 {
     auto& t = track();
@@ -339,6 +359,7 @@ void TrackRow::paint (juce::Graphics& g)
     }
     // ---- clip lane
     auto w = wave.toFloat();
+    Theme::wellRing (g, w, 3.0f);
     g.setColour (Theme::deep);
     g.fillRoundedRectangle (w, Theme::radius);
     if (w.isEmpty()) return;

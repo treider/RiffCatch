@@ -24,6 +24,7 @@ public:
     void tick();
 
     void paint (juce::Graphics&) override;
+    void lookAndFeelChanged() override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;

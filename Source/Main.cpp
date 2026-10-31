@@ -21,7 +21,17 @@ public:
         }
         startApp();
     }
-    void startApp() { juce::LookAndFeel::setDefaultLookAndFeel (&laf); window = std::make_unique<MainWindow> (getApplicationName() + " v" + getApplicationVersion()); }
+    void startApp()
+    {
+        {
+            juce::ApplicationProperties tmp;
+            juce::PropertiesFile::Options opts;
+            opts.applicationName = "RiffCatch"; opts.filenameSuffix = ".settings"; opts.osxLibrarySubFolder = "Application Support";
+            tmp.setStorageParameters (opts);
+            if (auto* f = tmp.getUserSettings()) Theme::apply (f->getIntValue ("theme", 0));
+            laf.applyColours();
+        }
+        juce::LookAndFeel::setDefaultLookAndFeel (&laf); window = std::make_unique<MainWindow> (getApplicationName() + " v" + getApplicationVersion()); }
     void shutdown() override { window.reset(); juce::LookAndFeel::setDefaultLookAndFeel (nullptr); }
     void systemRequestedQuit() override { quit(); }
 

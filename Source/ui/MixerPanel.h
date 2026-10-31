@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "audio/AudioEngine.h"
 #include "Theme.h"
@@ -15,6 +15,7 @@ public:
     void syncFromEngine();
     void paint (juce::Graphics&) override;
     void resized() override;
+    void lookAndFeelChanged() override;
 
     std::function<void (int)> onChanged;                        // a track value was changed here (rows follow)
     std::function<void (const juce::String&)> onInfo;           // value read-out for the info bar
@@ -63,6 +64,7 @@ public:
     void tick();
     void paint (juce::Graphics&) override;
     void resized() override;
+    void lookAndFeelChanged() override;
 
     std::function<void (int)> onTrackChanged;
     std::function<void (const juce::String&)> onInfo;
