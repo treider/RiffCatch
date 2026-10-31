@@ -8,6 +8,7 @@
 #include "ui/TrackRow.h"
 #include "ui/DrumPanel.h"
 #include "ui/BassPanel.h"
+#include "ui/AnalysisCard.h"
 #include "ui/MixerPanel.h"
 #include "ui/Undo.h"
 
@@ -120,6 +121,7 @@ private:
     void showSeqTab (int tab);
     void bakeBass();
     void bakeBassLive();
+    void analyzeTrack (int slot);
     void addBassTrack (std::shared_ptr<TrackSnap> snap, const juce::String& undoName);
     int lastCapState = 0;
     int seqTab = 0;

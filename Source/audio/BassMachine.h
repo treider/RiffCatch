@@ -16,7 +16,7 @@ public:
     static constexpr int maxBars = 8, stepsPerBar = 16, maxStepsPerBar = 20, maxSteps = maxBars * maxStepsPerBar;
     static constexpr int numRows = 11, degreeBase = -2;          // the grid shows degrees degreeBase .. degreeBase + numRows - 1
     static constexpr int rootMin = 28, rootMax = 39;             // E1 .. D#2
-    static constexpr int numScales = 7, maxLen = 160;     // a drone can last the whole 8-bar pattern
+    static constexpr int numScales = 10, maxLen = 160;     // a drone can last the whole 8-bar pattern
 
     // ---- one step cell: bits 0-7 degree + 64 (0 = rest), 8-15 length, 16 slide, 17 accent
     static uint32_t pack (int degree, int len, bool slide, bool accent)
@@ -33,18 +33,19 @@ public:
     // ---- scales
     static const char* scaleName (int s)
     {
-        static const char* const n[numScales] = { "Minor pentatonic", "Major pentatonic", "Minor", "Major", "Blues", "Dorian", "Chromatic" };
+        static const char* const n[numScales] = { "Minor pentatonic", "Major pentatonic", "Minor", "Major", "Blues", "Dorian", "Chromatic", "Phrygian", "Lydian", "Mixolydian" };
         return n[juce::jlimit (0, numScales - 1, s)];
     }
     static int scaleSize (int s)
     {
-        static const int n[numScales] = { 5, 5, 7, 7, 6, 7, 12 };
+        static const int n[numScales] = { 5, 5, 7, 7, 6, 7, 12, 7, 7, 7 };
         return n[juce::jlimit (0, numScales - 1, s)];
     }
     static int scaleSemi (int s, int idx)
     {
         static const int t[numScales][12] = { { 0, 3, 5, 7, 10 }, { 0, 2, 4, 7, 9 }, { 0, 2, 3, 5, 7, 8, 10 }, { 0, 2, 4, 5, 7, 9, 11 },
-                                              { 0, 3, 5, 6, 7, 10 }, { 0, 2, 3, 5, 7, 9, 10 }, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } };
+                                              { 0, 3, 5, 6, 7, 10 }, { 0, 2, 3, 5, 7, 9, 10 }, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 },
+                                              { 0, 1, 3, 5, 7, 8, 10 }, { 0, 2, 4, 6, 7, 9, 11 }, { 0, 2, 4, 5, 7, 9, 10 } };
         return t[juce::jlimit (0, numScales - 1, s)][juce::jlimit (0, 11, idx)];
     }
     // semitones above the root for a scale degree (negative degrees go below the root)

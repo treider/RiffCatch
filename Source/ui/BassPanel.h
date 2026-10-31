@@ -5,6 +5,7 @@
 #include "TrackRow.h"
 #include "Undo.h"
 #include "SeqTabs.h"
+#include "audio/BassRandom.h"
 
 // Bass synth panel: a piano-roll-like grid in the chosen scale, aligned with the ruler / clip lanes (like the drum panel).
 // Click = add a note, drag right = length, drag up/down = pitch, click a note = remove it,
@@ -12,11 +13,11 @@
 class BassPanel : public juce::Component
 {
 public:
-    static constexpr int headerH = 38, shiftH = 13, rowH = 13, bottomPad = 8;
+    static constexpr int headerH = 38, shiftH = 13, rowH = 13, gridH = 143, bottomPad = 8;   // rowH: the normal row height (11 rows); the chromatic scale shows 13 thinner rows
 
     explicit BassPanel (AudioEngine& e);
 
-    int preferredHeight() const { return expanded ? headerH + shiftH + BassMachine::numRows * rowH + bottomPad : headerH; }
+    int preferredHeight() const { return expanded ? headerH + shiftH + gridH + bottomPad : headerH; }
     bool isExpanded() const noexcept { return expanded; }
     void setExpanded (bool b);
     void setView (double seconds, double barSecs, double start = 0.0, double full = -1.0);
@@ -69,7 +70,11 @@ private:
     int cellAt (float x, bool clamp) const;
     int stepForCell (int cell) const;
     int rowAt (int y) const;                                     // 0 = lowest, -1 outside
-    float rowY (int row) const { return (float) (headerH + shiftH + (BassMachine::numRows - 1 - row) * rowH); }
+    // rows shown: 11 scale degrees, or the 13 semitones of an octave (C2-C3 with root C) for the chromatic scale; Oct-/Oct+ move the window
+    int rowsNow() const { return engine.bass.scale.load() == 6 ? 13 : BassMachine::numRows; }
+    int rowHeight() const { return gridH / rowsNow(); }
+    int baseDegree() const { return (engine.bass.scale.load() == 6 ? 0 : BassMachine::degreeBase) + viewOct * BassMachine::scaleSize (engine.bass.scale.load()); }
+    float rowY (int row) const { return (float) (headerH + shiftH + (rowsNow() - 1 - row) * rowHeight()); }
     void pushPattern (const juce::String& name, const BassMachine::Snapshot& before, const BassMachine::Snapshot& after);
     void updateControls();
     void info (const juce::String& what, const juce::String& value);
@@ -91,6 +96,12 @@ private:
     juce::Slider volume;
     LevelMeter meter;
     juce::OwnedArray<Knob> knobs;
+    juce::TextButton octDown { "Oct-" }, octUp { "Oct+" }, randBtn { "Random" };
+    BassRandom::Options randOpts;
+    juce::Random rng;
+    void showRandomOptions();
+    void generateRandom();
+    int viewOct = 0;
 
     // mouse editing: Create = new note being dragged out, Pending = pressed an existing note (click removes it, drag erases),
     // Resize = dragging the right edge of a note, Erase = wiping notes under the pointer

@@ -198,6 +198,26 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
     meter.setHorizontal (true);
     addAndMakeVisible (meter);
 
+    randBtn.setWantsKeyboardFocus (false);
+    randBtn.setTooltip ("Random notes in the key and scale. Click to set grid, density, lengths and range; right-click rolls again with the same settings");
+    randBtn.onClick = [this] { showRandomOptions(); };
+    randBtn.addMouseListener (this, false);          // right-click: roll again with the same settings
+    addAndMakeVisible (randBtn);
+
+    for (auto* b : { &octDown, &octUp })
+    {
+        b->setWantsKeyboardFocus (false);
+        b->setTooltip (b == &octDown ? "Show lower notes (one octave)" : "Show higher notes (one octave)");
+        b->onClick = [this, b]
+        {
+            viewOct = juce::jlimit (-2, 3, viewOct + (b == &octUp ? 1 : -1));
+            const int lo = engine.bass.root.load() + BassMachine::semitones (engine.bass.scale.load(), baseDegree());
+            info ("Bass range", juce::String (BassMachine::noteName (lo)) + juce::String (lo / 12 - 1) + " and up");
+            repaint();
+        };
+        addChildComponent (b);
+    }
+
     // ---- sound
     presetBox.setTextWhenNothingSelected ("Sound");
     presetBox.setWantsKeyboardFocus (false);
@@ -276,6 +296,79 @@ void BassPanel::setLiveState (int state)
     liveBtn.setButtonText (state == 1 ? "Wait" : state == 2 ? "REC" : "Rec");
 }
 
+void BassPanel::generateRandom()
+{
+    const auto before = engine.bass.snapshot();
+    page = 0;
+    pushPattern ("Random bass line", before, BassRandom::generate (before, randOpts, rng));
+    refreshFromEngine();
+}
+
+void BassPanel::showRandomOptions()
+{
+    struct Options : juce::Component
+    {
+        BassPanel& owner;
+        juce::ComboBox grid, length, range, scope;
+        juce::Slider density, rootBias, accent, slide;
+        juce::Label l[8];
+        juce::TextButton go { "Generate" };
+
+        explicit Options (BassPanel& p) : owner (p)
+        {
+            auto& o = p.randOpts;
+            const char* const names[8] = { "Grid", "Density", "Lengths", "Range", "Bars", "Root / fifth", "Accents", "Slides" };
+            for (int i = 0; i < 8; ++i) { l[i].setText (names[i], juce::dontSendNotification); l[i].setColour (juce::Label::textColourId, Theme::dim); addAndMakeVisible (l[i]); }
+            grid.addItem ("1/4 notes", 1); grid.addItem ("1/8 notes", 2); grid.addItem ("1/16 notes", 3); grid.setSelectedId (o.grid + 1, juce::dontSendNotification);
+            length.addItem ("Fixed (one grid step)", 1); length.addItem ("Random", 2); length.setSelectedId (o.randomLength ? 2 : 1, juce::dontSendNotification);
+            range.addItem ("1 octave", 1); range.addItem ("2 octaves", 2); range.addItem ("3 octaves", 3); range.setSelectedId (o.octaves, juce::dontSendNotification);
+            scope.addItem ("Different every bar", 1); scope.addItem ("Repeat bar 1", 2); scope.setSelectedId (o.repeatBar ? 2 : 1, juce::dontSendNotification);
+            for (auto* s : { &density, &rootBias, &accent, &slide })
+            {
+                s->setSliderStyle (juce::Slider::LinearHorizontal);
+                s->setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 20);
+                s->setNumDecimalPlacesToDisplay (0);
+                addAndMakeVisible (s);
+            }
+            density.setRange (5.0, 100.0, 1.0); density.setValue (o.density * 100.0, juce::dontSendNotification);
+            rootBias.setRange (0.0, 100.0, 1.0); rootBias.setValue (o.rootBias * 100.0, juce::dontSendNotification);
+            accent.setRange (0.0, 100.0, 1.0); accent.setValue (o.accent * 100.0, juce::dontSendNotification);
+            slide.setRange (0.0, 100.0, 1.0); slide.setValue (o.slide * 100.0, juce::dontSendNotification);
+            for (auto* c : { &grid, &length, &range, &scope }) addAndMakeVisible (c);
+            go.onClick = [this] { apply(); owner.generateRandom(); };
+            addAndMakeVisible (go);
+            setSize (320, 12 + 8 * 30 + 44);
+        }
+        void apply()
+        {
+            auto& o = owner.randOpts;
+            o.grid = grid.getSelectedId() - 1;
+            o.randomLength = length.getSelectedId() == 2;
+            o.octaves = range.getSelectedId();
+            o.repeatBar = scope.getSelectedId() == 2;
+            o.density = (float) density.getValue() / 100.0f;
+            o.rootBias = (float) rootBias.getValue() / 100.0f;
+            o.accent = (float) accent.getValue() / 100.0f;
+            o.slide = (float) slide.getValue() / 100.0f;
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (12, 8);
+            juce::Component* ctl[8] = { &grid, &density, &length, &range, &scope, &rootBias, &accent, &slide };
+            for (int i = 0; i < 8; ++i)
+            {
+                auto row = r.removeFromTop (30);
+                l[i].setBounds (row.removeFromLeft (92));
+                ctl[i]->setBounds (row.reduced (0, 3));
+            }
+            r.removeFromTop (6);
+            go.setBounds (r.removeFromTop (28));
+        }
+        void paint (juce::Graphics& g) override { g.fillAll (Theme::panel); }
+    };
+    juce::CallOutBox::launchAsynchronously (std::make_unique<Options> (*this), randBtn.getScreenBounds(), nullptr);
+}
+
 void BassPanel::setExpanded (bool b)
 {
     expanded = b;
@@ -328,6 +421,7 @@ void BassPanel::updateControls()
     const bool paged = expanded && pages > 1;
     for (auto* k : knobs) k->s.setVisible (expanded);
     presetBox.setVisible (expanded); waveBox.setVisible (expanded);
+    octDown.setVisible (expanded); octUp.setVisible (expanded);
     prevPage.setVisible (paged); nextPage.setVisible (paged); pageLabel.setVisible (paged);
     prevPage.setEnabled (page > 0); nextPage.setEnabled (page < pages - 1);
     if (paged)
@@ -340,7 +434,7 @@ void BassPanel::updateControls()
 
 juce::Rectangle<int> BassPanel::gridArea() const
 {
-    return { TrackRow::waveLeft, headerH + shiftH, juce::jmax (1, getWidth() - TrackRow::waveLeft - TrackRow::waveRightInset), BassMachine::numRows * rowH };
+    return { TrackRow::waveLeft, headerH + shiftH, juce::jmax (1, getWidth() - TrackRow::waveLeft - TrackRow::waveRightInset), gridH };
 }
 
 juce::Rectangle<int> BassPanel::stripArea() const
@@ -363,9 +457,9 @@ int BassPanel::stepForCell (int cell) const
 
 int BassPanel::rowAt (int y) const
 {
-    const int r = (y - headerH - shiftH) / rowH;
-    if (y < headerH + shiftH || r < 0 || r >= BassMachine::numRows) return -1;
-    return BassMachine::numRows - 1 - r;
+    const int r = (y - headerH - shiftH) / rowHeight();
+    if (y < headerH + shiftH || r < 0 || r >= rowsNow()) return -1;
+    return rowsNow() - 1 - r;
 }
 
 int BassPanel::effectiveLen (int step) const
@@ -391,7 +485,7 @@ void BassPanel::resized()
     auto r = juce::Rectangle<int> (0, 0, getWidth(), headerH).reduced (12, 7);
     const int h = r.getHeight(), y = r.getY();
     // right group first (it never gets squeezed): volume, M, S, Clear, Echo, Rev, Rec, Bake, then the VU meter if there is room
-    const int rightFixed = 390, leftFixed = 6 + 24 + 124 + 10 + 32 + 132, comboBase = 496;
+    const int rightFixed = 390, leftFixed = 6 + 24 + 124 + 10 + 32 + 132 + 70, comboBase = 496;
     const int avail = r.getWidth();
     const int meterRoom = avail - (leftFixed + comboBase) - rightFixed - 16;
     const int meterW = meterRoom >= 60 ? juce::jmin (190, meterRoom) : 0;
@@ -415,12 +509,15 @@ void BassPanel::resized()
     rootBox.setBounds (l.removeFromLeft (w (54))); l.removeFromLeft (6);
     scaleBox.setBounds (l.removeFromLeft (w (128))); l.removeFromLeft (6);
     templateBox.setBounds (l.removeFromLeft (w (112))); l.removeFromLeft (6);
-    progBox.setBounds (l.removeFromLeft (w (118))); l.removeFromLeft (8);
+    progBox.setBounds (l.removeFromLeft (w (118))); l.removeFromLeft (6);
+    randBtn.setBounds (l.removeFromLeft (64)); l.removeFromLeft (8);
     prevPage.setBounds (l.removeFromLeft (26)); l.removeFromLeft (4);
     pageLabel.setBounds (l.removeFromLeft (72)); l.removeFromLeft (4);
     nextPage.setBounds (l.removeFromLeft (26));
     presetBox.setBounds (14, headerH + 2, 150, 24);
     waveBox.setBounds (172, headerH + 2, 96, 24);
+    octDown.setBounds (276, headerH + 2, 44, 24);
+    octUp.setBounds (324, headerH + 2, 44, 24);
     for (int i = 0; i < knobs.size(); ++i)
     {
         const int col = i % 4, row = i / 4;
@@ -486,12 +583,15 @@ void BassPanel::paint (juce::Graphics& g)
 
     g.saveState();
     g.reduceClipRegion (ga);
-    for (int row = 0; row < BassMachine::numRows; ++row)
+    const bool chromatic = bm.scale.load() == 6;
+    for (int row = 0; row < rowsNow(); ++row)
     {
-        const int d = BassMachine::degreeBase + row;
+        const int d = baseDegree() + row;
         const bool isRoot = ((d % n) + n) % n == 0;
-        const juce::Rectangle<float> lr ((float) ga.getX(), rowY (row), (float) ga.getWidth(), (float) rowH);
-        g.setColour (isRoot ? Theme::raised : Theme::deep);
+        const int pc = ((bm.root.load() + BassMachine::semitones (bm.scale.load(), d)) % 12 + 12) % 12;
+        const bool blackKey = chromatic && (pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10);   // piano colouring when every note is shown
+        const juce::Rectangle<float> lr ((float) ga.getX(), rowY (row), (float) ga.getWidth(), (float) rowHeight());
+        g.setColour (isRoot ? Theme::raised : blackKey ? Theme::deep.darker (0.35f) : (chromatic ? Theme::deep.brighter (0.06f) : Theme::deep));
         g.fillRect (lr);
         g.setColour (Theme::border.withAlpha (0.35f));
         g.fillRect (lr.withHeight (1.0f));
@@ -503,11 +603,11 @@ void BassPanel::paint (juce::Graphics& g)
         g.fillRect (xOrigin + c * cellW, (float) ga.getY(), cellW, (float) ga.getHeight());
     }
     g.setFont (juce::Font (juce::FontOptions (9.5f)));
-    for (int row = 0; row < BassMachine::numRows; ++row)    // note names
+    for (int row = 0; row < rowsNow(); ++row)    // note names
     {
-        const int d = BassMachine::degreeBase + row;
+        const int d = baseDegree() + row;
         g.setColour (Theme::dim.withAlpha (0.75f));
-        g.drawText (BassMachine::noteName (bm.root.load() + BassMachine::semitones (bm.scale.load(), d)), ga.getX() + 3, (int) rowY (row), 22, rowH, juce::Justification::centredLeft);
+        g.drawText (BassMachine::noteName (bm.root.load() + BassMachine::semitones (bm.scale.load(), d)), ga.getX() + 3, (int) rowY (row), 22, rowHeight(), juce::Justification::centredLeft);
     }
     for (int c = c0; c < c1; ++c)
     {
@@ -515,11 +615,11 @@ void BassPanel::paint (juce::Graphics& g)
         const bool inside = s < ps;
         const auto cell = bm.steps[s % ps].load();
         if (! BassMachine::isNote (cell)) continue;
-        const int row = BassMachine::degreeOf (cell) - BassMachine::degreeBase;
-        if (row < 0 || row >= BassMachine::numRows) continue;
+        const int row = BassMachine::degreeOf (cell) - baseDegree();
+        if (row < 0 || row >= rowsNow()) continue;
         const int len = effectiveLen (s % ps);
         const float x = xOrigin + c * cellW;
-        const juce::Rectangle<float> nr (x + 0.5f, rowY (row) + 1.5f, juce::jmax (2.0f, cellW * (float) len - 1.0f), (float) rowH - 3.0f);
+        const juce::Rectangle<float> nr (x + 0.5f, rowY (row) + 1.5f, juce::jmax (2.0f, cellW * (float) len - 1.0f), (float) rowHeight() - 3.0f);
         auto col = BassMachine::accentOf (cell) ? accent.brighter (0.3f) : accent.withMultipliedBrightness (0.85f);
         if (! inside || bm.mute.load()) col = col.withAlpha (inside ? 0.45f : 0.3f);
         g.setColour (col);
@@ -607,7 +707,7 @@ int BassPanel::findNoteAt (int step, int degree) const
 void BassPanel::eraseRange (int cellA, int cellB, int row)
 {
     if (row < 0) return;
-    const int degree = BassMachine::degreeBase + row;
+    const int degree = baseDegree() + row;
     for (int c = juce::jmin (cellA, cellB); c <= juce::jmax (cellA, cellB); ++c)
     {
         const int h = findNoteAt (stepForCell (c), degree);
@@ -618,6 +718,7 @@ void BassPanel::eraseRange (int cellA, int cellB, int row)
 void BassPanel::mouseDown (const juce::MouseEvent& e)
 {
     mode = Mode::None;
+    if (e.eventComponent == &randBtn) { if (e.mods.isPopupMenu()) generateRandom(); return; }
     if (! expanded || e.y < headerH) return;
     const int cell = cellAt ((float) e.x, false);
     if (cell < 0) return;
@@ -633,7 +734,7 @@ void BassPanel::mouseDown (const juce::MouseEvent& e)
 
     auto& bm = engine.bass;
     const int ps = bm.patternSteps();
-    const int step = stepForCell (cell), degree = BassMachine::degreeBase + row;
+    const int step = stepForCell (cell), degree = baseDegree() + row;
     beforePaint = bm.snapshot();
     const int head = findNoteAt (step, degree);
 
@@ -671,13 +772,13 @@ void BassPanel::mouseDrag (const juce::MouseEvent& e)
     if (mode == Mode::None) return;
     auto& bm = engine.bass;
     const int cell = cellAt ((float) e.x, true);
-    const int row = rowAt (juce::jlimit (headerH + shiftH, headerH + shiftH + BassMachine::numRows * rowH - 1, e.y));
+    const int row = rowAt (juce::jlimit (headerH + shiftH, headerH + shiftH + gridH - 1, e.y));
 
     if (mode == Mode::Create)
     {
         const int len = juce::jlimit (1, BassMachine::maxLen, cell - drawCell + 1);
         int degree = drawDegree;
-        if (row >= 0) degree = BassMachine::degreeBase + row;
+        if (row >= 0) degree = baseDegree() + row;
         if (degree != drawDegree) { drawDegree = degree; audition (drawStep, degree); }
         bm.steps[drawStep] = BassMachine::pack (degree, len, false, drawAccent != 0);
     }

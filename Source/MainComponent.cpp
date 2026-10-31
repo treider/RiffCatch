@@ -26,6 +26,7 @@ MainComponent::MainComponent()
         r->onArmChanged = [this] { warnIfMultipleArmed(); };
         r->onDelete    = [this] (TrackRow* row) { deleteTrack (row); };
         r->onDuplicate = [this] (TrackRow* row) { duplicateTrack (row->slot()); };
+    r->onAnalyze = [this] (TrackRow* row) { analyzeTrack (row->slot()); };
         r->onStatus    = [this] (const juce::String& s) { setStatus (s); };
         r->onClipGrew  = [this] (juce::int64 end)
         {   // a duplicate past the loop end makes the loop longer, so the copy is heard
@@ -1228,6 +1229,44 @@ void MainComponent::bakeBass()
     snap->echoDiv = (int) TrackFx::Quarter;
     addBassTrack (snap, "Bake bass");
     setStatus ("Baked the bass line into a new track. The synth is muted so it does not play twice", 250);
+}
+
+// Analyze a recorded riff (tempo, key / mode, chords, rhythm) and offer rule-based bass lines.
+void MainComponent::analyzeTrack (int slot)
+{
+    if (slot < 0 || slot >= AudioEngine::maxTracks) return;
+    auto& t = engine.tracks[slot];
+    const auto len = t.length.load();
+    if (len <= 0) { setStatus ("Nothing to analyze - the track is empty"); return; }
+    juce::AudioBuffer<float> copy;
+    {
+        juce::SpinLock::ScopedLockType lk (t.lock);
+        const int n = (int) juce::jmin<juce::int64> (len, t.data.getNumSamples());
+        copy.setSize (2, n);
+        for (int c = 0; c < 2; ++c) copy.copyFrom (c, 0, t.data, c, 0, n);
+    }
+    AnalysisCard::Setup s;
+    s.result = Analysis::analyse (copy, copy.getNumSamples(), t.offset.load(), engine.getSampleRate(), engine.getSamplesPerBeat(), engine.getBarBeats(), BassMachine::maxBars);
+    if (! s.result.valid) { setStatus ("Could not find a key - is there enough audio in the track?"); return; }
+    s.trackName = t.name;
+    s.projectBpm = engine.bpm.load();
+    s.stopped = engine.getState() == AudioEngine::Stopped;
+    s.barSteps = (int) std::lround (engine.getBarBeats() * 4.0);
+    s.beat = engine.tsDen.load() == 8 ? 2 : 4;
+    s.haveDrums = engine.drums.hasAnySteps();
+    if (s.haveDrums) s.drums = engine.drums.snapshot();
+
+    auto* card = new AnalysisCard (std::move (s));
+    card->onSetTempo = [this] (double bpm) { setBpm (bpm); setStatus ("Project tempo set to " + juce::String (engine.bpm.load(), 1) + " BPM"); };
+    card->onUse = [this] (const juce::String& name, const BassMachine::Snapshot& snap)
+    {
+        const auto before = engine.bass.snapshot();
+        auto apply = [this] (const BassMachine::Snapshot& x) { engine.bass.apply (x); bassPanel.refreshFromEngine(); };
+        record ("Bass from riff: " + name, [apply, snap] { apply (snap); }, [apply, before] { apply (before); });
+        showSeqTab (1);
+        setStatus (engine.bass.mute.load() ? "Bass line '" + name + "' added - the bass is muted" : "Bass line '" + name + "' added in the Bass tab", 200);
+    };
+    juce::CallOutBox::launchAsynchronously (std::unique_ptr<juce::Component> (card), rows[slot] != nullptr ? rows[slot]->getScreenBounds() : getScreenBounds(), nullptr);
 }
 
 void MainComponent::paint (juce::Graphics& g)

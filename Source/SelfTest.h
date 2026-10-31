@@ -6,6 +6,7 @@
 #include "audio/BassTemplates.h"
 #include "audio/PitchDetector.h"
 #include "ui/BassPanel.h"
+#include "audio/BassSuggest.h"
 #include "project/AudioImport.h"
 #include "ui/ThemeStore.h"
 #include "ui/TunerCard.h"
@@ -354,11 +355,134 @@ inline juce::String runEngineSelfTest()
         check (! BassMachine::isNote (ep.bass.steps[20].load()) && ! BassMachine::isNote (ep.bass.steps[24].load()) && ! BassMachine::isNote (ep.bass.steps[26].load())
                && BassMachine::isNote (ep.bass.steps[22].load()), "bass panel: dragging from a note wipes notes in that row only");
 
+        // chromatic scale: 13 rows, every semitone from the root up an octave
+        ep.bass.scale = 6; ep.bass.root = 36; ep.bass.bars = 4;
+        panel.refreshFromEngine();
+        const float yBottom = (float) (BassPanel::headerH + BassPanel::shiftH + BassPanel::gridH - 3), yTop = (float) (BassPanel::headerH + BassPanel::shiftH + 3);
+        panel.mouseDown (ev ({ x0 + 50.0f * stepPx, yBottom }, { x0, yBottom }, false)); panel.mouseUp (ev ({ x0 + 50.0f * stepPx, yBottom }, { x0, yBottom }, false));
+        panel.mouseDown (ev ({ x0 + 52.0f * stepPx, yTop }, { x0, yTop }, false)); panel.mouseUp (ev ({ x0 + 52.0f * stepPx, yTop }, { x0, yTop }, false));
+        panel.mouseDown (ev ({ x0 + 54.0f * stepPx, (float) (BassPanel::headerH + BassPanel::shiftH + BassPanel::gridH - 3 - 11 * 3) }, { x0, yTop }, false));
+        panel.mouseUp (ev ({ x0 + 54.0f * stepPx, (float) (BassPanel::headerH + BassPanel::shiftH + BassPanel::gridH - 3 - 11 * 3) }, { x0, yTop }, false));
+        check (BassMachine::degreeOf (ep.bass.steps[50].load()) == 0 && BassMachine::degreeOf (ep.bass.steps[52].load()) == 12 && BassMachine::degreeOf (ep.bass.steps[54].load()) == 3,
+               "bass panel: chromatic scale shows C2 to C3 (degrees " + juce::String (BassMachine::degreeOf (ep.bass.steps[50].load())) + ", " + juce::String (BassMachine::degreeOf (ep.bass.steps[52].load())) + ", " + juce::String (BassMachine::degreeOf (ep.bass.steps[54].load())) + ")");
+        check (ep.bass.root.load() + BassMachine::semitones (6, 12) == 48, "chromatic: root C gives C2 up to C3 (MIDI 36 to 48)");
+        ep.bass.scale = 0; ep.bass.root = 33; panel.refreshFromEngine();
+
         // plain click on a note removes it
         ep.bass.steps[40] = BassMachine::pack (3, 3, false, false);
         panel.mouseDown (ev ({ wx + 41.0f * stepPx, y0 }, { wx, y0 }, false));
         panel.mouseUp (ev ({ wx + 41.0f * stepPx, y0 }, { wx, y0 }, false));
         check (! BassMachine::isNote (ep.bass.steps[40].load()), "bass panel: clicking inside a long note removes it");
+    }
+
+    // ---- riff analysis: tempo, key, chords, rhythm, bass suggestions (synthetic guitar-like signals)
+    {
+        const double sr = 44100.0, spb = sr * 0.5;                  // 120 BPM
+        const int barLen = (int) (spb * 4.0);
+        auto tone = [&] (juce::AudioBuffer<float>& b, double f, int start, int lenS)
+        {
+            for (int i = 0; i < lenS && start + i < b.getNumSamples(); ++i)
+            {
+                const double t = i / sr;
+                double v = 0.0;
+                for (int h = 1; h <= 4; ++h) v += std::sin (2.0 * juce::MathConstants<double>::pi * f * h * t) / h;
+                v *= std::exp (-t * 5.0) * std::min (1.0, t / 0.003) * 0.25;
+                b.addSample (0, start + i, (float) v); b.addSample (1, start + i, (float) v);
+            }
+        };
+        // chord riff: E5 E5 C5 D5, power chords hit on every quarter note
+        juce::AudioBuffer<float> riff (2, barLen * 4);
+        riff.clear();
+        const double bassHz[4] = { 82.41, 82.41, 65.41, 73.42 }, fifthHz[4] = { 123.47, 123.47, 98.0, 110.0 };
+        for (int bar = 0; bar < 4; ++bar)
+            for (int q = 0; q < 4; ++q)
+            {
+                tone (riff, bassHz[bar], bar * barLen + (int) (q * spb), (int) spb);
+                tone (riff, fifthHz[bar], bar * barLen + (int) (q * spb), (int) spb);
+            }
+        const auto ra = Analysis::analyse (riff, riff.getNumSamples(), 0, sr, spb, 4.0, 8);
+        check (ra.valid && ra.bars == 4, "analysis: finds four bars of audio");
+        check (std::abs (Analysis::foldNear (ra.tempo, 120.0) - 120.0) < 3.0, "analysis: tempo near 120 BPM (" + juce::String (ra.tempo, 1) + ")");
+        const auto chords = ra.valid ? Analysis::detectChords (ra, ra.keys[0]) : std::vector<Analysis::Chord>();
+        check (chords.size() == 4 && chords[0].rootPc == 4 && chords[1].rootPc == 4 && chords[2].rootPc == 0 && chords[3].rootPc == 2,
+               "analysis: chord roots E E C D per bar" + (chords.size() == 4 ? juce::String (" (got ") + Analysis::chordName (chords[0]) + " " + Analysis::chordName (chords[1]) + " " + Analysis::chordName (chords[2]) + " " + Analysis::chordName (chords[3]) + ")" : juce::String()));
+        bool onsetsOk = ra.valid;
+        for (int bar = 0; bar < 4 && onsetsOk; ++bar)
+            onsetsOk = ra.onsets[(size_t) bar][0] > 0.2f && ra.onsets[(size_t) bar][4] > 0.2f && ra.onsets[(size_t) bar][8] > 0.2f && ra.onsets[(size_t) bar][12] > 0.2f
+                       && ra.onsets[(size_t) bar][2] < 0.2f && ra.onsets[(size_t) bar][6] < 0.2f;
+        check (onsetsOk, "analysis: riff rhythm lands on steps 0, 4, 8, 12");
+
+        // pentatonic melody: E minor pentatonic with E as the home note
+        juce::AudioBuffer<float> mel (2, barLen * 4);
+        mel.clear();
+        const double notes[8] = { 82.41, 98.0, 110.0, 82.41, 123.47, 146.83, 82.41, 164.81 };
+        for (int i = 0; i < 32; ++i) tone (mel, notes[i % 8], (int) (i * spb * 0.5), (int) (spb * 0.5));
+        const auto ma = Analysis::analyse (mel, mel.getNumSamples(), 0, sr, spb, 4.0, 8);
+        check (ma.valid && ma.keys[0].rootPc == 4 && ma.keys[0].scale == 0, "analysis: E minor pentatonic melody -> " + (ma.valid ? Analysis::keyName (ma.keys[0]) : juce::String ("nothing")));
+
+        // bass suggestions follow the chords
+        if (ra.valid)
+        {
+            const auto key = ra.keys[0];
+            const auto sg = BassSuggest::suggest (ra, key, chords, 16, 4, nullptr);
+            check (sg.size() >= 5, "bass suggestions: at least five lines");
+            bool good = ! sg.empty();
+            int expectShift = (((0 - key.rootPc) % 12) + 12) % 12; if (expectShift > 6) expectShift -= 12;
+            for (const auto& s : sg)
+            {
+                good &= s.snap.bars == 4 && s.snap.scale == key.scale && s.snap.shift[2] == expectShift;
+                int notes2 = 0;
+                for (int k = 0; k < 64; ++k)
+                    if (BassMachine::isNote (s.snap.steps[k]))
+                    {
+                        ++notes2;
+                        const int row = BassMachine::degreeOf (s.snap.steps[k]) - BassMachine::degreeBase;
+                        good &= BassMachine::lenOf (s.snap.steps[k]) >= 1 && row > -20 && row < 40;
+                    }
+                good &= notes2 >= 4;
+            }
+            check (good, "bass suggestions: four bars, in key, transposed per chord");
+            bool pedal = false;
+            for (const auto& s : sg) if (s.name == "Pedal") { int c = 0; for (int k = 0; k < 64; ++k) c += BassMachine::isNote (s.snap.steps[k]) ? 1 : 0; pedal = c == 4 && BassMachine::lenOf (s.snap.steps[0]) == 16; }
+            check (pedal, "bass suggestions: Pedal is one bar-long note per bar");
+        }
+    }
+
+    // ---- random bass line
+    {
+        juce::Random rnd (1234);
+        BassMachine::Snapshot cur; cur.bars = 2; cur.scale = 0; cur.root = 33;
+        BassRandom::Options o; o.grid = 1; o.density = 1.0f; o.octaves = 2; o.repeatBar = true; o.randomLength = false;
+        const auto full = BassRandom::generate (cur, o, rnd);
+        int notes = 0; bool grid = true, inRange = true, same = true;
+        for (int k = 0; k < 32; ++k)
+        {
+            const auto c = full.steps[k];
+            if (BassMachine::isNote (c)) { ++notes; grid &= k % 2 == 0; inRange &= BassMachine::degreeOf (c) >= 0 && BassMachine::degreeOf (c) < 10; }
+            else grid &= k % 2 == 1;
+            if (k >= 16) same &= full.steps[k] == full.steps[k - 16];
+        }
+        check (notes == 16 && grid && inRange && same, "random bass: every eighth, inside two octaves of the scale, bar 1 repeated (" + juce::String (notes) + " notes)");
+        o.density = 0.3f; o.randomLength = true; o.repeatBar = false; o.grid = 2;
+        int sparse = 0, dense = 0; bool lensOk = true;
+        for (int run = 0; run < 20; ++run)
+        {
+            const auto s = BassRandom::generate (cur, o, rnd);
+            for (int k = 0; k < 32; ++k)
+                if (BassMachine::isNote (s.steps[k]))
+                {
+                    ++sparse;
+                    int next = k + 1; while (next < 32 && ! BassMachine::isNote (s.steps[next])) ++next;
+                    lensOk &= BassMachine::lenOf (s.steps[k]) >= 1 && k % 16 + BassMachine::lenOf (s.steps[k]) <= 16 && BassMachine::lenOf (s.steps[k]) <= next - k + (next >= 32 ? 16 : 0);
+                }
+        }
+        o.density = 1.0f;
+        for (int run = 0; run < 20; ++run) { const auto s = BassRandom::generate (cur, o, rnd); for (int k = 0; k < 32; ++k) dense += BassMachine::isNote (s.steps[k]) ? 1 : 0; }
+        check (sparse < dense / 2 && lensOk, "random bass: density thins the line, random lengths stay inside the gaps (" + juce::String (sparse) + " vs " + juce::String (dense) + ")");
+        BassMachine::Snapshot chromatic = cur; chromatic.scale = 6;
+        const auto cs = BassRandom::generate (chromatic, o, rnd);
+        bool chromOk = true; for (int k = 0; k < 32; ++k) if (BassMachine::isNote (cs.steps[k])) chromOk &= BassMachine::degreeOf (cs.steps[k]) >= 0 && BassMachine::degreeOf (cs.steps[k]) < 24;
+        check (chromOk, "random bass: chromatic scale stays inside the range");
     }
 
     // ---- drum machine: sample-accurate steps, phase kept across loop passes

@@ -64,7 +64,7 @@ public:
     int clipOffset() { return track().offset.load(); }
     void clearSelection() { if (selEnd > selStart) { selStart = selEnd = 0; repaint(); } }
     void selectionCommand (SelCmd cmd);
-    std::function<void (TrackRow*)> onSelectionStarted, onDuplicate;
+    std::function<void (TrackRow*)> onSelectionStarted, onDuplicate, onAnalyze;
     std::function<void (const juce::String&)> onStatus;
 
 private:

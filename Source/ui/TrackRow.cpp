@@ -1019,6 +1019,8 @@ void TrackRow::showClipMenu()
     m.addItem (10, "Crop to selection (move to bar 1)", sel);
     m.addItem (11, "Trim silence (keeps the timing)");
     m.addSeparator();
+    m.addItem (12, "Analyze riff and suggest bass...");
+    m.addSeparator();
     m.addItem (7, "Duplicate track\tCtrl+D");
     m.showMenuAsync (juce::PopupMenu::Options(), [this] (int id)
     {
@@ -1034,6 +1036,7 @@ void TrackRow::showClipMenu()
             case 8: selectionCommand (SelReverse); break;
             case 10: cropToSelection(); break;
             case 11: trimSilence(); break;
+            case 12: if (onAnalyze) onAnalyze (this); break;
             case 9: selectAll(); break;
             default: break;
         }
