@@ -16,6 +16,16 @@ static void styleFader (juce::Slider& s, juce::Colour accent, bool horizontal)
     s.setWantsKeyboardFocus (false);
 }
 
+static void styleFlat (juce::TextButton& b, juce::Colour on)
+{
+    b.setClickingTogglesState (true);
+    b.setColour (juce::TextButton::buttonColourId, Theme::raised);            // grey tile with a light letter; filled when on
+    b.setColour (juce::TextButton::buttonOnColourId, on);
+    b.setColour (juce::TextButton::textColourOffId, Theme::text);
+    b.setColour (juce::TextButton::textColourOnId, Theme::deep);
+    b.setWantsKeyboardFocus (false);
+}
+
 static void styleToggle (juce::TextButton& b, juce::Colour on)
 {
     b.setClickingTogglesState (true);
@@ -67,8 +77,8 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     addAndMakeVisible (inMeter);
 
     styleToggle (arm, Theme::red);
-    styleToggle (mute, Theme::accent);
-    styleToggle (solo, Theme::accent);
+    styleFlat (mute, Theme::accent);
+    styleFlat (solo, Theme::accent);
     arm.onClick  = [this] { track().armed = arm.getToggleState(); repaint(); if (onArmChanged) onArmChanged(); };
     mute.onClick = [this]
     {
@@ -330,19 +340,18 @@ void TrackRow::paint (juce::Graphics& g)
     if (barSeconds > 0.0)
     {
         const double beat = barSeconds / 4.0;
-        int k = 0;
-        for (double s = 0.0; s < viewSeconds - 0.001; s += beat, ++k)
+        for (int k = juce::jmax (0, (int) std::floor (viewStart / beat)); k * beat < viewStart + viewSeconds - 0.001; ++k)
         {
             const bool bar = (k % 4 == 0);
             g.setColour (bar ? Theme::border.withAlpha (0.8f) : Theme::border.withAlpha (0.25f));
-            g.fillRect ((float) (w.getX() + s * pxPerSec), w.getY(), 1.0f, w.getHeight());
+            g.fillRect ((float) (w.getX() + (k * beat - viewStart) * pxPerSec), w.getY(), 1.0f, w.getHeight());
         }
     }
     else
     {
         g.setColour (Theme::border.withAlpha (0.3f));
-        for (double s = 5.0; s < viewSeconds; s += 5.0)
-            g.fillRect ((float) (w.getX() + s * pxPerSec), w.getY(), 1.0f, w.getHeight());
+        for (double s = std::floor (viewStart / 5.0) * 5.0 + 5.0; s < viewStart + viewSeconds; s += 5.0)
+            g.fillRect ((float) (w.getX() + (s - viewStart) * pxPerSec), w.getY(), 1.0f, w.getHeight());
     }
 
     auto& tr = track();
@@ -356,8 +365,8 @@ void TrackRow::paint (juce::Graphics& g)
     if (recording && tr.recToStage.load()) { clipSecs = tr.stagePos.load() / juce::jmax (1.0, sr); live = true; }
     else if (recording) live = true;
     // clip position: the recording start while recording, else the clip offset on the timeline
-    const float dx = live ? (float) (engine.getRecordStart() / juce::jmax (1.0, sr) * pxPerSec)
-                          : (float) (tr.offset.load() / juce::jmax (1.0, sr) * pxPerSec);
+    const float dx = live ? (float) ((engine.getRecordStart() / juce::jmax (1.0, sr) - viewStart) * pxPerSec)
+                          : (float) ((tr.offset.load() / juce::jmax (1.0, sr) - viewStart) * pxPerSec);
     const float clipW = juce::jmin ((float) (clipSecs * pxPerSec), w.getWidth() + 2.0f - dx);
 
     if (clipW > 1.0f && (done > 0 || live))
@@ -382,7 +391,7 @@ void TrackRow::paint (juce::Graphics& g)
             const double bars = tr.offset.load() / (double) juce::jmax<juce::int64> (1, engine.getBarLength()) + 1.0;
             title << "   bar " << (std::abs (bars - std::round (bars)) < 0.002 ? juce::String ((int) std::round (bars)) : juce::String (bars, 2));
         }
-        g.drawText (title, strip.reduced (5.0f, 0.0f), juce::Justification::centredLeft);
+        g.drawText (title, strip.withLeft (juce::jmax (strip.getX(), w.getX())).reduced (5.0f, 0.0f), juce::Justification::centredLeft);
 
 
         if (done > 0 && ! (live && tr.recToStage.load()))
@@ -400,7 +409,9 @@ void TrackRow::paint (juce::Graphics& g)
             auto drawLane = [&] (const std::vector<float>& lo, const std::vector<float>& hi, juce::Rectangle<float> area)
             {
                 const float mid = area.getCentreY(), half = area.getHeight() * 0.5f - 2.0f;
-                for (int x = 0; x < (int) area.getWidth(); ++x)
+                const int xa = juce::jmax (0, (int) (w.getX() - area.getX()) - 1);
+                const int xb = juce::jmin ((int) area.getWidth(), (int) (w.getRight() - area.getX()) + 2);
+                for (int x = xa; x < xb; ++x)
                 {
                     const auto b0 = (juce::int64) (x * spp / binSize);
                     if (b0 >= done) break;
@@ -468,7 +479,7 @@ void TrackRow::paint (juce::Graphics& g)
         }
     }
 
-    const float px = (float) (w.getX() + engine.getPosition() / juce::jmax (1.0, sr) * pxPerSec);
+    const float px = (float) (w.getX() + (engine.getPosition() / juce::jmax (1.0, sr) - viewStart) * pxPerSec);
     if (engine.getState() != AudioEngine::Stopped || engine.getPosition() > 0)
     {
         g.setColour (Theme::text);
@@ -483,12 +494,12 @@ void TrackRow::paint (juce::Graphics& g)
 
 float TrackRow::sampleToX (juce::int64 s) const
 {
-    return (float) wave.getX() + (float) (s / juce::jmax (1.0, engine.getSampleRate()) * (wave.getWidth() / viewSeconds));
+    return (float) wave.getX() + (float) ((s / juce::jmax (1.0, engine.getSampleRate()) - viewStart) * (wave.getWidth() / viewSeconds));
 }
 
 juce::int64 TrackRow::xToSample (float x) const
 {
-    return (juce::int64) std::llround ((x - (float) wave.getX()) / (wave.getWidth() / viewSeconds) * engine.getSampleRate());
+    return (juce::int64) std::llround (((x - (float) wave.getX()) / (wave.getWidth() / viewSeconds) + viewStart) * engine.getSampleRate());
 }
 
 int TrackRow::hitAt (int x) const
@@ -1024,7 +1035,7 @@ void Ruler::seekTo (const juce::MouseEvent& e)
     const float wdt = (float) getWidth() - x0 - (float) TrackRow::waveRightInset;
     if (wdt <= 0.0f || ! onSeek) return;
     const double sr = engine.getSampleRate();
-    double pos = juce::jlimit (0.0, 1.0, (double) (e.x - x0) / wdt) * viewSeconds * sr;
+    double pos = (juce::jlimit (0.0, 1.0, (double) (e.x - x0) / wdt) * viewSeconds + viewStart) * sr;
     if (! e.mods.isAltDown())
     {
         const double step = engine.getSamplesPerBeat() * (e.mods.isShiftDown() ? 4.0 : 1.0);
@@ -1053,10 +1064,9 @@ void Ruler::paint (juce::Graphics& g)
     if (barSeconds > 0.0)
     {
         const double beat = barSeconds / 4.0;
-        int k = 0;
-        for (double s = 0.0; s < viewSeconds - 0.001; s += beat, ++k)
+        for (int k = juce::jmax (0, (int) std::floor (viewStart / beat)); k * beat < viewStart + viewSeconds - 0.001; ++k)
         {
-            const float x = x0 + (float) (s * pxPerSec);
+            const float x = x0 + (float) ((k * beat - viewStart) * pxPerSec);
             const bool bar = (k % 4 == 0);
             g.setColour (bar ? Theme::dim : Theme::border);
             g.fillRect (x, bar ? pill.getY() + 5.0f : pill.getBottom() - 8.0f, 1.0f, bar ? pill.getHeight() - 10.0f : 5.0f);
@@ -1074,9 +1084,9 @@ void Ruler::paint (juce::Graphics& g)
     }
     else
     {
-        for (double s = 0.0; s < viewSeconds; s += 5.0)
+        for (double s = std::floor (viewStart / 5.0) * 5.0; s < viewStart + viewSeconds; s += 5.0)
         {
-            const float x = x0 + (float) (s * pxPerSec);
+            const float x = x0 + (float) ((s - viewStart) * pxPerSec);
             g.setColour (Theme::dim);
             g.fillRect (x, pill.getY() + 5.0f, 1.0f, pill.getHeight() - 10.0f);
             g.setColour (Theme::text);
@@ -1086,7 +1096,7 @@ void Ruler::paint (juce::Graphics& g)
 
     if (engine.getState() != AudioEngine::Stopped || engine.getPosition() > 0)
     {
-        const float px = x0 + (float) (engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) * pxPerSec);
+        const float px = x0 + (float) ((engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) - viewStart) * pxPerSec);
         juce::Path tri;
         tri.addTriangle (px - 5.0f, pill.getBottom() - 9.0f, px + 6.0f, pill.getBottom() - 9.0f, px + 0.5f, pill.getBottom() - 1.0f);
         g.setColour (Theme::text);

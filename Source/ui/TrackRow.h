@@ -29,7 +29,7 @@ public:
     int slot() const noexcept { return index; }
     void refreshFromTrack();
     void setInputChoices (int numInputs);
-    void setView (double seconds, double barSecs) { viewSeconds = seconds; barSeconds = barSecs; }
+    void setView (double seconds, double barSecs, double start = 0.0) { viewSeconds = seconds; barSeconds = barSecs; viewStart = start; }
     void tick();
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -73,7 +73,7 @@ private:
     AudioEngine& engine;
     int index;
     juce::Colour accent;
-    double viewSeconds = 30.0, barSeconds = 0.0;
+    double viewSeconds = 30.0, barSeconds = 0.0, viewStart = 0.0;
     juce::TextButton prevTake { "<" }, nextTake { ">" };
     juce::Label takeLabel;
     int shownTakes = -1, shownCurrent = -1;
@@ -171,7 +171,9 @@ class Ruler : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit Ruler (AudioEngine& e) : engine (e) {}
-    void setView (double seconds, double barSecs) { viewSeconds = seconds; barSeconds = barSecs; }
+    void setView (double seconds, double barSecs, double start = 0.0) { viewSeconds = seconds; barSeconds = barSecs; viewStart = start; }
+    std::function<void (const juce::MouseEvent&, const juce::MouseWheelDetails&)> onWheel;
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override { if (onWheel) onWheel (e, w); }
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent& e) override { seekTo (e); }
     void mouseDrag (const juce::MouseEvent& e) override { seekTo (e); }
@@ -179,5 +181,5 @@ public:
 private:
     void seekTo (const juce::MouseEvent&);
     AudioEngine& engine;
-    double viewSeconds = 30.0, barSeconds = 0.0;
+    double viewSeconds = 30.0, barSeconds = 0.0, viewStart = 0.0;
 };

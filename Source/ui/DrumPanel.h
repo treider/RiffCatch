@@ -17,7 +17,9 @@ public:
     int preferredHeight() const { return expanded ? headerH + DrumMachine::numVoices * laneH + bottomPad : headerH; }
     bool isExpanded() const noexcept { return expanded; }
     void setExpanded (bool b);
-    void setView (double seconds, double barSecs);
+    void setView (double seconds, double barSecs, double start = 0.0, double full = -1.0);
+    std::function<void (const juce::MouseEvent&, const juce::MouseWheelDetails&)> onWheel;
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override { if (onWheel) onWheel (e, w); }
     void refreshFromEngine();
     void tick();
 
@@ -51,6 +53,7 @@ private:
 
     juce::Rectangle<int> lanesArea() const;                    // the step grid (aligned with the clip lanes)
     juce::Rectangle<float> laneRect (int voice) const;
+    double stepSec() const;
     int viewSteps() const;                                      // cells visible (one per 1/16 over the loop)
     int cellAt (float x) const;                                 // visible cell index, -1 outside
     int stepForCell (int cell) const;                           // pattern step edited by a visible cell
@@ -62,7 +65,7 @@ private:
 
     AudioEngine& engine;
     bool expanded = true;
-    double viewSeconds = 8.0, barSeconds = 2.0;
+    double viewSeconds = 8.0, barSeconds = 2.0, viewStart = 0.0, fullSeconds = 8.0;   // visible window and the whole loop
     int page = 0;
 
     Chevron chevron;

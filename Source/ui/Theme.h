@@ -251,7 +251,7 @@ public:
 class IconButton : public juce::Button
 {
 public:
-    enum Icon { Play, Stop, Record, Plus, Loop };
+    enum Icon { Play, Stop, Record, Plus, Loop, SkipStart, SkipEnd };
     IconButton (Icon i, juce::Colour c) : juce::Button ({}), icon (i), colour (c)
     {
         setWantsKeyboardFocus (false);
@@ -281,6 +281,17 @@ public:
             }
             case Stop:   g.fillRoundedRectangle (ic, 2.0f); break;
             case Record: g.fillEllipse (ic); break;
+            case SkipStart: case SkipEnd:
+            {
+                juce::Graphics::ScopedSaveState ss (g);
+                if (icon == SkipEnd) g.addTransform (juce::AffineTransform::scale (-1.0f, 1.0f, b.getCentreX(), b.getCentreY()));
+                const auto r = b.withSizeKeepingCentre (b.getHeight() * 0.42f, b.getHeight() * 0.42f);
+                g.fillRect (r.getX() - 1.0f, r.getY(), 2.5f, r.getHeight());
+                juce::Path p;
+                p.addTriangle (r.getRight(), r.getY(), r.getRight(), r.getBottom(), r.getX() + 3.0f, r.getCentreY());
+                g.fillPath (p);
+                break;
+            }
             case Loop:
             {
                 const auto c = b.getCentre();
@@ -311,7 +322,7 @@ private:
 class ToolButton : public juce::Button
 {
 public:
-    enum Icon { Cut, Copy, Paste, Silence, FadeIn, FadeOut, Duplicate, Undo, Redo, Menu };
+    enum Icon { Cut, Copy, Paste, Silence, FadeIn, FadeOut, Duplicate, Undo, Redo, Menu, ZoomIn, ZoomOut, ZoomFit };
     explicit ToolButton (Icon i) : juce::Button ({}), icon (i) { setWantsKeyboardFocus (false); }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
@@ -374,6 +385,18 @@ public:
                 g.drawRoundedRectangle (x + 1.5f, y + 2.0f, 13.0f, 5.0f, 1.5f, 1.5f);
                 g.setColour (col.withAlpha (0.45f));
                 g.fillRoundedRectangle (x + 1.5f, y + 9.0f, 13.0f, 5.0f, 1.5f);
+                break;
+            case ZoomIn: case ZoomOut: case ZoomFit:
+                g.drawEllipse (x + 1.0f, y + 1.0f, 10.0f, 10.0f, 1.6f);
+                g.drawLine (x + 9.5f, y + 9.5f, x + 15.0f, y + 15.0f, 2.0f);
+                if (icon != ZoomFit) g.fillRect (x + 3.5f, y + 5.2f, 5.0f, 1.6f);
+                if (icon == ZoomIn) g.fillRect (x + 5.2f, y + 3.5f, 1.6f, 5.0f);
+                if (icon == ZoomFit)
+                {
+                    g.drawLine (x + 3.0f, y + 6.0f, x + 9.0f, y + 6.0f, 1.4f);
+                    g.drawLine (x + 3.0f, y + 4.0f, x + 3.0f, y + 8.0f, 1.4f);
+                    g.drawLine (x + 9.0f, y + 4.0f, x + 9.0f, y + 8.0f, 1.4f);
+                }
                 break;
             case Menu:
                 for (int i = 0; i < 3; ++i) g.fillRoundedRectangle (x + 1.0f, y + 2.5f + 5.0f * (float) i, 14.0f, 2.0f, 1.0f);

@@ -152,6 +152,30 @@ MainComponent::MainComponent()
 
     loopBtn.setClickingTogglesState (true);
     addAndMakeVisible (loopBtn);
+    for (auto* b : { &skipStartBtn, &skipEndBtn }) addAndMakeVisible (b);
+    skipStartBtn.setTooltip ("Go to the start");
+    skipEndBtn.setTooltip ("Go to the end of the loop");
+    skipStartBtn.onClick = [this] { engine.seek (0); zoomStart = 0.0; };
+    skipEndBtn.onClick = [this]
+    {
+        juce::int64 end = engine.getLoopLength() - 1;
+        if (! engine.loopEnabled.load())
+        {
+            end = 0;
+            for (int slot : engine.order) end = juce::jmax<juce::int64> (end, engine.tracks[slot].length.load() + engine.tracks[slot].offset.load());
+        }
+        engine.seek (juce::jmax<juce::int64> (0, end));
+    };
+    for (auto* b : { &zoomInBtn, &zoomOutBtn, &zoomFitBtn }) addAndMakeVisible (b);
+    zoomInBtn.setTooltip ("Zoom in (Ctrl + mouse wheel)");
+    zoomOutBtn.setTooltip ("Zoom out (Ctrl + mouse wheel)");
+    zoomFitBtn.setTooltip ("Show the whole loop. Shift + wheel pans when zoomed");
+    zoomInBtn.onClick = [this] { zoomAt (0.5, 1.6); };
+    zoomOutBtn.onClick = [this] { zoomAt (0.5, 1.0 / 1.6); };
+    zoomFitBtn.onClick = [this] { zoom = 1.0; zoomStart = 0.0; };
+    viewport.onZoomWheel = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { handleWheel (e, w, false); };
+    ruler.onWheel = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { handleWheel (e, w, true); };
+    drumPanel.onWheel = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { handleWheel (e, w, false); };
     for (auto* b : { &clickBtn })
     {
         b->setClickingTogglesState (true);
@@ -615,6 +639,36 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
     }
     return false;
 }
+void MainComponent::clampZoom()
+{
+    zoom = juce::jlimit (1.0, 64.0, zoom);
+    zoomStart = juce::jlimit (0.0, juce::jmax (0.0, fullView - fullView / zoom), zoomStart);
+}
+
+void MainComponent::zoomAt (double frac, double factor)
+{
+    frac = juce::jlimit (0.0, 1.0, frac);
+    const double anchor = zoomStart + frac * fullView / zoom;
+    zoom = juce::jlimit (1.0, 64.0, zoom * factor);
+    zoomStart = anchor - frac * fullView / zoom;
+    clampZoom();
+}
+
+void MainComponent::handleWheel (const juce::MouseEvent& e, const juce::MouseWheelDetails& w, bool plainZooms)
+{
+    const double laneW = juce::jmax (1.0, (double) (viewport.getMaximumVisibleWidth() - TrackRow::waveLeft - TrackRow::waveRightInset));
+    const double frac = juce::jlimit (0.0, 1.0, (e.x - TrackRow::waveLeft) / laneW);
+    const double d = w.deltaY != 0.0f ? w.deltaY : w.deltaX;
+    if (d == 0.0) return;
+    if (e.mods.isCtrlDown() || (plainZooms && ! e.mods.isShiftDown()))
+        zoomAt (frac, d > 0.0 ? 1.3 : 1.0 / 1.3);
+    else
+    {
+        zoomStart -= d * 0.6 * fullView / zoom;      // pan
+        clampZoom();
+    }
+}
+
 void MainComponent::timerCallback()
 {
     engine.pollRecording();
@@ -683,9 +737,23 @@ void MainComponent::timerCallback()
     }
     else
         view = juce::jmax (30.0, std::ceil ((longest / sr + 1.0) / 30.0) * 30.0);
-    for (auto* r : rows) r->setView (view, barSecs);
-    ruler.setView (view, barSecs);
-    drumPanel.setView (view, barSecs);
+    fullView = view;
+    if (zoom > 1.0 && st != AudioEngine::Stopped)   // follow the playhead while zoomed in
+    {
+        const double ph = engine.getPosition() / sr, vis0 = fullView / zoom;
+        if (ph < zoomStart || ph > zoomStart + vis0) zoomStart = ph - 0.05 * vis0;
+    }
+    clampZoom();
+    const double vis = fullView / zoom;
+    for (auto* r : rows) r->setView (vis, barSecs, zoomStart);
+    ruler.setView (vis, barSecs, zoomStart);
+    drumPanel.setView (vis, barSecs, zoomStart, view);
+    if (vis != lastVis || zoomStart != lastStart || fullView != lastFull)
+    {
+        lastVis = vis; lastStart = zoomStart; lastFull = fullView;
+        for (auto* r : rows) r->repaint();
+        drumPanel.repaint();
+    }
     ruler.repaint();
     master.tick();
     drumPanel.tick();
@@ -726,6 +794,8 @@ void MainComponent::resized()
     recBtn.setBounds (bar.removeFromLeft (44));  bar.removeFromLeft (8);
     playBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
     stopBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
+    skipStartBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
+    skipEndBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
     loopBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (14);
     timeLabel.setBounds (bar.removeFromLeft (160).reduced (0, 2));
     barLabel.setBounds (bar.removeFromLeft (140));
@@ -749,6 +819,9 @@ void MainComponent::resized()
     clickVol.setBounds (sb.removeFromLeft (90));  sb.removeFromLeft (18);
     countCaption.setBounds (sb.removeFromLeft (64));
     countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (18);
+    for (auto* b : { &zoomInBtn, &zoomOutBtn, &zoomFitBtn })
+        { b->setBounds (sb.removeFromRight (32).withSizeKeepingCentre (32, 28)); sb.removeFromRight (4); }
+    sb.removeFromRight (10);
     statusLabel.setBounds (sb);
 
     r.removeFromTop (10);

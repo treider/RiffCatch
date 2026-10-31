@@ -96,11 +96,10 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
     auto styleToggle = [] (juce::TextButton& b, juce::Colour on)
     {
         b.setClickingTogglesState (true);
-        b.setColour (juce::TextButton::buttonColourId, Theme::deep);
+        b.setColour (juce::TextButton::buttonColourId, Theme::raised);
         b.setColour (juce::TextButton::buttonOnColourId, on);
-        b.setColour (juce::TextButton::textColourOffId, on);
+        b.setColour (juce::TextButton::textColourOffId, Theme::text);
         b.setColour (juce::TextButton::textColourOnId, Theme::deep);
-        b.getProperties().set ("outline", (int) on.withAlpha (0.55f).getARGB());
         b.setWantsKeyboardFocus (false);
     };
     styleToggle (muteBtn, Theme::accent);
@@ -158,9 +157,10 @@ void DrumPanel::setExpanded (bool b)
     if (onLayoutChanged) onLayoutChanged();
 }
 
-void DrumPanel::setView (double seconds, double barSecs)
+void DrumPanel::setView (double seconds, double barSecs, double start, double full)
 {
-    viewSeconds = seconds; barSeconds = barSecs;
+    viewSeconds = seconds; barSeconds = barSecs; viewStart = start;
+    fullSeconds = full > 0.0 ? full : seconds;
     updateControls();
 }
 
@@ -180,9 +180,14 @@ void DrumPanel::refreshFromEngine()
     repaint();
 }
 
+double DrumPanel::stepSec() const
+{
+    return barSeconds > 0.0 ? barSeconds / DrumMachine::stepsPerBar : fullSeconds / (4.0 * DrumMachine::stepsPerBar);
+}
+
 int DrumPanel::viewSteps() const
 {
-    return barSeconds > 0.0 ? juce::jmax (1, (int) std::lround (viewSeconds / barSeconds) * DrumMachine::stepsPerBar) : 4 * DrumMachine::stepsPerBar;
+    return barSeconds > 0.0 ? juce::jmax (1, (int) std::lround (fullSeconds / barSeconds) * DrumMachine::stepsPerBar) : 4 * DrumMachine::stepsPerBar;
 }
 
 void DrumPanel::updateControls()
@@ -217,8 +222,8 @@ int DrumPanel::cellAt (float x) const
 {
     const auto a = lanesArea();
     if (x < (float) a.getX() || x >= (float) a.getRight()) return -1;
-    const int c = (int) ((x - (float) a.getX()) / ((float) a.getWidth() / (float) viewSteps()));
-    return juce::jlimit (0, viewSteps() - 1, c);
+    const double secs = (double) (x - (float) a.getX()) / (double) a.getWidth() * viewSeconds + viewStart;
+    return juce::jlimit (0, viewSteps() - 1, (int) std::floor (secs / stepSec()));
 }
 
 int DrumPanel::stepForCell (int cell) const
@@ -288,7 +293,11 @@ void DrumPanel::paint (juce::Graphics& g)
     const auto& dm = engine.drums;
     const int vs = viewSteps(), ps = dm.patternSteps();
     const auto la = lanesArea();
-    const float cellW = (float) la.getWidth() / (float) vs;
+    const double pps = (double) la.getWidth() / viewSeconds;
+    const double stepS = stepSec();
+    const float cellW = (float) (stepS * pps);
+    const float xOrigin = (float) la.getX() - (float) (viewStart * pps);      // x of step 0
+    const int c0 = juce::jmax (0, (int) std::floor (viewStart / stepS)), c1 = juce::jmin (vs, (int) std::ceil ((viewStart + viewSeconds) / stepS));
 
     for (int v = 0; v < DrumMachine::numVoices; ++v)
     {
@@ -312,12 +321,14 @@ void DrumPanel::paint (juce::Graphics& g)
 
         g.setColour (Theme::deep);
         g.fillRoundedRectangle (lr, Theme::radius);
-        for (int c = 0; c < vs; ++c)
+        g.saveState();
+        g.reduceClipRegion (lr.toNearestInt());
+        for (int c = c0; c < c1; ++c)
         {
             const int s = page * vs + c;
             const bool inside = s < ps;
             const int val = dm.steps[v][s % ps].load();
-            const float x = lr.getX() + c * cellW;
+            const float x = xOrigin + c * cellW;
             const juce::Rectangle<float> cell (x + 0.5f, lr.getY() + 2.0f, juce::jmax (1.0f, cellW - 1.0f), lr.getHeight() - 4.0f);
             const float rad = juce::jmin (Theme::radius - 1.0f, cell.getWidth() * 0.4f);
             if (val > 0)
@@ -339,22 +350,26 @@ void DrumPanel::paint (juce::Graphics& g)
                 g.fillRoundedRectangle (cell, rad);
             }
         }
+        g.restoreState();
     }
 
     // bar lines
-    for (int c = 0; c < vs; c += DrumMachine::stepsPerBar)
+    g.saveState();
+    g.reduceClipRegion (la);
+    for (int c = (c0 / DrumMachine::stepsPerBar) * DrumMachine::stepsPerBar; c < c1; c += DrumMachine::stepsPerBar)
     {
         g.setColour (Theme::border.withAlpha (0.9f));
-        g.fillRect ((float) la.getX() + c * cellW - 0.5f, (float) la.getY(), 1.0f, (float) la.getHeight());
+        g.fillRect (xOrigin + c * cellW - 0.5f, (float) la.getY(), 1.0f, (float) la.getHeight());
     }
 
     // playhead
     if (engine.getState() != AudioEngine::Stopped || engine.getPosition() > 0)
     {
-        const float px = (float) la.getX() + (float) (engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) / viewSeconds * (double) la.getWidth());
+        const float px = (float) la.getX() + (float) ((engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) - viewStart) / viewSeconds * (double) la.getWidth());
         g.setColour (Theme::text);
         g.fillRect (px, (float) la.getY(), 1.5f, (float) la.getHeight());
     }
+    g.restoreState();
 }
 
 void DrumPanel::tick()
@@ -362,7 +377,7 @@ void DrumPanel::tick()
     meter.setLevels (engine.drums.peakL.exchange (0.0f), engine.drums.peakR.exchange (0.0f));
     if (! expanded) return;
     const auto la = lanesArea();
-    const float px = (float) la.getX() + (float) (engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) / viewSeconds * (double) la.getWidth());
+    const float px = (float) la.getX() + (float) ((engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) - viewStart) / viewSeconds * (double) la.getWidth());
     if (std::abs (px - lastPlayX) > 0.4f || engine.getState() != AudioEngine::Stopped)
     {
         repaint (la.expanded (2, 0));

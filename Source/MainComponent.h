@@ -68,15 +68,31 @@ private:
 
     juce::OwnedArray<TrackRow> rows;
     TrackList list { engine, rows };
-    juce::Viewport viewport;
+    // Ctrl+wheel zooms the time axis, Shift+wheel pans; the plain wheel keeps scrolling the tracks vertically
+    struct ZoomViewport : juce::Viewport
+    {
+        std::function<void (const juce::MouseEvent&, const juce::MouseWheelDetails&)> onZoomWheel;
+        void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+        {
+            if (onZoomWheel && (e.mods.isCtrlDown() || e.mods.isShiftDown() || w.deltaX != 0.0f)) onZoomWheel (e, w);
+            else juce::Viewport::mouseWheelMove (e, w);
+        }
+    } viewport;
+    double zoom = 1.0, zoomStart = 0.0, fullView = 8.0;      // visible window = [zoomStart, zoomStart + fullView / zoom)
+    double lastVis = -1.0, lastStart = -1.0, lastFull = -1.0;
+    void handleWheel (const juce::MouseEvent&, const juce::MouseWheelDetails&, bool plainZooms);
+    void zoomAt (double frac, double factor);
+    void clampZoom();
     MasterStrip master { engine };
     DrumPanel drumPanel { engine };
     Ruler ruler { engine };
 
     IconButton recBtn  { IconButton::Record, Theme::red };
     IconButton playBtn { IconButton::Play,   Theme::green };
-    IconButton stopBtn { IconButton::Stop,   Theme::blue };
+    IconButton stopBtn { IconButton::Stop,   Theme::text };
+    IconButton skipStartBtn { IconButton::SkipStart, Theme::text }, skipEndBtn { IconButton::SkipEnd, Theme::text };
     IconButton loopBtn { IconButton::Loop,   Theme::accent };
+    ToolButton zoomInBtn { ToolButton::ZoomIn }, zoomOutBtn { ToolButton::ZoomOut }, zoomFitBtn { ToolButton::ZoomFit };
     ToolButton undoBtn { ToolButton::Undo }, redoBtn { ToolButton::Redo };
     ToolButton cutBtn { ToolButton::Cut }, copyBtn { ToolButton::Copy }, pasteBtn { ToolButton::Paste }, silenceBtn { ToolButton::Silence },
                fadeInBtn { ToolButton::FadeIn }, fadeOutBtn { ToolButton::FadeOut }, dupBtn { ToolButton::Duplicate };
