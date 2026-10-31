@@ -1490,6 +1490,7 @@ void MainComponent::editNotes()
     ed->setMultiLine (true, true);
     ed->setReturnKeyStartsNewLine (true);
     ed->setTextToShowWhenEmpty ("Notes for this project: key, capo, ideas...", Theme::dim);
+    ed->setInputRestrictions (ProjectIO::maxNotesLength);
     ed->setText (engine.projectNotes, false);
     ed->setSize (340, 190);
     juce::Component::SafePointer<MainComponent> self (this);

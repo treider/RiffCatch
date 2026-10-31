@@ -8,7 +8,7 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 
 ### Recording and looping
 - Up to 16 tracks, each with its own input selector, arm, mute, solo, volume and pan
-- Loop lengths from 1 to 64 bars at 4/4, sample-synchronous transport
+- Loop lengths from 1 to 64 bars, sample-synchronous transport
 - Time signatures 2/4, 3/4, 4/4, 5/4, 6/8 and 7/8 (BPM counts quarter notes; the click, ruler, loop length and drum grid follow)
 - Count-in, metronome click with volume, tap tempo
 - Punch in/out recording
@@ -20,10 +20,10 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 - **Looper mode** (button): one key (Shift+Space) or a MIDI foot switch. First press records the first loop, second press closes it (rounded to whole bars, BPM follows), then each press records one pass on a new track starting at the next loop start. Learn the foot switch from File > Looper pedal
 
 ### Drum machine
-- 16-step-per-beat grid with Kick, Snare, Clap, Hat, Open hat and Cymbal
+- Step sequencer in sixteenth notes with Kick, Snare, Clap, Hat, Open hat and Cymbal. The bar layout follows the time signature (16 steps in 4/4, 12 in 3/4 and 6/8, 14 in 7/8, 20 in 5/4)
 - Per-row volume and pan (pitch on Cymbal), master mute/solo and level meter
-- 1, 2 or 4 bar patterns
-- Template library (Rock, Pop and more), applied with undo support
+- Patterns of 1 to 8 bars, with accents and per-lane mute
+- 21 ready-made two-bar grooves with a fill (Rock and Pop in 4/4, plus waltz, polka, march, 5/4, 6/8 and 7/8 patterns). The list shows the templates for the current time signature, and applying one is undoable
 
 ![Drum templates](docs/screenshots/drum-templates.png)
 
@@ -37,16 +37,16 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 - Import audio files (WAV and others) onto a new track by menu, drag and drop, or right-click in the empty area below the tracks
 
 ### Mixer
-- Channel strips with level meters, fader, pan, mute, solo, plus Echo and Reverb sends
+- Channel strips with level meters, fader, pan, mute, solo, plus Echo and Reverb per track
 - Master strip with stereo meter
 
 ### Tuner
-- Chromatic tuner in the mixer area, fed from the input of the armed track (or track 1). Scrolling cent ruler, note name, Hz and cents, adjustable A reference (430-450 Hz)
+- Chromatic tuner in the mixer area, fed from the input of the armed track (or track 1). Scrolling cent ruler, note name, Hz and cents, adjustable A reference (430-450 Hz, remembered)
 
 ### Export and projects
 - Projects saved as one WAV per track plus `project.json`
 - Export mix to WAV or MP3 (LAME)
-- Free-text project notes (Notes button in the top bar), saved with the project
+- Free-text project notes (Notes button in the top bar), saved with the project and the autosave
 
 ### Themes
 - Nine built-in themes, switched from the File menu or with `Ctrl+Shift+O` / `Ctrl+Shift+P` (previous / next)

@@ -436,6 +436,51 @@ inline juce::String runEngineSelfTest()
         check (b4.bars == 4 && std::memcmp (&b4.steps[1][0], &b4.steps[1][32], 16) == 0, "longer patterns repeat the two bars");
     }
 
+    {   // project files from other people: hardening
+        const auto root = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("riffcatch-security-test");
+        root.deleteRecursively();
+        const auto pdir = root.getChildFile ("p");
+        check (ProjectIO::isSafeTrackFile (pdir, "track1.wav"), "plain track file name is accepted");
+        check (! ProjectIO::isSafeTrackFile (pdir, "..\\evil.wav") && ! ProjectIO::isSafeTrackFile (pdir, "../evil.wav")
+               && ! ProjectIO::isSafeTrackFile (pdir, "C:\\Windows\\x.wav") && ! ProjectIO::isSafeTrackFile (pdir, "sub\\a.wav")
+               && ! ProjectIO::isSafeTrackFile (pdir, "track1.exe") && ! ProjectIO::isSafeTrackFile (pdir, ""), "paths, traversal and other extensions are rejected");
+
+        // a hand-made project.json with hostile values
+        pdir.createDirectory();
+        const auto longNotes = juce::String::repeatedString ("x", 50000);
+        pdir.getChildFile ("project.json").replaceWithText (
+            "{\"tracks\":[{\"name\":\"" + juce::String::repeatedString ("n", 500) + "\",\"volume\":1e9,\"pan\":-50,\"input\":-5,\"offsetMs\":1e15,\"file\":\"..\\\\..\\\\x.wav\"}],"
+            "\"bpm\":99999,\"timeSignature\":\"99/3\",\"notes\":\"" + longNotes + "\"}");
+        auto he = std::make_unique<AudioEngine>();
+        he->prepareForTest (48000.0, 2);
+        juce::String herr;
+        check (ProjectIO::load (*he, pdir, herr), "a hostile project.json still loads (values are clamped)");
+        const auto& ht = he->tracks[he->order.front()];
+        check (ht.volume.load() <= 4.0f && std::abs (ht.pan.load()) <= 1.0f && ht.inputCode.load() >= 0 && ht.name.length() <= ProjectIO::maxNameLength
+               && std::abs (ht.offset.load()) <= 48000 * 60 * 20 && ht.length.load() == 0, "hostile track values are clamped and the escaping file is ignored");
+        check (he->projectNotes.length() == ProjectIO::maxNotesLength && he->bpm.load() <= 300.0 && he->tsNum.load() <= 16 && he->tsDen.load() == 4,
+               "notes, tempo and time signature are limited");
+
+        // saving never touches a folder with someone else's files
+        const auto foreign = root.getChildFile ("foreign");
+        foreign.createDirectory();
+        foreign.getChildFile ("track1.wav").replaceWithText ("my precious file");
+        juce::String serr;
+        auto se = std::make_unique<AudioEngine>();
+        se->prepareForTest (48000.0, 2);
+        se->addTrack();
+        se->tracks[se->order.front()].setAudio (juce::AudioBuffer<float> (2, 4800));
+        check (! ProjectIO::save (*se, foreign, serr) && foreign.getChildFile ("track1.wav").loadFileAsString() == "my precious file", "saving into a foreign non-empty folder is refused");
+        // a real project folder: stale track files are removed, unrelated files are kept
+        const auto mine = root.getChildFile ("mine");
+        check (ProjectIO::save (*se, mine, serr), "saving into a new folder works");
+        mine.getChildFile ("track7.wav").replaceWithText ("not written by RiffCatch");
+        se->tracks[se->order.front()].clearAudio();
+        const bool saved2 = ProjectIO::save (*se, mine, serr);
+        check (saved2 && ! mine.getChildFile ("track1.wav").existsAsFile() && mine.getChildFile ("track7.wav").existsAsFile(),
+               "only the files RiffCatch wrote are cleaned up (saved " + juce::String ((int) saved2) + ", err " + serr + ", track1 exists " + juce::String ((int) mine.getChildFile ("track1.wav").existsAsFile()) + ", track7 exists " + juce::String ((int) mine.getChildFile ("track7.wav").existsAsFile()) + ")");
+        root.deleteRecursively();
+    }
     {   // Catch: always-on ring
         auto ce = std::make_unique<AudioEngine>();
         ce->prepareForTest (48000.0, 2);

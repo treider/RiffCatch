@@ -3,9 +3,31 @@
 
 namespace ProjectIO
 {
+bool isSafeTrackFile (const juce::File& dir, const juce::String& name)
+{
+    if (name.isEmpty() || name.length() > 80) return false;
+    if (name != juce::File::createLegalFileName (name)) return false;          // no separators, drive letters or reserved characters
+    if (name.contains ("..") || ! name.endsWithIgnoreCase (".wav")) return false;
+    return dir.getChildFile (name).getParentDirectory() == dir;
+}
+
 bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
 {
+    // never write into a folder that holds somebody else's files
+    if (dir.exists() && ! dir.getChildFile ("project.json").existsAsFile()
+        && dir.getNumberOfChildFiles (juce::File::findFilesAndDirectories) > 0)
+    {
+        error = "\"" + dir.getFileName() + "\" is not empty and is not a RiffCatch project. Choose a new or empty folder.";
+        return false;
+    }
     if (! dir.createDirectory()) { error = "Could not create " + dir.getFullPathName(); return false; }
+
+    // the track files an earlier save of this project wrote: only these may be cleaned up later
+    juce::StringArray ownedBefore;
+    const auto oldJson = juce::JSON::parse (dir.getChildFile ("project.json"));    // kept alive while its array is read
+    if (auto* oldTracks = oldJson["tracks"].getArray())
+        for (auto& t : *oldTracks)
+            if (isSafeTrackFile (dir, t["file"].toString())) ownedBefore.add (t["file"].toString());
 
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
@@ -47,12 +69,12 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
         o->setProperty ("offsetMs", tr.offset.load() * 1000.0 / juce::jmax (1.0, e.getSampleRate()));
         tracks.add (juce::var (o));
     }
-    // remove stale wav files from removed/cleared tracks
-    for (auto& f : dir.findChildFiles (juce::File::findFiles, false, "track*.wav"))
+    // remove stale wav files from removed/cleared tracks (only files this project wrote earlier)
+    for (auto& name : ownedBefore)
     {
         bool used = false;
-        for (auto& t : tracks) used |= (t["file"].toString() == f.getFileName());
-        if (! used) f.deleteFile();
+        for (auto& t : tracks) used |= (t["file"].toString() == name);
+        if (! used) dir.getChildFile (name).deleteFile();
     }
 
     auto* loop = new juce::DynamicObject();
@@ -66,7 +88,7 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
     root->setProperty ("name", dir.getFileName());
     root->setProperty ("bpm", e.bpm.load());
     root->setProperty ("timeSignature", juce::String (e.tsNum.load()) + "/" + juce::String (e.tsDen.load()));
-    root->setProperty ("notes", e.projectNotes);
+    root->setProperty ("notes", e.projectNotes.substring (0, maxNotesLength));
     root->setProperty ("clickEnabled", e.clickEnabled.load());
     root->setProperty ("clickVolume", (double) e.clickVolume.load());
     root->setProperty ("countInBars", e.countInBars.load());
@@ -127,22 +149,32 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
         auto& tr = e.tracks[i];
 
         auto t = arr->getReference (i);
-        tr.name = t["name"].toString();
-        tr.volume = (float) (double) t.getProperty ("volume", 1.0);
-        tr.pan = (float) (double) t.getProperty ("pan", 0.0);
+        tr.name = t["name"].toString().substring (0, maxNameLength);
+        tr.volume = juce::jlimit (0.0f, 4.0f, (float) (double) t.getProperty ("volume", 1.0));
+        tr.pan = juce::jlimit (-1.0f, 1.0f, (float) (double) t.getProperty ("pan", 0.0));
         tr.mute = (bool) t.getProperty ("mute", false);
         tr.solo = (bool) t.getProperty ("solo", false);
-        tr.inputCode = (int) t.getProperty ("input", 0);
+        {
+            const int in = (int) t.getProperty ("input", 0);                   // 0..15 = mono input, 100..115 = stereo pair
+            tr.inputCode = (in >= 100 && in <= 115) ? in : juce::jlimit (0, 15, in);
+        }
         tr.echoOn = (bool) t.getProperty ("echo", false);
         tr.echoDiv = juce::jlimit (0, (int) TrackFx::numDivs - 1, (int) t.getProperty ("echoDiv", (int) TrackFx::Quarter));
         tr.reverbOn = (bool) t.getProperty ("reverb", false);
-        tr.offset = ((int) std::lround ((double) (t.hasProperty ("offsetMs") ? t.getProperty ("offsetMs", 0.0) : t.getProperty ("nudgeMs", 0.0)) * devRate / 1000.0));
+        {
+            const double ms = juce::jlimit (-20.0 * 60000.0, 20.0 * 60000.0, (double) (t.hasProperty ("offsetMs") ? t.getProperty ("offsetMs", 0.0) : t.getProperty ("nudgeMs", 0.0)));
+            tr.offset = (int) std::lround (ms * devRate / 1000.0);
+        }
 
-        auto file = dir.getChildFile (t["file"].toString());
-        if (t["file"].toString().isNotEmpty() && file.existsAsFile())
+        const auto fileName = t["file"].toString();
+        auto file = dir.getChildFile (fileName);
+        if (isSafeTrackFile (dir, fileName) && file.existsAsFile())
         {
             std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (file));
             if (r == nullptr) continue;
+            if (r->sampleRate < 8000.0 || r->sampleRate > 384000.0 || r->lengthInSamples <= 0
+                || (double) r->lengthInSamples > 20.0 * 60.0 * r->sampleRate)   // same limit as importing audio
+                continue;
             const int len = (int) r->lengthInSamples;
             juce::AudioBuffer<float> buf (2, len);
             r->read (&buf, 0, len, 0, true, true);
@@ -163,7 +195,7 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
         }
     }
 
-    e.projectNotes = json.getProperty ("notes", "").toString();
+    e.projectNotes = json.getProperty ("notes", "").toString().substring (0, maxNotesLength);
     {
         const auto ts = json.getProperty ("timeSignature", "4/4").toString();
         const int num = ts.upToFirstOccurrenceOf ("/", false, false).getIntValue(), den = ts.fromFirstOccurrenceOf ("/", false, false).getIntValue();
