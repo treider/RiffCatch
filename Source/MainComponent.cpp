@@ -62,14 +62,28 @@ MainComponent::MainComponent()
     drumPanel.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
     drumPanel.onLayoutChanged = [this]
     {
-        resized();
+        if (bassPanel.isExpanded() != drumPanel.isExpanded()) bassPanel.setExpanded (drumPanel.isExpanded());
+        else resized();
         if (auto* f = props.getUserSettings()) { f->setValue ("drumsExpanded", drumPanel.isExpanded()); f->saveIfNeeded(); }
     };
     drumPanel.onReleaseFocus = [this] { grabKeyboardFocus(); };
     drumPanel.onInfo = [this] (const juce::String& s) { setStatus (s, 45); };
     addAndMakeVisible (drumPanel);
+    drumPanel.onSelectTab = bassPanel.onSelectTab = [this] (int t) { showSeqTab (t); };
+    bassPanel.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
+    bassPanel.onLayoutChanged = [this]
+    {
+        if (drumPanel.isExpanded() != bassPanel.isExpanded()) drumPanel.setExpanded (bassPanel.isExpanded());
+        else resized();
+    };
+    bassPanel.onReleaseFocus = [this] { grabKeyboardFocus(); };
+    bassPanel.onInfo = [this] (const juce::String& s) { setStatus (s, 45); };
+    bassPanel.onBake = [this] { bakeBass(); };
+    bassPanel.onBakeLive = [this] { bakeBassLive(); };
+    addChildComponent (bassPanel);
     addMouseListener (this, true);     // hover hints go to the info bar
     if (auto* f = props.getUserSettings()) drumPanel.setExpanded (f->getBoolValue ("drumsExpanded", true));
+    if (auto* f = props.getUserSettings()) showSeqTab (f->getIntValue ("seqTab", 0));
     mixer.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
     mixer.onTrackChanged = [this] (int slot) { if (slot >= 0 && slot < rows.size() && rows[slot] != nullptr) rows[slot]->syncMix(); };
     mixer.onAddTrack = [this] { addTrack(); };
@@ -286,7 +300,7 @@ MainComponent::MainComponent()
     zoomFitBtn.onClick = [this] { zoom = 1.0; zoomStart = 0.0; };
     viewport.onZoomWheel = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { handleWheel (e, w, false); };
     ruler.onWheel = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { handleWheel (e, w, true); };
-    drumPanel.onWheel = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { handleWheel (e, w, false); };
+    drumPanel.onWheel = bassPanel.onWheel = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { handleWheel (e, w, false); };
     for (auto* b : { &clickBtn })
     {
         b->setClickingTogglesState (true);
@@ -336,6 +350,7 @@ MainComponent::MainComponent()
             ++editCounter;
             drumPanel.refreshTemplates();
             drumPanel.repaint();
+        bassPanel.repaint();
             grabKeyboardFocus();
         };
         addAndMakeVisible (timeSigBox);
@@ -428,6 +443,7 @@ void MainComponent::refreshStrips()
         if (engine.tracks[r->slot()].active.load()) r->refreshFromTrack();
     mixer.refreshFromEngine();
     drumPanel.refreshFromEngine();
+    bassPanel.refreshFromEngine();
     updateSettingsFromEngine();
     projectLabel.setText (projectFile == juce::File() ? "Untitled" : projectFile.getFileNameWithoutExtension(), juce::dontSendNotification);
     resized();
@@ -648,7 +664,7 @@ void MainComponent::autosaveTick()
     autosaveTicks = 0;
     if (engine.getState() == AudioEngine::Recording || engine.getState() == AudioEngine::CountIn) return;
     juce::int64 sig = (juce::int64) editCounter * 1000003 + (juce::int64) (engine.bpm.load() * 100.0);
-    bool any = engine.drums.hasAnySteps();
+    bool any = engine.drums.hasAnySteps() || engine.bass.hasAnySteps();
     for (int slot : engine.order) { const auto len = engine.tracks[slot].length.load(); sig += len; any = any || len > 0; }
     if (! any || sig == lastAutosaveSig) return;
     juce::String err;
@@ -1032,6 +1048,27 @@ void MainComponent::handleWheel (const juce::MouseEvent& e, const juce::MouseWhe
 void MainComponent::timerCallback()
 {
     engine.pollRecording();
+    {
+        const int cs = engine.bassCaptureState();
+        if (cs != lastCapState)
+        {
+            lastCapState = cs;
+            bassPanel.setLiveState (cs == 3 ? 0 : cs);
+            if (cs == 2) setStatus ("Recording the bass for one loop pass - turn the knobs now", 400);
+        }
+        if (cs == 3)
+        {
+            auto snap = std::make_shared<TrackSnap>();
+            if (engine.takeBassCapture (snap->audio))
+            {
+                snap->valid = true; snap->slot = -1; snap->orderPos = 1000;
+                snap->name = "Bass live";
+                snap->echoDiv = (int) TrackFx::Quarter;
+                addBassTrack (snap, "Record bass live");
+                setStatus ("Recorded the bass pass into a new track. The synth is muted so it does not play twice", 250);
+            }
+        }
+    }
     engine.updateCaptureChannels();
     looperTick();
     autosaveTick();
@@ -1117,18 +1154,82 @@ void MainComponent::timerCallback()
     for (auto* r : rows) r->setView (vis, barSecs, zoomStart);
     ruler.setView (vis, barSecs, zoomStart);
     drumPanel.setView (vis, barSecs, zoomStart, view);
+    bassPanel.setView (vis, barSecs, zoomStart, view);
     if (vis != lastVis || zoomStart != lastStart || fullView != lastFull)
     {
         lastVis = vis; lastStart = zoomStart; lastFull = fullView;
         for (auto* r : rows) r->repaint();
         drumPanel.repaint();
+        bassPanel.repaint();
     }
     ruler.repaint();
     mixer.tick();
     drumPanel.tick();
+    bassPanel.tick();
 
     if (statusTicks > 0 && --statusTicks == 0) statusLabel.setText ({}, juce::dontSendNotification);
 }
+void MainComponent::showSeqTab (int tab)
+{
+    seqTab = tab == 1 ? 1 : 0;
+    drumPanel.setVisible (seqTab == 0);
+    bassPanel.setVisible (seqTab == 1);
+    if (auto* f = props.getUserSettings()) { f->setValue ("seqTab", seqTab); f->saveIfNeeded(); }
+    repaint();
+}
+
+// Renders one pass of the bass line to a normal track, then mutes the synth so it does not play twice.
+void MainComponent::addBassTrack (std::shared_ptr<TrackSnap> snap, const juce::String& undoName)
+{
+    auto slot = std::make_shared<int> (-1);
+    const bool wasMuted = engine.bass.mute.load();
+    record (undoName,
+            [this, slot, snap] { snap->slot = *slot; *slot = restoreTrack (*snap); engine.bass.mute = true; bassPanel.refreshFromEngine(); syncRows(); },
+            [this, slot, snap, wasMuted] { *snap = captureTrack (*slot); engine.removeTrack (*slot); engine.bass.mute = wasMuted; bassPanel.refreshFromEngine(); syncRows(); });
+}
+
+// Live bake: plays the loop and records the bass output of one pass, so knob moves (cutoff...) are captured.
+void MainComponent::bakeBassLive()
+{
+    if (engine.bassCaptureState() != 0) { engine.cancelBassCapture(); setStatus ("Bass recording cancelled"); return; }
+    const auto st = engine.getState();
+    if (st == AudioEngine::Recording || st == AudioEngine::CountIn) { setStatus ("Stop recording first"); return; }
+    if (! engine.bass.hasAnySteps()) { setStatus ("The bass pattern is empty"); return; }
+    if (engine.getNumTracks() >= AudioEngine::maxTracks) { setStatus ("All tracks are in use"); return; }
+    if (engine.bass.mute.load()) { setStatus ("Unmute the bass first"); return; }
+    if (! engine.startBassCapture()) { setStatus ("Turn the loop on first - the pass is recorded over one loop"); return; }
+    setStatus (st == AudioEngine::Stopped && engine.countInBars.load() > 0 ? "Count-in, then recording the bass for one loop pass..." : "Waiting for the next loop start...", 200);
+}
+
+void MainComponent::bakeBass()
+{
+    const auto st = engine.getState();
+    if (st == AudioEngine::Recording || st == AudioEngine::CountIn) { setStatus ("Stop recording first"); return; }
+    if (! engine.bass.hasAnySteps()) { setStatus ("The bass pattern is empty"); return; }
+    if (engine.getNumTracks() >= AudioEngine::maxTracks) { setStatus ("All tracks are in use"); return; }
+    const double sr = juce::jmax (1.0, engine.getSampleRate()), spb = engine.getSamplesPerBeat();
+    const juce::int64 len = engine.loopEnabled.load() ? engine.getLoopLength() : (juce::int64) std::ceil (engine.bass.patternSteps() * spb / 4.0);
+    if (len <= 0 || len > (juce::int64) (sr * 600.0)) { setStatus ("Nothing to bake"); return; }
+    BassMachine bm;
+    bm.copyFrom (engine.bass);
+    bm.mute = false; bm.solo = false;
+    bm.prepare (sr);
+    bm.fx.prepare (sr);
+    auto snap = std::make_shared<TrackSnap>();
+    snap->audio.setSize (2, (int) len);
+    snap->audio.clear();
+    for (juce::int64 p = 0; p < len; p += 4096)
+    {
+        const int n = (int) juce::jmin<juce::int64> (4096, len - p);
+        bm.render (p, n, spb / 4.0, bm.volume.load(), snap->audio.getWritePointer (0) + p, snap->audio.getWritePointer (1) + p, true, spb);
+    }
+    snap->valid = true; snap->slot = -1; snap->orderPos = 1000;
+    snap->name = "Bass";
+    snap->echoDiv = (int) TrackFx::Quarter;
+    addBassTrack (snap, "Bake bass");
+    setStatus ("Baked the bass line into a new track. The synth is muted so it does not play twice", 250);
+}
+
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::bg);
@@ -1208,7 +1309,11 @@ void MainComponent::resized()
     r.removeFromTop (10);
     mixer.setBounds (r.removeFromBottom (mixer.preferredHeight()));
     r.removeFromBottom (10);
-    drumPanel.setBounds (r.removeFromBottom (drumPanel.preferredHeight()));
+    {
+        auto pr = r.removeFromBottom (drumPanel.preferredHeight());
+        drumPanel.setBounds (pr);
+        bassPanel.setBounds (pr);
+    }
     r.removeFromBottom (10);
 
     auto rulerRow = r.removeFromTop (26);
@@ -1594,6 +1699,7 @@ void MainComponent::newProject()
     engine.removeAllTracks();
     engine.masterVolume = 1.0f;
     engine.drums.resetAll();
+    engine.bass.resetAll();
     engine.bpm = 120.0; engine.loopBars = 4; engine.loopEnabled = true;
     engine.setTimeSignature (4, 4);
     engine.countInBars = 1; engine.clickEnabled = false; engine.clickVolume = 0.5f;

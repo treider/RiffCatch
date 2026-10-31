@@ -27,6 +27,13 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 
 ![Drum templates](docs/screenshots/drum-templates.png)
 
+### Bass synth
+- Mono bass synth with a step sequencer, in a tab next to the drums (Drums | Bass); a tab is filled with the primary colour when it holds a pattern
+- Piano-roll style grid in a chosen key and scale (root E-D#, seven scales); click to add a note, drag right for length (drones up to 8 bars), drag up/down for pitch, drag the right edge of a note to resize it, click a note to remove it, drag across notes to wipe them, right-click = accent, Ctrl+click = slide
+- Sound: saw / square / triangle, sub oscillator, 24 dB low-pass with resonance and envelope, decay, sustain, glide and drive; five presets (Sub, Pluck, Fat saw, Acid, Square); per-bass echo and reverb
+- Templates for every time signature, including "Lock to kick" (root note on every kick of the drum pattern), and chord progressions that transpose the pattern bar by bar
+- Bake renders the line to a normal audio track; Rec records one loop pass live (with count-in) so knob moves such as Cutoff are captured as audio
+- Pattern, key and sound are saved in the project and included in the export
 ### Editing
 - Waveform editing with selection, crop, cut, copy, paste, fades and reverse
 - Right-drag for fine clip positioning, drag the title strip to move a clip

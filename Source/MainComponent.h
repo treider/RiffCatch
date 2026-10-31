@@ -7,6 +7,7 @@
 #include "WinFileAssoc.h"
 #include "ui/TrackRow.h"
 #include "ui/DrumPanel.h"
+#include "ui/BassPanel.h"
 #include "ui/MixerPanel.h"
 #include "ui/Undo.h"
 
@@ -115,6 +116,13 @@ private:
     void clampZoom();
     MixerPanel mixer { engine };
     DrumPanel drumPanel { engine };
+    BassPanel bassPanel { engine };
+    void showSeqTab (int tab);
+    void bakeBass();
+    void bakeBassLive();
+    void addBassTrack (std::shared_ptr<TrackSnap> snap, const juce::String& undoName);
+    int lastCapState = 0;
+    int seqTab = 0;
     Ruler ruler { engine };
 
     IconButton recBtn  { IconButton::Record, Theme::red };

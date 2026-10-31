@@ -3,6 +3,9 @@
 #include "project/Exporter.h"
 #include "ui/Undo.h"
 #include "audio/DrumTemplates.h"
+#include "audio/BassTemplates.h"
+#include "audio/PitchDetector.h"
+#include "ui/BassPanel.h"
 #include "project/AudioImport.h"
 #include "ui/ThemeStore.h"
 #include "ui/TunerCard.h"
@@ -269,6 +272,93 @@ inline juce::String runEngineSelfTest()
         for (int i = 0; i < 3; ++i) e6.pollRecording();
         check (t6.length.load() == 2 * bar && t6.offset.load() == 2 * bar && t6.takes.size() == 1,
                "loop recording from bar 3 keeps bars 3-4 as one clip (len " + juce::String (t6.length.load()) + ")");
+    }
+
+    // ---- live bass capture: one whole loop pass, starting at the loop start
+    {
+        std::vector<float> zin (block, 0.0f), ol (block), orr (block);
+        const float* zi[2] = { zin.data(), zin.data() };
+        float* zo[2] = { ol.data(), orr.data() };
+        juce::AudioIODeviceCallbackContext cc;
+        auto ecP = std::make_unique<AudioEngine>(); auto& ec = *ecP;
+        ec.prepareForTest (44100.0, 2);
+        ec.bpm = 120.0; ec.loopBars = 1; ec.loopEnabled = true; ec.countInBars = 0; ec.clickEnabled = false;
+        ec.bass.volume = 1.0f;
+        ec.bass.steps[0] = BassMachine::pack (5, 4, false, false);
+        ec.play();
+        for (int i = 0; i < 20000 / block; ++i) ec.audioDeviceIOCallbackWithContext (zi, 2, zo, 2, block, cc);   // mid-loop
+        check (ec.startBassCapture() && ec.bassCaptureState() == 1, "bass capture arms while looping");
+        for (int i = 0; i < 200000 / block && ec.bassCaptureState() != 3; ++i) ec.audioDeviceIOCallbackWithContext (zi, 2, zo, 2, block, cc);
+        juce::AudioBuffer<float> got;
+        const bool took = ec.takeBassCapture (got);
+        check (took && got.getNumSamples() == (int) ec.getLoopLength() && ec.bassCaptureState() == 0, "bass capture delivers exactly one loop");
+        float first = 0.0f, quiet = 0.0f;
+        for (int i = 2000; i < 6000 && took; ++i) first = std::max (first, std::abs (got.getSample (0, i)));
+        for (int i = 40000; i < 44000 && took; ++i) quiet = std::max (quiet, std::abs (got.getSample (0, i)));
+        check (first > 0.05f && quiet < 0.001f, "bass capture starts at the loop start and holds the pattern (" + juce::String (first, 3) + " / " + juce::String (quiet, 4) + ")");
+        ec.loopEnabled = false;
+        check (! ec.startBassCapture(), "bass capture needs the loop");
+
+        // from standstill: count-in first, then the pass is captured from the loop start
+        auto ecnP = std::make_unique<AudioEngine>(); auto& ecn = *ecnP;
+        ecn.prepareForTest (44100.0, 2);
+        ecn.bpm = 120.0; ecn.loopBars = 1; ecn.loopEnabled = true; ecn.countInBars = 1; ecn.clickEnabled = false;
+        ecn.bass.volume = 1.0f;
+        ecn.bass.steps[0] = BassMachine::pack (5, 4, false, false);
+        check (ecn.startBassCapture() && ecn.getState() == AudioEngine::CountIn, "bass capture starts with a count-in from standstill");
+        int blocks = 0;
+        while (ecn.bassCaptureState() != 3 && blocks++ < 400000 / block) ecn.audioDeviceIOCallbackWithContext (zi, 2, zo, 2, block, cc);
+        juce::AudioBuffer<float> got2;
+        const bool took2 = ecn.takeBassCapture (got2);
+        float f2 = 0.0f;
+        for (int i = 2000; i < 6000 && took2; ++i) f2 = std::max (f2, std::abs (got2.getSample (0, i)));
+        check (took2 && f2 > 0.05f && blocks * block >= 88200 + 80000 && ecn.getState() == AudioEngine::Playing, "bass capture after the count-in holds a full pass and playback continues");
+    }
+
+    // ---- bass panel: click adds a note, dragging right makes it longer
+    {
+        auto epP = std::make_unique<AudioEngine>(); auto& ep = *epP;
+        ep.prepareForTest (44100.0, 2);
+        BassPanel panel (ep);
+        panel.setSize (1500, 210);
+        panel.setView (8.0, 2.0, 0.0, 8.0);
+        auto src = juce::Desktop::getInstance().getMainMouseSource();
+        auto ev = [&] (juce::Point<float> p, juce::Point<float> down, bool dragged)
+        {
+            return juce::MouseEvent (src, p, juce::ModifierKeys::currentModifiers.withoutMouseButtons().withFlags (juce::ModifierKeys::leftButtonModifier), 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                     &panel, &panel, juce::Time::getCurrentTime(), down, juce::Time::getCurrentTime(), 1, dragged);
+        };
+        const float x0 = (float) TrackRow::waveLeft + 5.0f, y0 = (float) (BassPanel::headerH + BassPanel::shiftH + 5 * BassPanel::rowH + 5);
+        const float stepPx = (float) (1500 - TrackRow::waveLeft - TrackRow::waveRightInset) / 64.0f;     // 2 s per bar, 8 s view = 4 bars of 16 steps
+        panel.mouseDown (ev ({ x0, y0 }, { x0, y0 }, false));
+        panel.mouseDrag (ev ({ x0 + 3.0f * stepPx, y0 }, { x0, y0 }, true));
+        panel.mouseUp (ev ({ x0 + 3.0f * stepPx, y0 }, { x0, y0 }, true));
+        const auto c = ep.bass.steps[0].load();
+        check (BassMachine::isNote (c) && BassMachine::lenOf (c) == 4, "bass panel: dragging right lengthens the new note (len " + juce::String (BassMachine::lenOf (c)) + ")");
+
+        // resize an existing note by its right edge; the pressed note keeps its start
+        const float cellRight = (float) TrackRow::waveLeft + 4.0f * stepPx;       // note covers steps 0-3
+        panel.mouseDown (ev ({ cellRight - 3.0f, y0 }, { cellRight - 3.0f, y0 }, false));
+        panel.mouseDrag (ev ({ (float) TrackRow::waveLeft + 8.5f * stepPx, y0 }, { cellRight, y0 }, true));
+        panel.mouseUp (ev ({ (float) TrackRow::waveLeft + 8.5f * stepPx, y0 }, { cellRight, y0 }, true));
+        check (BassMachine::lenOf (ep.bass.steps[0].load()) == 9, "bass panel: dragging the right edge of a note resizes it (len " + juce::String (BassMachine::lenOf (ep.bass.steps[0].load())) + ")");
+
+        // wipe: press on an existing note and drag over others in the row
+        ep.bass.bars = 4;
+        for (int k = 20; k <= 26; k += 2) ep.bass.steps[k] = BassMachine::pack (3, 1, false, false);
+        ep.bass.steps[22] = BassMachine::pack (4, 1, false, false);                // other row: must survive
+        const float wx = (float) TrackRow::waveLeft;
+        panel.mouseDown (ev ({ wx + 20.0f * stepPx + 3.0f, y0 }, { wx, y0 }, false));
+        panel.mouseDrag (ev ({ wx + 26.0f * stepPx + 3.0f, y0 }, { wx, y0 }, true));
+        panel.mouseUp (ev ({ wx + 26.0f * stepPx + 3.0f, y0 }, { wx, y0 }, true));
+        check (! BassMachine::isNote (ep.bass.steps[20].load()) && ! BassMachine::isNote (ep.bass.steps[24].load()) && ! BassMachine::isNote (ep.bass.steps[26].load())
+               && BassMachine::isNote (ep.bass.steps[22].load()), "bass panel: dragging from a note wipes notes in that row only");
+
+        // plain click on a note removes it
+        ep.bass.steps[40] = BassMachine::pack (3, 3, false, false);
+        panel.mouseDown (ev ({ wx + 41.0f * stepPx, y0 }, { wx, y0 }, false));
+        panel.mouseUp (ev ({ wx + 41.0f * stepPx, y0 }, { wx, y0 }, false));
+        check (! BassMachine::isNote (ep.bass.steps[40].load()), "bass panel: clicking inside a long note removes it");
     }
 
     // ---- drum machine: sample-accurate steps, phase kept across loop passes
@@ -568,6 +658,119 @@ inline juce::String runEngineSelfTest()
         pe2.prepareForTest (44100.0, 2);
         check (ProjectIO::load (pe2, ProjectIO::fileInFolder (dir), err) && pe2.tsNum.load() == 6 && pe2.tsDen.load() == 8 && pe2.drums.barSteps.load() == 12, "time signature round-trips through the project file");
         dir.deleteRecursively();
+    }
+    {   // bass synth
+        const double sr = 44100.0, stepLen = sr * 60.0 / 120.0 / 4.0;
+        auto bmP = std::make_unique<BassMachine>(); auto& bm = *bmP;
+        bm.prepare (sr);
+        bm.wave = 2; bm.sub = 0.0f; bm.drive = 0.0f; bm.cutoff = 2000.0f; bm.envAmt = 0.0f; bm.sustain = 1.0f; bm.reso = 0.0f; bm.glide = 0.0f;
+        bm.root = 33; bm.scale = 0;
+        check (BassMachine::semitones (0, 5) == 12 && BassMachine::semitones (0, -1) == -2 && BassMachine::semitones (2, 7) == 12, "bass scales: degrees map to semitones, also below the root");
+        check (BassMachine::nearestDegree (0, 7) == 3 && BassMachine::nearestDegree (3, 4) == 2, "bass: nearest degree for fifth and major third");
+        const auto cell = BassMachine::pack (-2, 5, true, true);
+        check (BassMachine::degreeOf (cell) == -2 && BassMachine::lenOf (cell) == 5 && BassMachine::slideOf (cell) && BassMachine::accentOf (cell), "bass cell packs degree, length and flags");
+
+        bm.steps[2] = BassMachine::pack (5, 4, false, false);          // A2 on step 3
+        std::vector<float> L (44100, 0.0f), R (44100, 0.0f);
+        bm.process (0, 44100, stepLen, 1.0f, L.data(), R.data(), true);
+        float pre = 0.0f, post = 0.0f;
+        for (int i = 0; i < 11000; ++i) pre = std::max (pre, std::abs (L[(size_t) i]));
+        for (int i = 11025; i < 16000; ++i) post = std::max (post, std::abs (L[(size_t) i]));
+        check (pre == 0.0f && post > 0.05f, "bass note starts at its step (sample 11025)");
+        float tail = 0.0f;
+        for (int i = 40000; i < 44100; ++i) tail = std::max (tail, std::abs (L[(size_t) i]));
+        check (tail < 0.001f, "bass note ends after its length");
+        PitchDetector det;
+        const auto pr = det.detect (L.data() + 14000, 4096, sr);
+        const double cents = pr.valid ? 1200.0 * std::log2 (pr.freq / 110.0) : 999.0;
+        check (pr.valid && std::abs (cents) < 25.0, "bass plays A2 (110 Hz), off by " + juce::String (cents, 1) + " cents");
+
+        // chunked rendering gives the same audio as one block
+        auto bm2P = std::make_unique<BassMachine>(); auto& bm2 = *bm2P;
+        bm2.copyFrom (bm); bm2.prepare (sr);
+        std::vector<float> L2 (44100, 0.0f), R2 (44100, 0.0f);
+        for (int p = 0; p < 44100; p += 777)
+        {
+            const int n = std::min (777, 44100 - p);
+            bm2.process (p, n, stepLen, 1.0f, L2.data() + p, R2.data() + p, true);
+        }
+        float diff = 0.0f;
+        for (int i = 0; i < 44100; ++i) diff = std::max (diff, std::abs (L[(size_t) i] - L2[(size_t) i]));
+        check (diff < 1e-4f, "bass renders identically in small chunks");
+
+        // transposition per bar and bar layout
+        bm.bars = 2; bm.shift[1] = 5;
+        check (bm.midiFor (cell, 1) == bm.midiFor (cell, 0) + 5, "bass: per-bar transposition");
+        bm.barSteps = 16; bm.steps[16] = BassMachine::pack (0, 2, false, false);
+        bm.setBarSteps (12);
+        check (BassMachine::isNote (bm.steps[12].load()) && ! BassMachine::isNote (bm.steps[16].load()), "bass: 3/4 moves bar 2 to step 12");
+        bm.setBarSteps (16);
+
+        // templates
+        BassMachine::Snapshot cur;
+        auto root = BassTemplates::apply (cur, 0, nullptr, 4);
+        int cnt = 0; for (int k = 0; k < 16; ++k) cnt += BassMachine::isNote (root.steps[k]) ? 1 : 0;
+        check (cnt == 4 && BassMachine::degreeOf (root.steps[4]) == 0, "bass template: root pulse = four root notes");
+        DrumMachine::Snapshot ds;
+        ds.bars = 2; ds.steps[DrumMachine::Kick][0] = 2; ds.steps[DrumMachine::Kick][8] = 1; ds.steps[DrumMachine::Kick][20] = 1;
+        auto lk = BassTemplates::apply (cur, BassTemplates::lockToKickId, &ds, 4);
+        check (lk.bars == 2 && BassMachine::isNote (lk.steps[0]) && BassMachine::isNote (lk.steps[8]) && BassMachine::isNote (lk.steps[20])
+               && ! BassMachine::isNote (lk.steps[4]) && BassMachine::accentOf (lk.steps[0]) && BassMachine::lenOf (lk.steps[0]) == 4, "bass template: lock to kick follows the drums");
+        auto pg = BassTemplates::applyProgression (root, 1);
+        check (pg.bars == 4 && pg.shift[1] == 5 && pg.shift[2] == 7 && BassMachine::isNote (pg.steps[3 * 16]), "bass chords: I-IV-V-IV extends to four bars");
+        for (int t = 0; t < BassTemplates::numPatterns; ++t)
+        {
+            auto s = BassTemplates::apply (cur, t, nullptr, 4);
+            bool inRange = true;
+            for (int k = 0; k < 16; ++k)
+                if (BassMachine::isNote (s.steps[k])) { const int r = BassMachine::degreeOf (s.steps[k]) - BassMachine::degreeBase; inRange &= r >= 0 && r < BassMachine::numRows; }
+            check (inRange, juce::String ("bass template stays inside the grid: ") + BassTemplates::name (t));
+        }
+
+        // project round trip and export
+        auto beP = std::make_unique<AudioEngine>(); auto& be = *beP;
+        be.prepareForTest (44100.0, 2);
+        be.addTrack();
+        be.bass.root = 31; be.bass.scale = 4; be.bass.bars = 2; be.bass.cutoff = 777.0f; be.bass.shift[1] = 7; be.bass.mute = true;
+        be.bass.steps[3] = BassMachine::pack (4, 3, true, true);
+        auto bdir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("riffcatch-bass-test");
+        bdir.deleteRecursively();
+        juce::String berr;
+        check (ProjectIO::save (be, ProjectIO::fileInFolder (bdir), berr), "bass test: project saved");
+        auto be2P = std::make_unique<AudioEngine>(); auto& be2 = *be2P;
+        be2.prepareForTest (44100.0, 2);
+        check (ProjectIO::load (be2, ProjectIO::fileInFolder (bdir), berr), "bass test: project loaded");
+        check (be2.bass.snapshot() == be.bass.snapshot() && std::abs (be2.bass.cutoff.load() - 777.0f) < 0.01f && be2.bass.mute.load(), "bass pattern and sound round-trip through the project file");
+        bdir.deleteRecursively();
+
+        auto bxP = std::make_unique<AudioEngine>(); auto& bx = *bxP;
+        bx.prepareForTest (44100.0, 2);
+        bx.bass.volume = 1.0f;
+        bx.bass.steps[0] = BassMachine::pack (0, 4, false, false);
+        auto bwav = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("rc_selftest_bass.wav");
+        check (Exporter::bounceWav (bx, bwav, 1, berr), "export works with bass only " + berr);
+        bwav.deleteFile();
+
+        // bass insert effects: echo repeats the note after the dry note has ended, reverb adds a tail
+        auto tailEnergy = [&] (bool echo, bool rev)
+        {
+            auto fP = std::make_unique<BassMachine>(); auto& f = *fP;
+            f.prepare (sr); f.fx.prepare (sr);
+            f.wave = 2; f.sub = 0.0f; f.drive = 0.0f; f.sustain = 1.0f;
+            f.steps[0] = BassMachine::pack (5, 1, false, false);
+            f.echoOn = echo; f.reverbOn = rev; f.echoDiv = TrackFx::Quarter;
+            std::vector<float> a (44100, 0.0f), b (44100, 0.0f);
+            for (int p = 0; p < 44100; p += 1024)
+            {
+                const int n = std::min (1024, 44100 - p);
+                f.render (p, n, stepLen, 1.0f, a.data() + p, b.data() + p, true, sr * 0.5);
+            }
+            float e = 0.0f;
+            for (int i = 24000; i < 44100; ++i) e += std::abs (a[(size_t) i]);
+            return e;
+        };
+        const float dry = tailEnergy (false, false), wet = tailEnergy (true, false), rv = tailEnergy (false, true);
+        check (wet > dry + 5.0f && rv > dry + 1.0f, "bass echo and reverb add a tail (dry " + juce::String (dry, 2) + ", echo " + juce::String (wet, 2) + ", reverb " + juce::String (rv, 2) + ")");
     }
     {   // silence trimming
         juce::AudioBuffer<float> b (2, 48000);

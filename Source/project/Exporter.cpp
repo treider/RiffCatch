@@ -17,6 +17,8 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
         for (int slot : e.order) passLen = juce::jmax<juce::int64> (passLen, e.tracks[slot].length.load() + juce::jmax (0, e.tracks[slot].offset.load()));
     if (! loopMode && e.drums.hasAnySteps())
         passLen = juce::jmax<juce::int64> (passLen, (juce::int64) std::ceil (e.drums.patternSteps() * e.getSamplesPerBeat() / 4.0));
+    if (! loopMode && e.bass.hasAnySteps())
+        passLen = juce::jmax<juce::int64> (passLen, (juce::int64) std::ceil (e.bass.patternSteps() * e.getSamplesPerBeat() / 4.0));
     if (passLen <= 0) { error = "Nothing to export - no recorded audio."; return false; }
 
     const juce::int64 total = passLen * juce::jmax (1, loopMode ? loops : 1);
@@ -25,7 +27,7 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
     mix.setSize (2, (int) total);
     mix.clear();
 
-    bool anySolo = e.drums.solo.load();
+    bool anySolo = e.drums.solo.load() || e.bass.solo.load();
     for (int slot : e.order) anySolo |= e.tracks[slot].solo.load();
 
     for (int slot : e.order)
@@ -74,6 +76,18 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
         {
             const int n = (int) juce::jmin<juce::int64> (4096, total - p);
             dm.process (p, n, e.getSamplesPerBeat() / 4.0, dm.volume.load(), mix.getWritePointer (0) + p, mix.getWritePointer (1) + p, true);
+        }
+    }
+    if (! e.bass.mute.load() && (! anySolo || e.bass.solo.load()) && e.bass.hasAnySteps())
+    {
+        BassMachine bm;
+        bm.copyFrom (e.bass);
+        bm.prepare (sr);
+        bm.fx.prepare (sr);
+        for (juce::int64 p = 0; p < total; p += 4096)
+        {
+            const int n = (int) juce::jmin<juce::int64> (4096, total - p);
+            bm.render (p, n, e.getSamplesPerBeat() / 4.0, bm.volume.load(), mix.getWritePointer (0) + p, mix.getWritePointer (1) + p, true, e.getSamplesPerBeat());
         }
     }
     mix.applyGain (e.masterVolume.load());

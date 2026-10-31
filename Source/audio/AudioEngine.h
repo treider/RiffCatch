@@ -5,6 +5,7 @@
 #include <array>
 #include "Track.h"
 #include "DrumMachine.h"
+#include "BassMachine.h"
 
 // Audio-thread entry point. Owns the sample-counting transport clock that
 // count-in, click, loop and record start are all synchronised to.
@@ -18,7 +19,7 @@ public:
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
     void prepareForTest (double sr, int numIn) { sampleRate = sr; numInputs = numIn; prepareFx(); allocCatch(); }
-    void prepareFx() { for (auto& t : tracks) t.fx.prepare (sampleRate.load()); }
+    void prepareFx() { for (auto& t : tracks) t.fx.prepare (sampleRate.load()); bass.fx.prepare (sampleRate.load()); }
     void audioDeviceIOCallbackWithContext (const float* const* in, int numIn,
                                            float* const* out, int numOut,
                                            int numSamples, const juce::AudioIODeviceCallbackContext&) override;
@@ -53,6 +54,7 @@ public:
     {
         tsNum = juce::jlimit (1, 16, num); tsDen = (den == 8) ? 8 : 4;
         drums.setBarSteps ((int) std::lround (getBarBeats() * 4.0));
+        bass.setBarSteps ((int) std::lround (getBarBeats() * 4.0));
     }
     std::atomic<double> bpm { 120.0 };
     std::atomic<int> loopBars { 4 };
@@ -84,6 +86,7 @@ public:
 
     Track tracks[maxTracks];
     DrumMachine drums;
+    BassMachine bass;
     std::atomic<float> masterVolume { 1.0f };
     std::atomic<float> masterPeakL { 0.0f }, masterPeakR { 0.0f };
     std::atomic<float> inputLevel[16] {};   // decaying peak per active input channel
@@ -111,6 +114,19 @@ public:
     double getCatchAvailableSeconds() const noexcept { return juce::jmin (catchSeconds, (double) catchWrite.load() / juce::jmax (1.0, sampleRate.load())); }
     bool readCatch (juce::AudioBuffer<float>& out, double seconds) const;   // the newest `seconds` (fewer if not yet available)
     void pushCatchForTest (const float* l, const float* r, int n) { writeCatch (l, r, n); }
+    // Live bass capture: while looping, the bass output (with its effects) of exactly one loop pass is copied into a buffer,
+    // starting at the next loop start, so knob moves (cutoff...) during the pass are recorded. 0 idle, 1 armed, 2 capturing, 3 ready.
+    bool startBassCapture();                                        // message thread; false when the loop is off or no loop length
+    void cancelBassCapture() { capState = 0; capAfterCount = false; }
+    int bassCaptureState() const noexcept { return capState.load(); }
+    bool takeBassCapture (juce::AudioBuffer<float>& out)            // when ready: hands over the audio and goes idle
+    {
+        if (capState.load() != 3) return false;
+        out = std::move (capBuf);
+        capBuf = juce::AudioBuffer<float>();
+        capState = 0;
+        return true;
+    }
     bool recordAtNextLoop();                                        // while playing in loop mode: start recording on the next loop start, without a jump
     juce::String projectNotes;                            // message thread only; saved in project.json
 
@@ -127,6 +143,10 @@ private:
     std::atomic<juce::int64> cursorPos { 0 };    // where Play starts; the stopped playhead
     std::atomic<double> sampleRate { 44100.0 };
     std::atomic<int> numInputs { 0 };
+    std::atomic<int> capState { 0 };
+    std::atomic<bool> capAfterCount { false };              // the running count-in leads into playback (bass capture), not into recording
+    juce::AudioBuffer<float> capBuf;
+    juce::int64 capLen = 0;
     juce::int64 drumPass = 0;                   // completed loop passes since playback started (drum phase)
     double drumSr = 0.0;
     std::atomic<bool> drumReset { false };

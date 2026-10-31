@@ -4,6 +4,7 @@
 #include "Theme.h"
 #include "TrackRow.h"
 #include "Undo.h"
+#include "SeqTabs.h"
 
 // Step sequencer panel above the master strip: six drum lanes, aligned with the ruler / clip lanes.
 // Click or drag in the grid to set hits (right-click or Shift = accent). The pattern repeats over the loop.
@@ -32,6 +33,7 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
 
     UndoPush onUndoable;
+    std::function<void (int)> onSelectTab;
     std::function<void()> onLayoutChanged;
     std::function<void()> onReleaseFocus;
     std::function<void (const juce::String&)> onInfo;   // value read-out while a knob is turned
@@ -71,7 +73,7 @@ private:
     int page = 0;
 
     Chevron chevron;
-    juce::Label title;
+    SeqTabs tabs { 0, Theme::orange };
     juce::ComboBox barsBox, templateBox;
     juce::TextButton clearBtn { "Clear" }, prevPage { "<" }, nextPage { ">" }, muteBtn { "M" }, soloBtn { "S" };
     juce::Label pageLabel;

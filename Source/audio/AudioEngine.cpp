@@ -73,7 +73,7 @@ void AudioEngine::play()
     else if (state.load() == Recording) state = Playing;
 }
 
-void AudioEngine::stop() { pendingRecord = false; state = Stopped; drumReset = true; }   // audio thread returns the playhead to the cursor
+void AudioEngine::stop() { pendingRecord = false; capAfterCount = false; state = Stopped; drumReset = true; }   // audio thread returns the playhead to the cursor
 
 void AudioEngine::seek (juce::int64 pos)
 {
@@ -255,10 +255,35 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* in, int 
 }
 
 // Processes up to n samples; may process fewer when a boundary (count-in end, loop end) is reached.
+bool AudioEngine::startBassCapture()
+{
+    const auto len = getLoopLength();
+    if (! loopEnabled.load() || len <= 0 || len > (juce::int64) (sampleRate.load() * 600.0)) return false;
+    capState = 0;
+    capBuf.setSize (2, (int) len);
+    capBuf.clear();
+    capLen = len;
+    capState = 1;
+    if (state.load() == Stopped)    // from standstill: count-in (as for recording), then the loop plays from bar 1
+    {
+        const int beats = juce::jlimit (0, 8, countInBars.load());
+        if (beats > 0)
+        {
+            countInLen = (juce::int64) std::ceil (beats * getBarBeats() * getSamplesPerBeat());
+            recStart = 0;
+            countPos = 0;
+            capAfterCount = true;
+            state = (int) CountIn;
+        }
+        else { jumpTo = 0; state = (int) Playing; }
+    }
+    return true;
+}
+
 int AudioEngine::processChunk (const float* const* in, int numIn, float* const* out, int numOut, int offset, int n)
 {
-    if (drumReset.exchange (false)) drums.reset();
-    if (const auto j = jumpTo.exchange (-1); j >= 0) { playPos = j; countPos = 0; drumPass = 0; drums.reset(); }
+    if (drumReset.exchange (false)) { drums.reset(); bass.reset(); }
+    if (const auto j = jumpTo.exchange (-1); j >= 0) { playPos = j; countPos = 0; drumPass = 0; drums.reset(); bass.reset(); }
 
     auto st = (State) state.load();
     const double sr = sampleRate.load();
@@ -270,7 +295,7 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
     if (st == CountIn && countPos.load() >= countInLen.load())   // count-in finished -> record at bar 1
     {
         int expected = CountIn;
-        state.compare_exchange_strong (expected, (int) Recording);
+        state.compare_exchange_strong (expected, capAfterCount.exchange (false) ? (int) Playing : (int) Recording);
         playPos = recStart.load();
         st = (State) state.load();
     }
@@ -296,7 +321,7 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
 
     bool anySolo = false;
     for (int t = 0; t < maxTracks; ++t) anySolo |= tracks[t].active.load() && tracks[t].solo.load();
-    anySolo |= drums.solo.load();
+    anySolo |= drums.solo.load() || bass.solo.load();
 
     bool recordFull = false;
 
@@ -432,9 +457,31 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
 
     // ---- drum machine: runs on the transport clock; keeps its phase across loop passes
     {
-        if (drumSr != sr) { drums.prepare (sr); drumSr = sr; }
+        if (drumSr != sr) { drums.prepare (sr); bass.prepare (sr); drumSr = sr; }
         const bool dAudible = ! drums.mute.load() && (! anySolo || drums.solo.load());
         drums.process (looping ? drumPass * loopLen + pos : pos, n, spb / 4.0, dAudible ? drums.volume.load() : 0.0f, mixL, mixR, playing);
+        const bool bAudible = ! bass.mute.load() && (! anySolo || bass.solo.load());
+        const auto bAbs = looping ? drumPass * loopLen + pos : pos;
+        const float bGain = bAudible ? bass.volume.load() : 0.0f;
+        int cs = capState.load();
+        if ((cs == 1 || cs == 2) && ! looping && st != CountIn) { capState = 0; cs = 0; capAfterCount = false; }           // transport stopped or loop switched off: cancel
+        if (cs == 1 && pos == 0) { capState = 2; cs = 2; }
+        if (cs == 2 && capBuf.getNumSamples() >= capLen && pos + n <= capLen)
+        {
+            juce::FloatVectorOperations::clear (fxL, n);
+            juce::FloatVectorOperations::clear (fxR, n);
+            bass.render (bAbs, n, spb / 4.0, bGain, fxL, fxR, playing, spb);
+            juce::FloatVectorOperations::copy (capBuf.getWritePointer (0) + pos, fxL, n);
+            juce::FloatVectorOperations::copy (capBuf.getWritePointer (1) + pos, fxR, n);
+            juce::FloatVectorOperations::add (mixL, fxL, n);
+            juce::FloatVectorOperations::add (mixR, fxR, n);
+            if (pos + n >= capLen) capState = 3;
+        }
+        else
+        {
+            if (cs == 2) capState = 0;
+            bass.render (bAbs, n, spb / 4.0, bGain, mixL, mixR, playing, spb);
+        }
     }
 
     // ---- click (sample-accurate: beats derived from the transport sample counter)

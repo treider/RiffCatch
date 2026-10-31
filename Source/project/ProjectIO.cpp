@@ -129,6 +129,35 @@ bool save (AudioEngine& e, const juce::File& projectFile, juce::String& error)
         root->setProperty ("drums", juce::var (d));
     }
 
+    {   // bass synth: cells as numbers (see BassMachine::pack), per-bar transposition, key, sound
+        auto& bm = e.bass;
+        auto* b = new juce::DynamicObject();
+        b->setProperty ("bars", bm.bars.load());
+        b->setProperty ("root", bm.root.load());
+        b->setProperty ("scale", bm.scale.load());
+        b->setProperty ("volume", (double) bm.volume.load());
+        b->setProperty ("mute", bm.mute.load());
+        b->setProperty ("solo", bm.solo.load());
+        b->setProperty ("echoOn", bm.echoOn.load());
+        b->setProperty ("reverbOn", bm.reverbOn.load());
+        b->setProperty ("echoDiv", bm.echoDiv.load());
+        b->setProperty ("wave", bm.wave.load());
+        b->setProperty ("sub", (double) bm.sub.load());
+        b->setProperty ("cutoff", (double) bm.cutoff.load());
+        b->setProperty ("reso", (double) bm.reso.load());
+        b->setProperty ("env", (double) bm.envAmt.load());
+        b->setProperty ("decay", (double) bm.decay.load());
+        b->setProperty ("sustain", (double) bm.sustain.load());
+        b->setProperty ("glide", (double) bm.glide.load());
+        b->setProperty ("drive", (double) bm.drive.load());
+        juce::StringArray cells, shifts;
+        for (int k = 0; k < BassMachine::maxSteps; ++k) cells.add (juce::String ((juce::int64) bm.steps[k].load()));
+        for (int k = 0; k < BassMachine::maxBars; ++k) shifts.add (juce::String (bm.shift[k].load()));
+        b->setProperty ("steps", cells.joinIntoString (","));
+        b->setProperty ("shift", shifts.joinIntoString (","));
+        root->setProperty ("bass", juce::var (b));
+    }
+
     if (! projectFile.replaceWithText (juce::JSON::toString (juce::var (root))))
     {
         error = "Could not write " + projectFile.getFileName();
@@ -241,6 +270,41 @@ bool load (AudioEngine& e, const juce::File& projectFile, juce::String& error)
                     dm.pan[v] = (float) (double) vo.getProperty ("pan", 0.0);
                     dm.voiceMute[v] = (bool) vo.getProperty ("mute", false);
                 }
+        }
+    }
+    {   // bass synth (absent in older projects)
+        auto& bm = e.bass;
+        bm.resetAll();
+        const auto b = json["bass"];
+        if (b.isObject())
+        {
+            bm.bars = juce::jlimit (1, BassMachine::maxBars, (int) b.getProperty ("bars", 1));
+            bm.root = juce::jlimit (BassMachine::rootMin, BassMachine::rootMax, (int) b.getProperty ("root", 33));
+            bm.scale = juce::jlimit (0, BassMachine::numScales - 1, (int) b.getProperty ("scale", 0));
+            bm.volume = juce::jlimit (0.0f, 1.5f, (float) (double) b.getProperty ("volume", 0.8));
+            bm.mute = (bool) b.getProperty ("mute", false);
+            bm.solo = (bool) b.getProperty ("solo", false);
+            bm.echoOn = (bool) b.getProperty ("echoOn", false);
+            bm.reverbOn = (bool) b.getProperty ("reverbOn", false);
+            bm.echoDiv = juce::jlimit (0, (int) TrackFx::numDivs - 1, (int) b.getProperty ("echoDiv", (int) TrackFx::Quarter));
+            bm.wave = juce::jlimit (0, 2, (int) b.getProperty ("wave", 0));
+            bm.sub = juce::jlimit (0.0f, 1.0f, (float) (double) b.getProperty ("sub", 0.5));
+            bm.cutoff = juce::jlimit (30.0f, 12000.0f, (float) (double) b.getProperty ("cutoff", 400.0));
+            bm.reso = juce::jlimit (0.0f, 0.97f, (float) (double) b.getProperty ("reso", 0.2));
+            bm.envAmt = juce::jlimit (0.0f, 1.0f, (float) (double) b.getProperty ("env", 0.4));
+            bm.decay = juce::jlimit (0.03f, 2.0f, (float) (double) b.getProperty ("decay", 0.3));
+            bm.sustain = juce::jlimit (0.0f, 1.0f, (float) (double) b.getProperty ("sustain", 0.7));
+            bm.glide = juce::jlimit (0.0f, 400.0f, (float) (double) b.getProperty ("glide", 0.0));
+            bm.drive = juce::jlimit (0.0f, 1.0f, (float) (double) b.getProperty ("drive", 0.2));
+            const auto cells = juce::StringArray::fromTokens (b["steps"].toString(), ",", "");
+            for (int k = 0; k < juce::jmin (cells.size(), (int) BassMachine::maxSteps); ++k)
+            {
+                const auto c = (juce::uint32) juce::jlimit<juce::int64> (0, 0x3ffff, cells[k].getLargeIntValue());
+                const bool note = BassMachine::isNote (c);
+                bm.steps[k] = note ? BassMachine::pack (BassMachine::degreeOf (c), BassMachine::lenOf (c), BassMachine::slideOf (c), BassMachine::accentOf (c)) : 0u;
+            }
+            const auto sh = juce::StringArray::fromTokens (b["shift"].toString(), ",", "");
+            for (int k = 0; k < juce::jmin (sh.size(), (int) BassMachine::maxBars); ++k) bm.shift[k] = juce::jlimit (-24, 24, sh[k].getIntValue());
         }
     }
     if (count == 0) e.addTrack();
