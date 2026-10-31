@@ -54,6 +54,7 @@ private:
     TrackSnap captureTrack (int slot);
     int restoreTrack (const TrackSnap&);
     void exportMenu();
+    void fileMenu();
     void doExport (const juce::File&, int kind, int loops);
     void saveLatencyAdjust();
     void setBpm (double v);
@@ -76,7 +77,7 @@ private:
     ToolButton undoBtn { ToolButton::Undo }, redoBtn { ToolButton::Redo };
     ToolButton cutBtn { ToolButton::Cut }, copyBtn { ToolButton::Copy }, pasteBtn { ToolButton::Paste }, silenceBtn { ToolButton::Silence },
                fadeInBtn { ToolButton::FadeIn }, fadeOutBtn { ToolButton::FadeOut }, dupBtn { ToolButton::Duplicate };
-    juce::TextButton exportBtn { "Export" }, newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" }, audioBtn { "Audio" };
+    juce::TextButton fileBtn { "File" };
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
     juce::Label bpmLabel;
     juce::TextButton tapBtn { "Tap" }, loopBtn { "Loop" }, clickBtn { "Click" };

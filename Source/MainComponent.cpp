@@ -65,9 +65,7 @@ MainComponent::MainComponent()
     recBtn.setTooltip ("Record (R)");
     playBtn.setTooltip ("Play / Stop (Space)");
     stopBtn.setTooltip ("Stop and rewind (Enter)");
-    saveBtn.setTooltip ("Save (Ctrl+S, Ctrl+Shift+S = Save as)");
-    openBtn.setTooltip ("Open (Ctrl+O)");
-    newBtn.setTooltip ("New (Ctrl+N)");
+
     recBtn.onClick  = [this] { toggleRecord(); };
     playBtn.onClick = [this] { togglePlay(); };
     stopBtn.onClick = [this]
@@ -80,19 +78,11 @@ MainComponent::MainComponent()
     ruler.setTooltip ("Click or drag to move the playhead (snaps to beats, Shift = bars, Alt = free)");
     list.onAdd = [this] { addTrack(); };
 
-    for (auto* b : { &exportBtn, &newBtn, &openBtn, &saveBtn, &audioBtn })
-    {
-        b->setWantsKeyboardFocus (false);
-        b->setColour (juce::TextButton::buttonColourId, Theme::raised);
-        addAndMakeVisible (b);
-    }
-    saveBtn.setColour (juce::TextButton::buttonColourId, Theme::blue.withAlpha (0.25f));
-    exportBtn.setTooltip ("Bounce master to WAV or MP3");
-    exportBtn.onClick = [this] { exportMenu(); };
-    newBtn.onClick   = [this] { newProject(); };
-    openBtn.onClick  = [this] { openProject(); };
-    saveBtn.onClick  = [this] { saveProject (false); };
-    audioBtn.onClick = [this] { showAudioSettings(); };
+    fileBtn.setWantsKeyboardFocus (false);
+    fileBtn.setColour (juce::TextButton::buttonColourId, Theme::raised);
+    fileBtn.setTooltip ("New, open, save, export and audio settings");
+    fileBtn.onClick = [this] { fileMenu(); };
+    addAndMakeVisible (fileBtn);
 
     timeLabel.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 26.0f, juce::Font::plain)));
     timeLabel.setJustificationType (juce::Justification::centred);
@@ -105,7 +95,7 @@ MainComponent::MainComponent()
     addAndMakeVisible (projectLabel);
 
     statusLabel.setColour (juce::Label::textColourId, Theme::yellow);
-    statusLabel.setJustificationType (juce::Justification::centredLeft);
+    statusLabel.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (statusLabel);
 
     // ---- tempo / loop / click / count-in controls
@@ -290,6 +280,34 @@ void MainComponent::saveLatencyAdjust()
     if (auto* f = props.getUserSettings()) { f->setValue ("latencyAdjustMs", latAdjust.getValue()); f->saveIfNeeded(); }
 }
 
+void MainComponent::fileMenu()
+{
+    juce::PopupMenu m;
+    m.addItem (juce::PopupMenu::Item ("New project").setID (1).setShortcutKeyDescription ("Ctrl+N"));
+    m.addItem (juce::PopupMenu::Item ("Open...").setID (2).setShortcutKeyDescription ("Ctrl+O"));
+    m.addSeparator();
+    m.addItem (juce::PopupMenu::Item ("Save").setID (3).setShortcutKeyDescription ("Ctrl+S"));
+    m.addItem (juce::PopupMenu::Item ("Save as...").setID (4).setShortcutKeyDescription ("Ctrl+Shift+S"));
+    m.addSeparator();
+    m.addItem (5, "Export...");
+    m.addSeparator();
+    m.addItem (6, "Audio settings...");
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileBtn), [this] (int id)
+    {
+        switch (id)
+        {
+            case 1: newProject(); break;
+            case 2: openProject(); break;
+            case 3: saveProject (false); break;
+            case 4: saveProject (true); break;
+            case 5: exportMenu(); break;
+            case 6: showAudioSettings(); break;
+            default: break;
+        }
+        grabKeyboardFocus();
+    });
+}
+
 // Menu item id = kind * 100 + loops. kind: 1 = WAV, 2..4 = MP3 192/256/320 kbps
 void MainComponent::exportMenu()
 {
@@ -316,7 +334,7 @@ void MainComponent::exportMenu()
         addFormat (m, 3, "MP3 256 kbps");
         addFormat (m, 4, "MP3 320 kbps");
     }
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&exportBtn), [this] (int id)
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileBtn), [this] (int id)
     {
         if (id <= 0) return;
         const int kind = id / 100, loops = id % 100;
@@ -653,11 +671,18 @@ void MainComponent::timerCallback()
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::bg);
-    for (auto a : { barArea, settingsArea })
     {
-        const auto f = a.toFloat();
+        const auto f = barArea.getUnion (settingsArea).toFloat();     // one merged top panel, settings row slightly darker
         g.setColour (Theme::panel);
         g.fillRoundedRectangle (f, 10.0f);
+        {
+            juce::Graphics::ScopedSaveState ss (g);
+            juce::Path p;
+            p.addRoundedRectangle (f, 10.0f);
+            g.reduceClipRegion (p);
+            g.setColour (Theme::panel.darker (0.28f));
+            g.fillRect (settingsArea);
+        }
         g.setColour (Theme::border.withAlpha (0.55f));
         g.drawRoundedRectangle (f.reduced (0.5f), 10.0f, 1.0f);
     }
@@ -668,24 +693,25 @@ void MainComponent::paint (juce::Graphics& g)
 void MainComponent::resized()
 {
     auto r = getLocalBounds().reduced (12);
-    barArea = r.removeFromTop (64);
-    auto bar = barArea.reduced (12, 10);
-    titleLabel.setBounds (bar.removeFromLeft (120));
-    bar.removeFromLeft (10);
+    barArea = r.removeFromTop (56);
+    auto bar = barArea.reduced (12, 8);
+    titleLabel.setBounds (bar.removeFromLeft (110));
+    fileBtn.setBounds (bar.removeFromLeft (60).withSizeKeepingCentre (60, 30));
+    bar.removeFromLeft (14);
     recBtn.setBounds (bar.removeFromLeft (44));  bar.removeFromLeft (8);
     playBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
     stopBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (14);
     timeLabel.setBounds (bar.removeFromLeft (150));
     barLabel.setBounds (bar.removeFromLeft (140));
 
-    audioBtn.setBounds (bar.removeFromRight (70)); bar.removeFromRight (6);
-    saveBtn.setBounds (bar.removeFromRight (64));  bar.removeFromRight (6);
-    openBtn.setBounds (bar.removeFromRight (64));  bar.removeFromRight (6);
-    newBtn.setBounds (bar.removeFromRight (56));   bar.removeFromRight (12);
-    exportBtn.setBounds (bar.removeFromRight (70)); bar.removeFromRight (12);
-    projectLabel.setBounds (bar);   // whatever is left of the top bar
-    r.removeFromTop (8);
-    settingsArea = r.removeFromTop (46);
+    for (auto* b : { &redoBtn, &undoBtn })
+        { b->setBounds (bar.removeFromRight (32).withSizeKeepingCentre (32, 28)); bar.removeFromRight (4); }
+    bar.removeFromRight (12);
+    for (auto* b : { &dupBtn, &fadeOutBtn, &fadeInBtn, &silenceBtn, &pasteBtn, &copyBtn, &cutBtn })
+        { b->setBounds (bar.removeFromRight (32).withSizeKeepingCentre (32, 28)); bar.removeFromRight (4); }
+    bar.removeFromRight (12);
+    projectLabel.setBounds (bar);   // whatever is left of the top row
+    settingsArea = r.removeFromTop (44);
     auto sb = settingsArea.reduced (14, 8);
     bpmCaption.setBounds (sb.removeFromLeft (36));
     bpmLabel.setBounds (sb.removeFromLeft (64));  sb.removeFromLeft (6);
@@ -696,12 +722,6 @@ void MainComponent::resized()
     clickVol.setBounds (sb.removeFromLeft (90));  sb.removeFromLeft (18);
     countCaption.setBounds (sb.removeFromLeft (64));
     countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (18);
-    for (auto* b : { &redoBtn, &undoBtn })
-        { b->setBounds (sb.removeFromRight (32).withSizeKeepingCentre (32, 28)); sb.removeFromRight (4); }
-    sb.removeFromRight (12);
-    for (auto* b : { &dupBtn, &fadeOutBtn, &fadeInBtn, &silenceBtn, &pasteBtn, &copyBtn, &cutBtn })
-        { b->setBounds (sb.removeFromRight (32).withSizeKeepingCentre (32, 28)); sb.removeFromRight (4); }
-    sb.removeFromRight (8);
     statusLabel.setBounds (sb);
 
     r.removeFromTop (10);

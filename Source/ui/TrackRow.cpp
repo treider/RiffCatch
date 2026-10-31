@@ -298,7 +298,7 @@ void TrackRow::paint (juce::Graphics& g)
     g.setColour (Theme::panel);
     g.fillRect (b);
     g.setColour (Theme::panel.brighter (0.05f));
-    g.fillRect (b.withRight ((float) wave.getX() - 4.0f));            // header block
+    g.fillRect (b.withRight ((float) meter.getX() - 3.0f));            // header block
     g.setColour (accent.withAlpha (0.92f));
     g.fillRect (nameBar.toFloat());                                     // coloured name bar (Live style)
     g.setColour (accent);
@@ -835,9 +835,9 @@ void TrackRow::resized()
     grip.setBounds (r.removeFromLeft (16));
     r.removeFromLeft (6);
     auto header = r.removeFromLeft (336);
-    r.removeFromLeft (8);
-    meter.setBounds (r.removeFromRight (14));
-    r.removeFromRight (6);
+    r.removeFromLeft (4);
+    meter.setBounds (r.removeFromLeft (14));
+    r.removeFromLeft (6);
     wave = r;
     prevTake.setBounds (wave.getRight() - 62, wave.getY(), 18, clipStripH);
     nextTake.setBounds (wave.getRight() - 20, wave.getY(), 18, clipStripH);
