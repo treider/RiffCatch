@@ -2,6 +2,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <atomic>
 #include <vector>
+#include <array>
 #include "Track.h"
 #include "DrumMachine.h"
 
@@ -77,6 +78,24 @@ public:
     std::atomic<float> masterPeakL { 0.0f }, masterPeakR { 0.0f };
     std::atomic<float> inputLevel[16] {};   // decaying peak per active input channel
 
+    // Tuner feed: the audio thread copies one input channel into a ring; the UI reads the latest samples.
+    static constexpr int tunerRingSize = 8192;
+    std::atomic<int> tunerChannel { -1 };                 // -1 = off
+    int readTunerSamples (float* dest, int count) const   // newest `count` samples, oldest first
+    {
+        const auto w = tunerWrite.load (std::memory_order_acquire);
+        for (int i = 0; i < count; ++i)
+            dest[i] = tunerRing[(size_t) ((w - count + i) & (tunerRingSize - 1))];
+        return count;
+    }
+    void pushTunerSamples (const float* src, int n)       // test hook and audio thread
+    {
+        auto w = tunerWrite.load (std::memory_order_relaxed);
+        for (int i = 0; i < n; ++i) tunerRing[(size_t) ((w + i) & (tunerRingSize - 1))] = src[i];
+        tunerWrite.store (w + n, std::memory_order_release);
+    }
+    juce::String projectNotes;                            // message thread only; saved in project.json
+
 private:
     static constexpr int chunk = 4096;
     int processChunk (const float* const* in, int numIn, float* const* out, int numOut, int offset, int n);
@@ -95,6 +114,8 @@ private:
     std::atomic<bool> drumReset { false };
     int sessionLen = 0;                         // loop length (samples) of current record session
 
+    std::array<float, tunerRingSize> tunerRing {};
+    std::atomic<juce::int64> tunerWrite { 0 };
     juce::HeapBlock<float> mixL, mixR, nudgeL, nudgeR, fxL, fxR;   // on the heap: engines are also created on the stack in tests
     float masterCur = 1.0f;
 

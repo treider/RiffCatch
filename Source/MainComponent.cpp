@@ -150,6 +150,11 @@ MainComponent::MainComponent()
     projectLabel.setFont (juce::Font (juce::FontOptions (14.0f)));
     projectLabel.setColour (juce::Label::textColourId, Theme::dim);
     addAndMakeVisible (projectLabel);
+    notesBtn.setClickingTogglesState (false);
+    notesBtn.setWantsKeyboardFocus (false);
+    notesBtn.setTooltip ("Project notes (a dot of colour means there are notes)");
+    notesBtn.onClick = [this] { editNotes(); };
+    addAndMakeVisible (notesBtn);
 
     statusLabel.setColour (juce::Label::textColourId, Theme::yellow);
     statusLabel.setJustificationType (juce::Justification::centredRight);
@@ -1066,6 +1071,8 @@ void MainComponent::resized()
     for (auto* b : { &dupBtn, &fadeOutBtn, &fadeInBtn, &reverseBtn, &silenceBtn, &pasteBtn, &copyBtn, &cutBtn, &selectAllBtn, &cropBtn })
         { b->setBounds (bar.removeFromRight (32).withSizeKeepingCentre (32, 28)); bar.removeFromRight (4); }
     bar.removeFromRight (12);
+    notesBtn.setBounds (bar.removeFromRight (64).withSizeKeepingCentre (64, 28));
+    bar.removeFromRight (8);
     projectLabel.setBounds (bar);   // whatever is left of the top row
     settingsArea = r.removeFromTop (44);
     auto sb = settingsArea.reduced (14, 8);
@@ -1147,6 +1154,30 @@ void MainComponent::showAudioSettings()
     audioDialog = o.launchAsync();
 }
 
+void MainComponent::updateNotesButton()
+{
+    notesBtn.setToggleState (engine.projectNotes.trim().isNotEmpty(), juce::dontSendNotification);
+}
+
+void MainComponent::editNotes()
+{
+    auto* ed = new juce::TextEditor();
+    ed->setMultiLine (true, true);
+    ed->setReturnKeyStartsNewLine (true);
+    ed->setTextToShowWhenEmpty ("Notes for this project: key, capo, ideas...", Theme::dim);
+    ed->setText (engine.projectNotes, false);
+    ed->setSize (340, 190);
+    juce::Component::SafePointer<MainComponent> self (this);
+    ed->onTextChange = [self, ed]
+    {
+        if (self == nullptr) return;
+        self->engine.projectNotes = ed->getText();
+        ++self->editCounter;
+        self->updateNotesButton();
+    };
+    juce::CallOutBox::launchAsynchronously (std::unique_ptr<juce::Component> (ed), notesBtn.getScreenBounds(), nullptr);
+}
+
 void MainComponent::newProject()
 {
     undoManager.clearUndoHistory();
@@ -1155,6 +1186,8 @@ void MainComponent::newProject()
     engine.drums.resetAll();
     engine.bpm = 120.0; engine.loopBars = 4; engine.loopEnabled = true;
     engine.countInBars = 1; engine.clickEnabled = false; engine.clickVolume = 0.5f;
+    engine.projectNotes.clear();
+    updateNotesButton();
     engine.addTrack();
     engine.addTrack();
     projectDir = juce::File();
@@ -1279,6 +1312,7 @@ void MainComponent::doOpen (const juce::File& dir)
     {
         projectDir = dir;
         refreshStrips();
+        updateNotesButton();
         setStatus ("Opened " + dir.getFileName());
     }
     else

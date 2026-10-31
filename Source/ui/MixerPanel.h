@@ -1,4 +1,5 @@
 #pragma once
+#include "TunerCard.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "audio/AudioEngine.h"
 #include "Theme.h"
@@ -121,4 +122,5 @@ private:
     juce::Component holder;
     juce::OwnedArray<ChannelStrip> strips;
     ChannelStrip master;
+    TunerCard tuner;
 };

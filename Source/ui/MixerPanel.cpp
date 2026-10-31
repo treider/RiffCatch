@@ -230,7 +230,7 @@ void ChannelStrip::resized()
 
 // ------------------------------------------------------------------ panel
 
-MixerPanel::MixerPanel (AudioEngine& e) : engine (e), master (e, -1, 0)
+MixerPanel::MixerPanel (AudioEngine& e) : engine (e), master (e, -1, 0), tuner (e)
 {
     addAndMakeVisible (chevron);
     chevron.onClick = [this] { setExpanded (! expanded); };
@@ -255,6 +255,7 @@ MixerPanel::MixerPanel (AudioEngine& e) : engine (e), master (e, -1, 0)
     master.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { if (onUndoable) onUndoable (n, std::move (a), std::move (b)); };
     master.onInfo = [this] (const juce::String& s) { if (onInfo) onInfo (s); };
     addAndMakeVisible (master);
+    addAndMakeVisible (tuner);
 }
 
 void MixerPanel::setExpanded (bool b)
@@ -264,6 +265,8 @@ void MixerPanel::setExpanded (bool b)
     chevron.repaint();
     stripView.setVisible (b);
     master.setVisible (b);
+    tuner.setVisible (b);
+    tuner.setRunning (b);
     rowMeter.setVisible (! b);
     plus.setVisible (b && canAdd);
     if (onLayoutChanged) onLayoutChanged();
@@ -311,6 +314,7 @@ void MixerPanel::tick()
     if (! expanded) { rowMeter.setLevels (engine.masterPeakL.exchange (0.0f), engine.masterPeakR.exchange (0.0f)); return; }
     for (auto* s : strips) s->tick();
     master.tick();
+    tuner.tick();
 }
 
 void MixerPanel::paint (juce::Graphics& g)
@@ -357,6 +361,8 @@ void MixerPanel::resized()
     r.removeFromRight (padX);
     auto body = r.withHeight (stripH);
     master.setBounds (body.removeFromRight (104));
+    body.removeFromRight (6);
+    tuner.setBounds (body.removeFromRight (juce::jmin (290, juce::jmax (0, body.getWidth() - 360))));
     body.removeFromRight (6);
     stripView.setBounds (body);
     layoutStrips();

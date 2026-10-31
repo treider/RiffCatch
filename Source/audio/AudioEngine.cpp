@@ -186,6 +186,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* in, int 
         inputLevel[ch] = juce::jmax (p, inputLevel[ch].load() * 0.93f);
     }
 
+    if (const int tc = tunerChannel.load(); tc >= 0 && tc < numIn && in[tc] != nullptr)
+        pushTunerSamples (in[tc], numSamples);
+
     for (int done = 0; done < numSamples;)
         done += processChunk (in, numIn, out, numOut, done, juce::jmin (chunk, numSamples - done));
 }

@@ -5,6 +5,8 @@
 #include "audio/DrumTemplates.h"
 #include "project/AudioImport.h"
 #include "ui/ThemeStore.h"
+#include "ui/TunerCard.h"
+#include "project/ProjectIO.h"
 
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
@@ -421,6 +423,44 @@ inline juce::String runEngineSelfTest()
         check (b4.bars == 4 && std::memcmp (&b4.steps[1][0], &b4.steps[1][32], 16) == 0, "longer patterns repeat the two bars");
     }
 
+    {   // tuner: pitch detection on synthetic guitar-range tones, through the real input ring
+        for (double sr : { 44100.0, 48000.0 })
+            for (double f : { 82.41, 110.0, 196.0, 329.63, 440.0, 659.26 })
+            {
+                AudioEngine te;
+                te.prepareForTest (sr, 1);
+                std::vector<float> sig (4096);
+                for (int i = 0; i < 4096; ++i)
+                    sig[(size_t) i] = (float) (0.4 * std::sin (2.0 * juce::MathConstants<double>::pi * f * i / sr)
+                                             + 0.15 * std::sin (4.0 * juce::MathConstants<double>::pi * f * i / sr));
+                te.pushTunerSamples (sig.data(), 4096);
+                std::vector<float> got (4096);
+                te.readTunerSamples (got.data(), 4096);
+                PitchDetector det;
+                const auto r = det.detect (got.data(), 4096, sr);
+                const double cents = r.valid ? 1200.0 * std::log2 (r.freq / f) : 999.0;
+                check (r.valid && std::abs (cents) < 3.0, "tuner detects " + juce::String (f, 2) + " Hz at " + juce::String ((int) sr) + " (off by " + juce::String (cents, 1) + " cents)");
+            }
+        std::vector<float> quiet (4096, 0.0f);
+        PitchDetector det2;
+        check (! det2.detect (quiet.data(), 4096, 44100.0).valid, "tuner ignores silence");
+        check (TunerCard::noteName (69) == "A" && TunerCard::octaveOf (69) == 4 && TunerCard::noteName (40) == "E" && TunerCard::octaveOf (40) == 2, "tuner note names (A4, E2)");
+    }
+    {   // project notes survive save and load
+        AudioEngine ne;
+        ne.prepareForTest (44100.0, 2);
+        ne.addTrack();
+        ne.projectNotes = "E minor, capo 2\nidea: slower";
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("riffcatch-notes-test");
+        dir.deleteRecursively();
+        juce::String err;
+        check (ProjectIO::save (ne, dir, err), "notes test: project saved");
+        AudioEngine ne2;
+        ne2.prepareForTest (44100.0, 2);
+        check (ProjectIO::load (ne2, dir, err), "notes test: project loaded");
+        check (ne2.projectNotes == ne.projectNotes, "project notes round-trip");
+        dir.deleteRecursively();
+    }
     {   // custom themes
         const auto dk = Theme::generate ("selftest-theme", juce::Colour (0xffea580c), juce::Colour (0xfffbbf24), true);
         const auto lt = Theme::generate ("selftest-light", juce::Colour (0xff2563eb), juce::Colour (0xff06b6d4), false);

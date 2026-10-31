@@ -50,6 +50,8 @@ private:
     void restyle();
     void applyTheme (int index);
     void refreshTheme();
+    void updateNotesButton();
+    void editNotes();
     void openThemeEditor();
     void mouseEnter (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -119,6 +121,7 @@ private:
         selectAllBtn { ToolButton::SelectAll }, reverseBtn { ToolButton::Reverse }, cropBtn { ToolButton::Crop };
     ToolButton fileBtn { ToolButton::Menu };
     AddTrackButton addTrackBtn;
+    juce::TextButton notesBtn { "Notes" };
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
     juce::Label bpmLabel;
     juce::TextButton tapBtn { "Tap" }, clickBtn { "Click" };

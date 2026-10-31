@@ -34,9 +34,13 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 - Channel strips with level meters, fader, pan, mute, solo, plus Echo and Reverb sends
 - Master strip with stereo meter
 
+### Tuner
+- Chromatic tuner in the mixer area, fed from the input of the armed track (or track 1). Scrolling cent ruler, note name, Hz and cents, adjustable A reference (430-450 Hz)
+
 ### Export and projects
 - Projects saved as one WAV per track plus `project.json`
 - Export mix to WAV or MP3 (LAME)
+- Free-text project notes (Notes button in the top bar), saved with the project
 
 ### Themes
 - Nine built-in themes, switched from the File menu or with `Ctrl+Shift+O` / `Ctrl+Shift+P` (previous / next)

@@ -66,6 +66,7 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
     root->setProperty ("name", dir.getFileName());
     root->setProperty ("bpm", e.bpm.load());
     root->setProperty ("timeSignature", "4/4");
+    root->setProperty ("notes", e.projectNotes);
     root->setProperty ("clickEnabled", e.clickEnabled.load());
     root->setProperty ("clickVolume", (double) e.clickVolume.load());
     root->setProperty ("countInBars", e.countInBars.load());
@@ -162,6 +163,7 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
         }
     }
 
+    e.projectNotes = json.getProperty ("notes", "").toString();
     e.bpm = juce::jlimit (30.0, 300.0, (double) json.getProperty ("bpm", 120.0));
     e.loopEnabled = (bool) json["loop"].getProperty ("enabled", true);
     e.loopBars = juce::jlimit (1, 64, (int) json["loop"].getProperty ("bars", 4));
