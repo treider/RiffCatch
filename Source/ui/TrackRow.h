@@ -52,7 +52,8 @@ public:
     enum SelCmd { SelSilence, SelCut, SelCopy, SelPaste, SelFadeIn, SelFadeOut, SelReverse };
     void selectAll();
     void cropToSelection();
-    std::function<void (juce::int64)> onCropped;   // length of the cropped clip in samples
+    std::function<void (juce::int64)> onCropped;
+    std::function<void (juce::int64)> onClipGrew;   // end of the clip (samples on the timeline) after a duplicate   // length of the cropped clip in samples
     void restyle();
     static bool hasClipboard() { return clipboard.getNumSamples() > 0; }
     bool hasSelection() const noexcept { return selEnd > selStart; }
@@ -104,7 +105,9 @@ private:
     juce::TextButton hitsBtn { "Hits" };
     int dragHit = -1;
     int lastGlowState = -1;
-    bool nudging = false, selecting = false, moveByRight = false;
+    bool nudging = false, selecting = false, moveByRight = false, copying = false;
+    int copyOffset = 0;
+    void duplicateClipTo (int newOffset);
     juce::int64 selStart = 0, selEnd = 0, selAnchor = 0;      // selection in take samples
     juce::int64 xToTake (float x, bool snap, bool snapBar = false) const;
     void showClipMenu();

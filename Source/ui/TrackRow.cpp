@@ -486,6 +486,16 @@ void TrackRow::paint (juce::Graphics& g)
         g.drawText (armed ? "Armed - press R to record" : "Empty", wave, juce::Justification::centred);
     }
 
+    if (copying && len > 0)   // ghost of the copy being dragged out
+    {
+        const float gx = sampleToX (copyOffset), gx1 = sampleToX ((juce::int64) copyOffset + len);
+        auto ghost = juce::Rectangle<float> (gx, wave.getY() + 0.0f, juce::jmax (2.0f, gx1 - gx), (float) wave.getHeight()).getIntersection (wave.toFloat());
+        g.setColour (accent.withAlpha (0.28f));
+        g.fillRoundedRectangle (ghost, Theme::radius - 1.0f);
+        g.setColour (accent);
+        g.drawRoundedRectangle (ghost.reduced (0.5f), Theme::radius - 1.0f, 1.5f);
+    }
+
     if (selEnd > len) selEnd = len;
     if (selStart >= selEnd) selStart = selEnd = 0;
     if (hasSelection() && ! tr.editing)
@@ -666,6 +676,8 @@ void TrackRow::mouseDown (const juce::MouseEvent& e)
     if (e.mods.isPopupMenu() || (e.mods.isLeftButtonDown() && onStrip))   // drag the clip (title strip or right button); right click = clip menu
     {
         nudging = true;
+        copying = e.mods.isCtrlDown() && ! e.mods.isPopupMenu();   // Ctrl + drag the title strip: drag out a copy
+        copyOffset = t.offset.load();
         moveByRight = e.mods.isPopupMenu();
         nudgeStartX = e.x;
         nudgeStartVal = t.offset.load();
@@ -697,6 +709,18 @@ void TrackRow::mouseDrag (const juce::MouseEvent& e)
         // title strip (left button) = coarse: snaps to beats, Alt = bars, Shift = free
         const double dx = (e.x - nudgeStartX) * (moveByRight && e.mods.isShiftDown() ? 0.1 : 1.0);
         double v = nudgeStartVal + dx / (wave.getWidth() / viewSeconds) * sr;
+        if (copying)    // copies snap to whole bars (Alt = beats, Shift = free) and show as a ghost until released
+        {
+            if (! e.mods.isShiftDown())
+            {
+                const double step = engine.getSamplesPerBeat() * (e.mods.isAltDown() ? 1.0 : 4.0);
+                v = std::round (v / step) * step;
+            }
+            const double maxCopy = 64.0 * 4.0 * engine.getSamplesPerBeat();   // up to 64 bars; the loop grows to fit
+            copyOffset = (int) juce::jlimit (0.0, maxCopy, v);
+            repaint (wave);
+            return;
+        }
         if (! moveByRight && ! e.mods.isShiftDown())
         {
             const double step = engine.getSamplesPerBeat() * (e.mods.isAltDown() ? 4.0 : 1.0);
@@ -724,6 +748,15 @@ void TrackRow::mouseUp (const juce::MouseEvent& e)
     {
         selecting = false;
         if (std::abs (e.getDistanceFromDragStartX()) < 3) { selStart = selEnd = 0; repaint(); }   // a plain click clears
+        if (onReleaseFocus) onReleaseFocus();
+        return;
+    }
+    if (nudging && copying)
+    {
+        copying = false;
+        nudging = false;
+        duplicateClipTo (copyOffset);
+        repaint();
         if (onReleaseFocus) onReleaseFocus();
         return;
     }
@@ -898,6 +931,39 @@ void TrackRow::cropToSelection()
           [this, part] { auto c = *part; track().setAudio (std::move (c)); track().offset = 0; selStart = selEnd = 0; repaint(); },
           [this, whole, oldOffset] { auto c = *whole; track().setAudio (std::move (c)); track().offset = oldOffset; selStart = selEnd = 0; repaint(); });
     if (onCropped) onCropped (newLen);
+}
+
+// Ctrl+drag a clip: put a copy of the whole clip at newOffset (overwriting what is there; the clip grows as needed). Undoable.
+void TrackRow::duplicateClipTo (int newOffset)
+{
+    auto& t = track();
+    auto say = [this] (const juce::String& s) { if (onStatus) onStatus (s); };
+    const auto st = engine.getState();
+    if (st == AudioEngine::Recording || st == AudioEngine::CountIn) { say ("Stop recording first"); return; }
+    if (t.editing) { say ("Leave hit editing first"); return; }
+    const juce::int64 len = t.length.load();
+    const juce::int64 off = t.offset.load();
+    const juce::int64 d = (juce::int64) newOffset - off;
+    if (len <= 0 || d == 0) return;
+    const juce::int64 start = juce::jmin<juce::int64> (0, d), end = juce::jmax (len, d + len);
+    if ((double) (end - start) > engine.getSampleRate() * 20.0 * 60.0) { say ("The track would be longer than 20 minutes"); return; }
+
+    auto before = std::make_shared<juce::AudioBuffer<float>> (t.copyRegion (0, len));
+    auto after  = std::make_shared<juce::AudioBuffer<float>> (2, (int) (end - start));
+    after->clear();
+    for (int c = 0; c < 2; ++c)
+    {
+        after->copyFrom (c, (int) (0 - start), *before, c, 0, (int) len);
+        after->copyFrom (c, (int) (d - start), *before, c, 0, (int) len);   // the copy overwrites any overlap
+    }
+    const int oldOffset = (int) off, newOff = (int) (off + start);
+    t.resetEdit();
+    selStart = selEnd = 0;
+    push ("Duplicate clip",
+          [this, after, newOff] { auto c = *after; track().setAudio (std::move (c)); track().offset = newOff; selStart = selEnd = 0; repaint(); },
+          [this, before, oldOffset] { auto c = *before; track().setAudio (std::move (c)); track().offset = oldOffset; selStart = selEnd = 0; repaint(); });
+    if (onClipGrew) onClipGrew (newOff + end - start);
+    say ("Copied the clip. Ctrl+drag again to keep repeating (Alt = snap to beats, Shift = free)");
 }
 
 void TrackRow::selectAll()

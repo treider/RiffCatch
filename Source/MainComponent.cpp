@@ -27,6 +27,16 @@ MainComponent::MainComponent()
         r->onDelete    = [this] (TrackRow* row) { deleteTrack (row); };
         r->onDuplicate = [this] (TrackRow* row) { duplicateTrack (row->slot()); };
         r->onStatus    = [this] (const juce::String& s) { setStatus (s); };
+        r->onClipGrew  = [this] (juce::int64 end)
+        {   // a duplicate past the loop end makes the loop longer, so the copy is heard
+            const auto barLen = juce::jmax<juce::int64> (1, engine.getBarLength());
+            const int bars = (int) ((end + barLen - 1) / barLen);
+            if (engine.loopEnabled.load() && bars > engine.loopBars.load() && bars <= 64)
+            {
+                engine.loopBars = bars;
+                barsBox.setSelectedId (bars, juce::dontSendNotification);
+            }
+        };
         r->onCropped   = [this] (juce::int64 len)
         {   // the cropped part becomes the loop: set the loop length to its number of bars
             const int bars = (int) std::lround ((double) len / (double) juce::jmax<juce::int64> (1, engine.getBarLength()));
