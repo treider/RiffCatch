@@ -44,6 +44,7 @@ MainComponent::MainComponent()
         if (auto* f = props.getUserSettings()) { f->setValue ("drumsExpanded", drumPanel.isExpanded()); f->saveIfNeeded(); }
     };
     drumPanel.onReleaseFocus = [this] { grabKeyboardFocus(); };
+    drumPanel.onInfo = [this] (const juce::String& s) { setStatus (s, 45); };
     addAndMakeVisible (drumPanel);
     if (auto* f = props.getUserSettings()) drumPanel.setExpanded (f->getBoolValue ("drumsExpanded", true));
     master.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };

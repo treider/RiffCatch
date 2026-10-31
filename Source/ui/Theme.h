@@ -165,6 +165,18 @@ public:
         }
     }
 
+    void fillTextEditorBackground (juce::Graphics& g, int w, int h, juce::TextEditor& t) override
+    {
+        g.setColour (t.findColour (juce::TextEditor::backgroundColourId));
+        g.fillRoundedRectangle (0.0f, 0.0f, (float) w, (float) h, Theme::radius);
+    }
+    void drawTextEditorOutline (juce::Graphics& g, int w, int h, juce::TextEditor& t) override
+    {
+        if (! t.isEnabled()) return;
+        g.setColour (t.findColour (t.hasKeyboardFocus (true) ? juce::TextEditor::focusedOutlineColourId : juce::TextEditor::outlineColourId));
+        g.drawRoundedRectangle (0.5f, 0.5f, (float) w - 1.0f, (float) h - 1.0f, Theme::radius, 1.0f);
+    }
+
     void drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float, float,
                            juce::Slider::SliderStyle style, juce::Slider& s) override
     {

@@ -6,6 +6,22 @@ juce::Colour DrumPanel::voiceColour (int v)
     return c[v % 6];
 }
 
+static juce::String dbText (float gain)
+{
+    return gain <= 0.001f ? juce::String ("-inf dB") : juce::String (juce::Decibels::gainToDecibels (gain), 1) + " dB";
+}
+
+static juce::String panText (float p)
+{
+    const int pct = (int) std::lround (std::abs (p) * 100.0f);
+    return pct == 0 ? juce::String ("center") : (p < 0 ? "left " : "right ") + juce::String (pct) + "%";
+}
+
+void DrumPanel::info (const juce::String& what, const juce::String& value)
+{
+    if (onInfo) onInfo (what + ": " + value);
+}
+
 DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
 {
     addAndMakeVisible (chevron);
@@ -27,6 +43,18 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
         auto before = engine.drums.snapshot();
         auto after = before;
         after.bars = nb;
+        // growing: bar 1 is copied into every new bar that is still empty
+        for (int bar = before.bars; bar < nb; ++bar)
+        {
+            bool empty = true;
+            for (int v = 0; v < DrumMachine::numVoices; ++v)
+                for (int k = 0; k < DrumMachine::stepsPerBar; ++k)
+                    empty &= after.steps[v][bar * DrumMachine::stepsPerBar + k] == 0;
+            if (empty)
+                for (int v = 0; v < DrumMachine::numVoices; ++v)
+                    for (int k = 0; k < DrumMachine::stepsPerBar; ++k)
+                        after.steps[v][bar * DrumMachine::stepsPerBar + k] = after.steps[v][k];
+        }
         pushPattern ("Pattern length", before, after);
         if (onReleaseFocus) onReleaseFocus();
     };
@@ -64,7 +92,7 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
     volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::orange);
     volume.setWantsKeyboardFocus (false);
     volume.setTooltip ("Drum volume");
-    volume.onValueChange = [this] { engine.drums.volume = (float) volume.getValue(); };
+    volume.onValueChange = [this] { engine.drums.volume = (float) volume.getValue(); info ("Drums volume", dbText ((float) volume.getValue())); };
     addAndMakeVisible (volume);
 
     auto styleToggle = [] (juce::TextButton& b, juce::Colour on)
@@ -105,14 +133,19 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
         laneVol[v].setColour (juce::Slider::rotarySliderFillColourId, voiceColour (v));
         lanePan[v].setColour (juce::Slider::rotarySliderFillColourId, voiceColour (v));
         styleLane (lanePan[v], -1.0, 1.0, 0.0, "Lane pan");
-        laneVol[v].onValueChange = [this, v] { engine.drums.level[v] = (float) laneVol[v].getValue(); };
-        lanePan[v].onValueChange = [this, v] { engine.drums.pan[v] = (float) lanePan[v].getValue(); };
+        laneVol[v].onValueChange = [this, v] { engine.drums.level[v] = (float) laneVol[v].getValue(); info (juce::String (DrumMachine::voiceName (v)) + " volume", dbText ((float) laneVol[v].getValue())); };
+        lanePan[v].onValueChange = [this, v] { engine.drums.pan[v] = (float) lanePan[v].getValue(); info (juce::String (DrumMachine::voiceName (v)) + " pan", panText ((float) lanePan[v].getValue())); };
         addChildComponent (laneVol[v]);
         addChildComponent (lanePan[v]);
     }
     styleLane (cymPitch, -12.0, 12.0, 0.0, "Cymbal pitch (semitones)");
     cymPitch.setColour (juce::Slider::rotarySliderFillColourId, voiceColour (DrumMachine::Cymbal));
-    cymPitch.onValueChange = [this] { engine.drums.cymbalPitch = (float) cymPitch.getValue(); };
+    cymPitch.onValueChange = [this]
+    {
+        engine.drums.cymbalPitch = (float) cymPitch.getValue();
+        const double st = cymPitch.getValue();
+        info ("Cymbal pitch", (st > 0.05 ? "+" : "") + juce::String (st, 1) + " semitones");
+    };
     addChildComponent (cymPitch);
 
     refreshFromEngine();

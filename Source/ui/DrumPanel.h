@@ -30,6 +30,7 @@ public:
     UndoPush onUndoable;
     std::function<void()> onLayoutChanged;
     std::function<void()> onReleaseFocus;
+    std::function<void (const juce::String&)> onInfo;   // value read-out while a knob is turned
 
 private:
     struct Chevron : juce::Button
@@ -56,6 +57,7 @@ private:
     void setCell (int voice, int cell, int value);
     void pushPattern (const juce::String& name, const DrumMachine::Snapshot& before, const DrumMachine::Snapshot& after);
     void updateControls();
+    void info (const juce::String& what, const juce::String& value);
     static juce::Colour voiceColour (int v);
 
     AudioEngine& engine;

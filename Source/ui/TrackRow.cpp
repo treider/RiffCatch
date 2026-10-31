@@ -307,7 +307,7 @@ void TrackRow::paint (juce::Graphics& g)
     g.setColour (Theme::panel.brighter (0.05f));
     g.fillRect (b.withRight ((float) meter.getX() - 3.0f));            // header block
     g.setColour (accent.withAlpha (0.92f));
-    g.fillRect (nameBar.toFloat());                                     // coloured name bar (Live style)
+    g.fillRoundedRectangle (nameBar.toFloat(), Theme::radius);          // coloured name bar
     g.setColour (accent);
     g.fillRect (b.withWidth (4.0f));                                    // track colour stripe
     {   // line along the top edge: strongest in the middle, fading out to both sides
