@@ -324,6 +324,17 @@ void MixerPanel::paint (juce::Graphics& g)
         g.reduceClipRegion (card);
         g.setColour (Theme::panel);
         g.fillRect (b);
+        {   // shadows fall only to the sides and below each strip, never up into the header
+            auto shadowStrip = [&] (juce::Component& c)
+            {
+                juce::Graphics::ScopedSaveState s2 (g);
+                const auto r = getLocalArea (&c, c.getLocalBounds());   // strips live inside the viewport holder
+                g.reduceClipRegion (r.expanded (Theme::shadowRadius, 0).withTrimmedBottom (-Theme::shadowRadius).withTop (r.getY()));
+                Theme::cardShadow (g, r.toFloat());
+            };
+            for (auto* s : strips) shadowStrip (*s);
+            shadowStrip (master);
+        }
         g.setColour (accent);
         g.fillRect (b.withWidth (4.0f));
     }

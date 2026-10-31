@@ -335,8 +335,9 @@ void TrackRow::tick()
 
 void TrackRow::paint (juce::Graphics& g)
 {
-    juce::Graphics::ScopedSaveState cardState (g);
     auto b = getLocalBounds().toFloat().reduced (0.0f, 4.0f);          // flush with the panels left/right
+    Theme::cardShadow (g, b);
+    juce::Graphics::ScopedSaveState cardState (g);
     const bool armedNow = track().armed.load();
     const bool recNow = track().recActive.load() && engine.getState() == AudioEngine::Recording;
     const auto glow = (recNow || armedNow) ? Theme::red : accent;      // armed tracks turn red

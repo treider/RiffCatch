@@ -28,6 +28,10 @@ namespace Theme
 
     inline constexpr float radius = 4.0f;     // controls: buttons, boxes, menus, lanes
     inline constexpr float radiusLg = 6.0f;   // panels and track cards
+    // Soft drop shadow under cards - tweak these three to taste
+    inline constexpr float shadowOpacity = 0.22f;   // 0 = off, ~0.4 = strong
+    inline constexpr int   shadowRadius  = 8;       // blur size in px
+    inline constexpr int   shadowOffsetY = 2;       // how far the shadow falls downwards
 
     struct Preset { const char* name; juce::uint32 primary, secondary, accent, background, surface, text; };
     inline const Preset presets[] =
@@ -102,6 +106,13 @@ namespace Theme
         g.fillRoundedRectangle (r, ro);
         g.setColour (fill);
         g.fillRoundedRectangle (r.reduced (ring), juce::jmax (2.0f, ro - ring * 0.6f));
+    }
+    inline void cardShadow (juce::Graphics& g, juce::Rectangle<float> r)
+    {
+        if (shadowOpacity <= 0.0f) return;
+        juce::Path p;
+        p.addRoundedRectangle (r, radiusLg);
+        juce::DropShadow (juce::Colours::black.withAlpha (shadowOpacity), shadowRadius, { 0, shadowOffsetY }).drawForPath (g, p);
     }
     // Ring around a dark well (lanes, meters): lighter than the dark inside it
     inline void wellRing (juce::Graphics& g, juce::Rectangle<float> r, float grow = 3.0f)

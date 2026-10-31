@@ -92,6 +92,7 @@ MainComponent::MainComponent()
                 [this, slot, prev] { auto& t = engine.tracks[slot]; if (prev >= 0) t.applyTake (prev); else t.silence(); });
     };
     viewport.setViewedComponent (&list, false);
+    list.onEmptyClick = [this] { grabKeyboardFocus(); };
     list.onEmptyMenu = [this]
     {
         juce::PopupMenu m;
@@ -706,6 +707,11 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
 
     if (ctrl)
     {
+        if (mods.isShiftDown() && (code == 'O' || code == 'P'))     // previous / next theme
+        {
+            applyTheme ((Theme::current + (code == 'P' ? 1 : Theme::numPresets - 1)) % Theme::numPresets);
+            return true;
+        }
         if (code == 'S') { saveProject (mods.isShiftDown()); return true; }
         if (code == 'O') { openProject(); return true; }
         if (code == 'N') { newProject(); return true; }
@@ -948,6 +954,9 @@ void MainComponent::timerCallback()
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::bg);
+    Theme::cardShadow (g, barArea.getUnion (settingsArea).toFloat());
+    Theme::cardShadow (g, drumPanel.getBounds().toFloat());
+    Theme::cardShadow (g, mixer.getBounds().toFloat());
     {
         const auto f = barArea.getUnion (settingsArea).toFloat();     // one merged top panel, settings row slightly darker
         g.setColour (Theme::panel);

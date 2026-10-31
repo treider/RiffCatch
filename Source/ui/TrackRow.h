@@ -164,7 +164,12 @@ public:
     int contentHeight() const { return rowsHeight() + (engine.getNumTracks() < AudioEngine::maxTracks ? addHeight : 0); }
     std::function<void()> onAdd;
     std::function<void()> onEmptyMenu;      // right-click in the empty space below the last track
-    void mouseDown (const juce::MouseEvent& e) override { if (e.mods.isPopupMenu() && onEmptyMenu) onEmptyMenu(); }
+    std::function<void()> onEmptyClick;     // any click in the empty space (gives keyboard focus back to the main window)
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (onEmptyClick) onEmptyClick();
+        if (e.mods.isPopupMenu() && onEmptyMenu) onEmptyMenu();
+    }
     void layoutRows();
     void dragStart (TrackRow*);
     void dragMove (TrackRow*, int dy);
