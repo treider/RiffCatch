@@ -179,6 +179,11 @@ MainComponent::MainComponent()
         grabKeyboardFocus();
     };
     addAndMakeVisible (looperBtn);
+    if (auto* f = props.getUserSettings()) mixer.setTunerRef (f->getIntValue ("tunerRef", 440));
+    mixer.setOnTunerRefChanged ([this] (int hz)
+    {
+        if (auto* f = props.getUserSettings()) { f->setValue ("tunerRef", hz); f->saveIfNeeded(); }
+    });
     pedal.onTrigger = [this] { looperPress(); };
     pedal.onLearned = [this] (const juce::String& d)
     {

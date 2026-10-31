@@ -47,6 +47,8 @@ public:
     }
     static int octaveOf (int midi) { return midi / 12 - 1; }
     float getRef() const noexcept { return refHz; }
+    void setRef (int hz) { refHz = (float) juce::jlimit (430, 450, hz); repaint(); }
+    std::function<void (int)> onRefChanged;      // so the choice can be remembered
 
     void paint (juce::Graphics& g) override
     {
@@ -139,7 +141,7 @@ public:
         for (int hz = 430; hz <= 450; ++hz) m.addItem (hz, "A = " + juce::String (hz) + " Hz", true, hz == juce::roundToInt (refHz));
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this] (int id)
         {
-            if (id >= 430 && id <= 450) refHz = (float) id;
+            if (id >= 430 && id <= 450) { refHz = (float) id; if (onRefChanged) onRefChanged (id); }
         });
     }
 

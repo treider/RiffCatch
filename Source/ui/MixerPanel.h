@@ -72,6 +72,8 @@ public:
     UndoPush onUndoable;
     std::function<void()> onLayoutChanged;
     std::function<void()> onAddTrack;
+    void setTunerRef (int hz) { tuner.setRef (hz); }
+    void setOnTunerRefChanged (std::function<void (int)> f) { tuner.onRefChanged = std::move (f); }
     void setCanAdd (bool b) { if (b == canAdd) return; canAdd = b; plus.setVisible (b && expanded); layoutStrips(); }
 
 private:
