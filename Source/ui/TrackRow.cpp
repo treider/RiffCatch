@@ -689,8 +689,11 @@ void TrackRow::mouseDrag (const juce::MouseEvent& e)
     if (nudging)
     {
         const double sr = engine.getSampleRate();
-        double v = nudgeStartVal + (e.x - nudgeStartX) / (wave.getWidth() / viewSeconds) * sr;
-        if (! e.mods.isShiftDown())      // snaps to beats; Alt = bars; Shift = free
+        // right button = fine adjustment: free movement, Shift = ten times slower (about a tenth of a pixel per step)
+        // title strip (left button) = coarse: snaps to beats, Alt = bars, Shift = free
+        const double dx = (e.x - nudgeStartX) * (moveByRight && e.mods.isShiftDown() ? 0.1 : 1.0);
+        double v = nudgeStartVal + dx / (wave.getWidth() / viewSeconds) * sr;
+        if (! moveByRight && ! e.mods.isShiftDown())
         {
             const double step = engine.getSamplesPerBeat() * (e.mods.isAltDown() ? 4.0 : 1.0);
             v = std::round (v / step) * step;
