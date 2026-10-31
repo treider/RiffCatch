@@ -107,6 +107,8 @@ private:
     juce::TextButton hitsBtn { "Hits" };
     int dragHit = -1;
     int lastGlowState = -1;
+    juce::int64 lastTickPos = -1, lastTickCursor = -1, lastTickLen = -1;   // the waveform is only repainted when one of these (or the transport state) changed
+    int lastTickState = -1;
     bool nudging = false, selecting = false, moveByRight = false, copying = false;
     int copyOffset = 0;
     void duplicateClipTo (int newOffset);

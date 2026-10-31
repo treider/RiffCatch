@@ -37,7 +37,8 @@ public:
         else if (active && ++silent > 14) active = false;   // about a second without a clear note
 
         shown += (target - shown) * 0.45f;
-        repaint();
+        if (active || wasActive || std::abs (target - shown) > 0.02f) repaint();     // an idle tuner needs no repaints
+        wasActive = active;
     }
 
     static juce::String noteName (int midi)
@@ -159,6 +160,7 @@ private:
     static constexpr int analysisSize = 4096;
     AudioEngine& engine;
     PitchDetector det;
+    bool wasActive = false;
     std::vector<float> buf;
     bool running = true, active = false;
     int phase = 0, silent = 0;

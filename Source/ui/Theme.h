@@ -1,6 +1,8 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <map>
+#include <tuple>
 
 // Colour themes: six roles (Primary, Secondary, Accent, Background, Surface, Text) are mapped onto the app palette.
 // Red (record), yellow/orange (warnings, info) and green are fixed and never follow the theme.
@@ -123,12 +125,27 @@ namespace Theme
         g.setColour (fill);
         g.fillRoundedRectangle (r.reduced (ring), juce::jmax (2.0f, ro - ring * 0.6f));
     }
+    // Soft card shadow. The blur is expensive, so it is rendered once per card size and then drawn as an image
+    // (cardShadow runs on every repaint of a parent, which happens many times a second while playing).
     inline void cardShadow (juce::Graphics& g, juce::Rectangle<float> r)
     {
-        if (shadowOpacity <= 0.0f) return;
-        juce::Path p;
-        p.addRoundedRectangle (r, radiusLg);
-        juce::DropShadow (juce::Colours::black.withAlpha (shadowOpacity), shadowRadius, { 0, shadowOffsetY }).drawForPath (g, p);
+        if (shadowOpacity <= 0.0f || r.isEmpty()) return;
+        static std::map<std::tuple<int, int, int>, juce::Image> cache;
+        const int w = (int) std::ceil (r.getWidth()), h = (int) std::ceil (r.getHeight());
+        const std::tuple<int, int, int> key { w, h, (int) std::lround (radiusLg * 10.0f) };
+        const int pad = shadowRadius * 2 + std::abs (shadowOffsetY) + 2;
+        auto it = cache.find (key);
+        if (it == cache.end())
+        {
+            if (cache.size() > 48) cache.clear();
+            juce::Image img (juce::Image::ARGB, w + 2 * pad, h + 2 * pad, true);
+            juce::Graphics ig (img);
+            juce::Path p;
+            p.addRoundedRectangle ((float) pad, (float) pad, (float) w, (float) h, radiusLg);
+            juce::DropShadow (juce::Colours::black.withAlpha (shadowOpacity), shadowRadius, { 0, shadowOffsetY }).drawForPath (ig, p);
+            it = cache.emplace (key, img).first;
+        }
+        g.drawImageAt (it->second, (int) std::floor (r.getX()) - pad, (int) std::floor (r.getY()) - pad);
     }
     // Ring around a dark well (lanes, meters): lighter than the dark inside it
     inline void wellRing (juce::Graphics& g, juce::Rectangle<float> r, float grow = 3.0f)

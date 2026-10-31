@@ -330,7 +330,15 @@ void TrackRow::tick()
     const bool canEdit = t.length.load() > 0 && ! (t.recActive.load() && engine.getState() == AudioEngine::Recording);
     if (hitsBtn.isVisible() != canEdit) hitsBtn.setVisible (canEdit);
     hitsBtn.setToggleState (t.editing, juce::dontSendNotification);
-    repaint (wave);
+    {
+        const auto pos = engine.getPosition(), cur = engine.getCursor(), len = t.length.load();
+        const int st = (int) engine.getState();
+        if (st != (int) AudioEngine::Stopped || st != lastTickState || pos != lastTickPos || cur != lastTickCursor || len != lastTickLen)
+        {
+            lastTickState = st; lastTickPos = pos; lastTickCursor = cur; lastTickLen = len;
+            repaint (wave);
+        }
+    }
 }
 
 void TrackRow::paint (juce::Graphics& g)
