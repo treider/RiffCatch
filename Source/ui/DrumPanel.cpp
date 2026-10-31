@@ -269,11 +269,12 @@ void DrumPanel::resized()
     prevPage.setBounds (r.removeFromLeft (26)); r.removeFromLeft (4);
     pageLabel.setBounds (r.removeFromLeft (72)); r.removeFromLeft (4);
     nextPage.setBounds (r.removeFromLeft (26)); r.removeFromLeft (16);
+    r.removeFromRight (4);                                          // VU right edge lines up with the mixer's
+    meter.setBounds (r.removeFromRight (190).withSizeKeepingCentre (190, 14)); r.removeFromRight (16);
     clearBtn.setBounds (r.removeFromRight (56)); r.removeFromRight (12);
     soloBtn.setBounds (r.removeFromRight (30)); r.removeFromRight (4);
     muteBtn.setBounds (r.removeFromRight (30)); r.removeFromRight (12);
-    volume.setBounds (r.removeFromRight (32).withSizeKeepingCentre (32, 32)); r.removeFromRight (16);
-    meter.setBounds (r.removeFromRight (190).withSizeKeepingCentre (190, 14));
+    volume.setBounds (r.removeFromRight (32).withSizeKeepingCentre (32, 32));
 
     for (int v = 0; v < DrumMachine::numVoices; ++v)
     {

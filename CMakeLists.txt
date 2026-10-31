@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(RiffCatch VERSION 0.29 LANGUAGES C CXX)   # bump the minor version every iteration
+project(RiffCatch VERSION 0.30 LANGUAGES C CXX)   # bump the minor version every iteration
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
