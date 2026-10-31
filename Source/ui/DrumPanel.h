@@ -10,7 +10,7 @@
 class DrumPanel : public juce::Component
 {
 public:
-    static constexpr int headerH = 38, laneH = 22, bottomPad = 8;
+    static constexpr int headerH = 38, laneH = 26, bottomPad = 8;
 
     explicit DrumPanel (AudioEngine& e);
 

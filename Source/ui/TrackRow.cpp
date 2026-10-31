@@ -887,7 +887,7 @@ MasterStrip::MasterStrip (AudioEngine& e) : engine (e)
     title.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
     addAndMakeVisible (title);
 
-    styleFader (fader, Theme::accent, true);
+    styleFader (fader, Theme::purple, true);
     fader.onDragStart = [this] { dragging = true; };
     fader.onDragEnd = [this] { dragging = false; commitMaster(); };
     fader.onValueChange = [this]
@@ -940,7 +940,7 @@ void MasterStrip::paint (juce::Graphics& g)
         g.reduceClipRegion (card);
         g.setColour (Theme::panel);
         g.fillRect (b);
-        g.setColour (Theme::accent);
+        g.setColour (Theme::purple);
         g.fillRect (b.withWidth (4.0f));
     }
     g.setColour (Theme::border.withAlpha (0.55f));

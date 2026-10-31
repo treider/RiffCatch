@@ -2,8 +2,8 @@
 
 juce::Colour DrumPanel::voiceColour (int v)
 {
-    juce::ignoreUnused (v);
-    return Theme::accent;     // one colour for all lanes; accents are brighter
+    const juce::Colour c[] = { Theme::red, Theme::orange, Theme::yellow, Theme::teal, Theme::cyan, Theme::purple };
+    return c[v % 6];
 }
 
 DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
@@ -55,11 +55,13 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
     pageLabel.setFont (juce::Font (juce::FontOptions (12.0f)));
     addChildComponent (pageLabel);
 
-    volume.setSliderStyle (juce::Slider::LinearHorizontal);
+    volume.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    volume.setRotaryParameters (juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
     volume.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
     volume.setRange (0.0, 1.2, 0.0);
     volume.setDoubleClickReturnValue (true, 0.8);
-    volume.setColour (juce::Slider::trackColourId, Theme::accent);
+    volume.getProperties().set ("uni", true);
+    volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::orange);
     volume.setWantsKeyboardFocus (false);
     volume.setTooltip ("Drum volume");
     volume.onValueChange = [this] { engine.drums.volume = (float) volume.getValue(); };
@@ -85,19 +87,23 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
     meter.setHorizontal (true);
     addAndMakeVisible (meter);
 
-    auto styleLane = [] (juce::Slider& s, double lo, double hi, double def, const juce::String& tip)
+    auto styleLane = [] (juce::Slider& s, double lo, double hi, double def, const juce::String& tip, bool unipolar = false)
     {
-        s.setSliderStyle (juce::Slider::LinearHorizontal);
+        s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        s.setRotaryParameters (juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
         s.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
         s.setRange (lo, hi, 0.0);
         s.setDoubleClickReturnValue (true, def);
-        s.setColour (juce::Slider::trackColourId, Theme::accent);
+        s.getProperties().set ("uni", unipolar);
+        s.setColour (juce::Slider::rotarySliderFillColourId, Theme::accent);
         s.setWantsKeyboardFocus (false);
         s.setTooltip (tip);
     };
     for (int v = 0; v < DrumMachine::numVoices; ++v)
     {
-        styleLane (laneVol[v], 0.0, 1.5, 1.0, "Lane volume");
+        styleLane (laneVol[v], 0.0, 1.5, 1.0, "Lane volume", true);
+        laneVol[v].setColour (juce::Slider::rotarySliderFillColourId, voiceColour (v));
+        lanePan[v].setColour (juce::Slider::rotarySliderFillColourId, voiceColour (v));
         styleLane (lanePan[v], -1.0, 1.0, 0.0, "Lane pan");
         laneVol[v].onValueChange = [this, v] { engine.drums.level[v] = (float) laneVol[v].getValue(); };
         lanePan[v].onValueChange = [this, v] { engine.drums.pan[v] = (float) lanePan[v].getValue(); };
@@ -105,6 +111,7 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
         addChildComponent (lanePan[v]);
     }
     styleLane (cymPitch, -12.0, 12.0, 0.0, "Cymbal pitch (semitones)");
+    cymPitch.setColour (juce::Slider::rotarySliderFillColourId, voiceColour (DrumMachine::Cymbal));
     cymPitch.onValueChange = [this] { engine.drums.cymbalPitch = (float) cymPitch.getValue(); };
     addChildComponent (cymPitch);
 
@@ -217,21 +224,21 @@ void DrumPanel::resized()
     clearBtn.setBounds (r.removeFromRight (56)); r.removeFromRight (12);
     soloBtn.setBounds (r.removeFromRight (30)); r.removeFromRight (4);
     muteBtn.setBounds (r.removeFromRight (30)); r.removeFromRight (12);
-    volume.setBounds (r.removeFromRight (150)); r.removeFromRight (16);
+    volume.setBounds (r.removeFromRight (32).withSizeKeepingCentre (32, 32)); r.removeFromRight (16);
     meter.setBounds (r.removeFromRight (190).withSizeKeepingCentre (190, 14));
 
     for (int v = 0; v < DrumMachine::numVoices; ++v)
     {
-        const int y = headerH + v * laneH + 3;
-        laneVol[v].setBounds (116, y, 100, laneH - 6);
-        lanePan[v].setBounds (224, y, 76, laneH - 6);
+        const int y = headerH + v * laneH;
+        laneVol[v].setBounds (112, y, laneH, laneH);
+        lanePan[v].setBounds (172, y, laneH, laneH);
     }
-    cymPitch.setBounds (308, headerH + DrumMachine::Cymbal * laneH + 3, 66, laneH - 6);
+    cymPitch.setBounds (232, headerH + DrumMachine::Cymbal * laneH, laneH, laneH);
 }
 
 void DrumPanel::paint (juce::Graphics& g)
 {
-    const auto accent = Theme::accent;
+    const auto accent = Theme::orange;
     const auto b = getLocalBounds().toFloat();
     {
         juce::Graphics::ScopedSaveState ss (g);
@@ -265,6 +272,12 @@ void DrumPanel::paint (juce::Graphics& g)
         g.setColour (vm ? Theme::dim : Theme::text);
         g.setFont (juce::Font (juce::FontOptions (12.5f)));
         g.drawText (DrumMachine::voiceName (v), 40, (int) lr.getY(), 74, (int) lr.getHeight(), juce::Justification::centredLeft);
+
+        g.setColour (Theme::dim);                 // knob captions
+        g.setFont (juce::Font (juce::FontOptions (10.5f)));
+        g.drawText ("vol", 112 + laneH, (int) lr.getY(), 30, (int) lr.getHeight(), juce::Justification::centredLeft);
+        g.drawText ("pan", 172 + laneH, (int) lr.getY(), 30, (int) lr.getHeight(), juce::Justification::centredLeft);
+        if (v == DrumMachine::Cymbal) g.drawText ("pitch", 232 + laneH, (int) lr.getY(), 40, (int) lr.getHeight(), juce::Justification::centredLeft);
 
         g.setColour (Theme::deep);
         g.fillRoundedRectangle (lr, Theme::radius);
@@ -335,7 +348,7 @@ void DrumPanel::mouseDown (const juce::MouseEvent& e)
 
     if (e.x < lanesArea().getX() - 6)    // lane header
     {
-        if (e.x >= 114) return;
+        if (e.x >= 110) return;
         if (e.x < 36) engine.drums.voiceMute[voice] = ! engine.drums.voiceMute[voice].load();
         else          engine.drums.audition[voice] = true;
         repaint();

@@ -94,7 +94,8 @@ MainComponent::MainComponent()
     fileBtn.onClick = [this] { fileMenu(); };
     addAndMakeVisible (fileBtn);
 
-    timeLabel.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 26.0f, juce::Font::plain)));
+    timeLabel.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 20.0f, juce::Font::plain)));
+    timeLabel.setBorderSize ({ 0, 0, 0, 0 });
     timeLabel.setJustificationType (juce::Justification::centred);
     timeLabel.setColour (juce::Label::textColourId, Theme::text.withMultipliedBrightness (0.72f));   // softer than pure white
     addAndMakeVisible (timeLabel);
@@ -148,7 +149,9 @@ MainComponent::MainComponent()
     tapBtn.onClick = [this] { tapTempo(); };
     addAndMakeVisible (tapBtn);
 
-    for (auto* b : { &loopBtn, &clickBtn })
+    loopBtn.setClickingTogglesState (true);
+    addAndMakeVisible (loopBtn);
+    for (auto* b : { &clickBtn })
     {
         b->setClickingTogglesState (true);
         b->setWantsKeyboardFocus (false);
@@ -721,7 +724,8 @@ void MainComponent::resized()
     bar.removeFromLeft (4);
     recBtn.setBounds (bar.removeFromLeft (44));  bar.removeFromLeft (8);
     playBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
-    stopBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (14);
+    stopBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
+    loopBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (14);
     timeLabel.setBounds (bar.removeFromLeft (160).reduced (0, 2));
     barLabel.setBounds (bar.removeFromLeft (140));
 
@@ -739,7 +743,6 @@ void MainComponent::resized()
     bpmCaption.setBounds (sb.removeFromLeft (36));
     bpmLabel.setBounds (sb.removeFromLeft (64));  sb.removeFromLeft (6);
     tapBtn.setBounds (sb.removeFromLeft (48));    sb.removeFromLeft (18);
-    loopBtn.setBounds (sb.removeFromLeft (56));   sb.removeFromLeft (6);
     barsBox.setBounds (sb.removeFromLeft (80));   sb.removeFromLeft (18);
     clickBtn.setBounds (sb.removeFromLeft (56));  sb.removeFromLeft (6);
     clickVol.setBounds (sb.removeFromLeft (90));  sb.removeFromLeft (18);
@@ -818,7 +821,7 @@ void MainComponent::newProject()
     engine.masterVolume = 1.0f;
     engine.drums.resetAll();
     engine.bpm = 120.0; engine.loopBars = 4; engine.loopEnabled = true;
-    engine.countInBars = 1; engine.clickEnabled = true; engine.clickVolume = 0.5f;
+    engine.countInBars = 1; engine.clickEnabled = false; engine.clickVolume = 0.5f;
     engine.addTrack();
     engine.addTrack();
     projectDir = juce::File();

@@ -76,6 +76,7 @@ private:
     IconButton recBtn  { IconButton::Record, Theme::red };
     IconButton playBtn { IconButton::Play,   Theme::green };
     IconButton stopBtn { IconButton::Stop,   Theme::blue };
+    IconButton loopBtn { IconButton::Loop,   Theme::accent };
     ToolButton undoBtn { ToolButton::Undo }, redoBtn { ToolButton::Redo };
     ToolButton cutBtn { ToolButton::Cut }, copyBtn { ToolButton::Copy }, pasteBtn { ToolButton::Paste }, silenceBtn { ToolButton::Silence },
                fadeInBtn { ToolButton::FadeIn }, fadeOutBtn { ToolButton::FadeOut }, dupBtn { ToolButton::Duplicate };
@@ -83,7 +84,7 @@ private:
     AddTrackButton addTrackBtn;
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
     juce::Label bpmLabel;
-    juce::TextButton tapBtn { "Tap" }, loopBtn { "Loop" }, clickBtn { "Click" };
+    juce::TextButton tapBtn { "Tap" }, clickBtn { "Click" };
     juce::ComboBox barsBox, countInBox;
     juce::Slider clickVol, latAdjust;
     juce::Label latLabel;

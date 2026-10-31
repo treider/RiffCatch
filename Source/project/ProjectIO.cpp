@@ -159,7 +159,7 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
     e.bpm = juce::jlimit (30.0, 300.0, (double) json.getProperty ("bpm", 120.0));
     e.loopEnabled = (bool) json["loop"].getProperty ("enabled", true);
     e.loopBars = juce::jlimit (1, 64, (int) json["loop"].getProperty ("bars", 4));
-    e.clickEnabled = (bool) json.getProperty ("clickEnabled", true);
+    e.clickEnabled = (bool) json.getProperty ("clickEnabled", false);
     e.clickVolume = (float) (double) json.getProperty ("clickVolume", 0.5);
     e.countInBars = json.hasProperty ("countInBars") ? juce::jlimit (0, 2, (int) json.getProperty ("countInBars", 1))
                                                      : ((double) json.getProperty ("countInSeconds", 3.0) > 0.0 ? 1 : 0);

@@ -189,11 +189,8 @@ public:
             g.setColour (accent.withAlpha (s.isEnabled() ? 0.9f : 0.3f));
             g.fillRoundedRectangle (groove.withTop (pos), 1.0f);
 
-            juce::Rectangle<float> thumb (cx - 12.0f, pos - 5.0f, 24.0f, 10.0f);
             g.setColour (Theme::text);
-            g.fillRoundedRectangle (thumb, 1.5f);
-            g.setColour (Theme::deep);
-            g.fillRect (thumb.withSizeKeepingCentre (14.0f, 1.0f));
+            g.fillEllipse (cx - 7.0f, pos - 7.0f, 14.0f, 14.0f);
         }
         else
         {
@@ -203,11 +200,8 @@ public:
             g.fillRoundedRectangle (groove, 1.0f);
             g.setColour (accent);
             g.fillRoundedRectangle (groove.withRight (pos), 1.0f);
-            juce::Rectangle<float> thumb (pos - 5.0f, cy - 11.0f, 10.0f, 22.0f);
             g.setColour (Theme::text);
-            g.fillRoundedRectangle (thumb, 1.5f);
-            g.setColour (Theme::deep);
-            g.fillRect (thumb.withSizeKeepingCentre (1.0f, 14.0f));
+            g.fillEllipse (pos - 7.0f, cy - 7.0f, 14.0f, 14.0f);
         }
     }
 
@@ -230,7 +224,7 @@ public:
         g.setColour (Theme::raised);
         g.strokePath (bgArc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        valArc.addCentredArc (c.x, c.y, ar, ar, 0.0f, mid, ang, true);
+        valArc.addCentredArc (c.x, c.y, ar, ar, 0.0f, (bool) s.getProperties().getWithDefault ("uni", false) ? startA : mid, ang, true);
         g.setColour (accent);
         g.strokePath (valArc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
@@ -245,7 +239,7 @@ public:
 class IconButton : public juce::Button
 {
 public:
-    enum Icon { Play, Stop, Record, Plus };
+    enum Icon { Play, Stop, Record, Plus, Loop };
     IconButton (Icon i, juce::Colour c) : juce::Button ({}), icon (i), colour (c)
     {
         setWantsKeyboardFocus (false);
@@ -275,6 +269,20 @@ public:
             }
             case Stop:   g.fillRoundedRectangle (ic, 2.0f); break;
             case Record: g.fillEllipse (ic); break;
+            case Loop:
+            {
+                const auto c = b.getCentre();
+                const float r = b.getHeight() * 0.22f, a = 5.5f;
+                juce::Path arc;
+                arc.addCentredArc (c.x, c.y, r, r, 0.0f, 0.7f, a, true);
+                g.strokePath (arc, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                const float px = c.x + r * std::sin (a), py = c.y - r * std::cos (a);   // arrow head at the arc end
+                const float tx = std::cos (a), ty = std::sin (a), nx = std::sin (a), ny = -std::cos (a);
+                juce::Path head;
+                head.addTriangle (px + tx * 5.5f, py + ty * 5.5f, px + nx * 4.0f, py + ny * 4.0f, px - nx * 4.0f, py - ny * 4.0f);
+                g.fillPath (head);
+                break;
+            }
             case Plus:
                 g.fillRoundedRectangle (ic.withSizeKeepingCentre (ic.getWidth(), 3.0f), 1.5f);
                 g.fillRoundedRectangle (ic.withSizeKeepingCentre (3.0f, ic.getHeight()), 1.5f);

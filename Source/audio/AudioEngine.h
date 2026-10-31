@@ -45,7 +45,7 @@ public:
     std::atomic<int> loopBars { 4 };
     std::atomic<bool> loopEnabled { true };
     std::atomic<int> countInBars { 1 };          // 0 = off, else whole bars of 4 beats
-    std::atomic<bool> clickEnabled { true };
+    std::atomic<bool> clickEnabled { false };
     std::atomic<float> clickVolume { 0.5f };
 
     // Latency compensation: device-reported in+out latency plus a manual adjustment (ms)
