@@ -283,11 +283,15 @@ void MainComponent::saveLatencyAdjust()
 void MainComponent::fileMenu()
 {
     juce::PopupMenu m;
-    m.addItem (juce::PopupMenu::Item ("New project").setID (1).setShortcutKeyDescription ("Ctrl+N"));
-    m.addItem (juce::PopupMenu::Item ("Open...").setID (2).setShortcutKeyDescription ("Ctrl+O"));
+    auto addKey = [&m] (int id, const juce::String& text, const juce::String& key)
+    {
+        juce::PopupMenu::Item it (text); it.itemID = id; it.shortcutKeyDescription = key; m.addItem (it);
+    };
+    addKey (1, "New project", "Ctrl+N");
+    addKey (2, "Open...", "Ctrl+O");
     m.addSeparator();
-    m.addItem (juce::PopupMenu::Item ("Save").setID (3).setShortcutKeyDescription ("Ctrl+S"));
-    m.addItem (juce::PopupMenu::Item ("Save as...").setID (4).setShortcutKeyDescription ("Ctrl+Shift+S"));
+    addKey (3, "Save", "Ctrl+S");
+    addKey (4, "Save as...", "Ctrl+Shift+S");
     m.addSeparator();
     m.addItem (5, "Export...");
     m.addSeparator();
