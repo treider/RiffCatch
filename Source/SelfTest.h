@@ -436,6 +436,49 @@ inline juce::String runEngineSelfTest()
         check (b4.bars == 4 && std::memcmp (&b4.steps[1][0], &b4.steps[1][32], 16) == 0, "longer patterns repeat the two bars");
     }
 
+    {   // Catch: always-on ring
+        auto ce = std::make_unique<AudioEngine>();
+        ce->prepareForTest (48000.0, 2);
+        const int total = 48000 * 10;
+        std::vector<float> l ((size_t) total), r ((size_t) total);
+        for (int i = 0; i < total; ++i) { l[(size_t) i] = (float) i / (float) total; r[(size_t) i] = -(float) i / (float) total; }
+        ce->pushCatchForTest (l.data(), r.data(), total);
+        juce::AudioBuffer<float> got;
+        check (ce->readCatch (got, 2.0) && got.getNumSamples() == 96000, "catch returns the requested 2 s");
+        check (std::abs (got.getSample (0, 95999) - l[(size_t) total - 1]) < 1e-6f && std::abs (got.getSample (1, 0) - r[(size_t) total - 96000]) < 1e-6f,
+               "catch holds the newest samples, both channels");
+        check (ce->readCatch (got, 60.0) && got.getNumSamples() == total, "catch returns only what was recorded so far");
+        // wraps around the 70 s ring
+        for (int k = 0; k < 8; ++k) ce->pushCatchForTest (l.data(), r.data(), total);
+        check (ce->readCatch (got, 30.0) && got.getNumSamples() == 30 * 48000 && std::abs (got.getSample (0, 30 * 48000 - 1) - l[(size_t) total - 1]) < 1e-6f, "catch keeps working after the ring wraps");
+    }
+    {   // looper building block: record starts exactly when the loop wraps
+        auto le = std::make_unique<AudioEngine>();
+        le->prepareForTest (48000.0, 1);
+        le->bpm = 120.0; le->loopBars = 1; le->loopEnabled = true; le->countInBars = 0;
+        const int s = le->addTrack();
+        le->tracks[s].volume = 0.0f;
+        le->play();
+        std::vector<float> in (512, 0.1f), outL (512), outR (512);
+        const float* ins[1] = { in.data() };
+        float* outs[2] = { outL.data(), outR.data() };
+        juce::AudioIODeviceCallbackContext ctx;
+        auto run = [&] (int blocks) { for (int i = 0; i < blocks; ++i) { le->audioDeviceIOCallbackWithContext (ins, 1, outs, 2, 512, ctx); if (i % 8 == 0) le->pollRecording(); } };
+        run (4);
+        check (! le->recordAtNextLoop(), "overdub needs an armed track");
+        le->tracks[s].armed = true;
+        check (le->recordAtNextLoop(), "overdub can be queued while playing");
+        run (100);                                                // 51200 samples, the loop is 96000
+        check (le->getState() == AudioEngine::Playing, "still playing before the loop ends");
+        run (100);                                                // past the loop end
+        check (le->getState() == AudioEngine::Recording, "recording started at the loop wrap");
+        run (200);                                                // the whole recorded pass
+        for (int i = 0; i < 4; ++i) le->pollRecording();
+        auto& lt = le->tracks[s];
+        check (lt.length.load() == le->getLoopLength() && std::abs (lt.data.getSample (0, 48000) - 0.1f) < 0.01f,
+               "the queued overdub recorded a full pass (length " + juce::String ((juce::int64) lt.length.load()) + ", mid sample " + juce::String (lt.data.getSample (0, 48000), 3) + ")");
+        le->stop();
+    }
     {   // time signatures
         auto tsP = std::make_unique<AudioEngine>(); auto& ts = *tsP;
         ts.prepareForTest (48000.0, 1);

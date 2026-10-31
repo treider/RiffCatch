@@ -6,6 +6,7 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
     numInputs = device->getActiveInputChannels().countNumberOfSetBits();
     deviceLatency = device->getInputLatencyInSamples() + device->getOutputLatencyInSamples();
     prepareFx();
+    allocCatch();
     playPos = 0; countPos = 0;
     state = Stopped;
     masterCur = masterVolume.load();
@@ -13,6 +14,56 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
 }
 
 void AudioEngine::audioDeviceStopped() {}
+
+void AudioEngine::allocCatch()
+{
+    const int size = (int) (catchSeconds * sampleRate.load());
+    if (size == catchSize) return;
+    catchSize = 0;                       // the audio thread is not running while this is called
+    catchL.allocate ((size_t) size, true);
+    catchR.allocate ((size_t) size, true);
+    catchWrite = 0;
+    catchSize = size;
+}
+
+void AudioEngine::updateCaptureChannels()
+{
+    int slot = -1;
+    for (int s : order) if (tracks[s].armed.load()) { slot = s; break; }
+    if (slot < 0 && ! order.empty()) slot = order.front();
+    const int code = slot >= 0 ? tracks[slot].inputCode.load() : 0;
+    catchChanL = code >= 100 ? code - 100 : code;
+    catchChanR = code >= 100 ? code - 100 + 1 : -1;
+}
+
+bool AudioEngine::readCatch (juce::AudioBuffer<float>& out, double seconds) const
+{
+    const auto w = catchWrite.load (std::memory_order_acquire);
+    const juce::int64 want = (juce::int64) (seconds * sampleRate.load());
+    const juce::int64 n = juce::jmin (want, w, (juce::int64) catchSize - (juce::int64) (5.0 * sampleRate.load()));   // never read the part being overwritten
+    if (n <= 0) return false;
+    out.setSize (2, (int) n);
+    for (juce::int64 i = 0; i < n; ++i)
+    {
+        const int idx = (int) ((w - n + i) % catchSize);
+        out.setSample (0, (int) i, catchL[idx]);
+        out.setSample (1, (int) i, catchR[idx]);
+    }
+    return true;
+}
+
+bool AudioEngine::recordAtNextLoop()
+{
+    if (state.load() != Playing || ! loopEnabled.load()) return false;
+    bool any = false;
+    for (int i = 0; i < maxTracks; ++i) any |= tracks[i].active.load() && tracks[i].armed.load();
+    if (! any) return false;
+    recStart = 0;
+    sessionLen = (int) getLoopLength();
+    armTracksForRecording (true);
+    pendingRecord = true;                // the audio thread switches to Recording when the loop wraps
+    return true;
+}
 
 // ------------------------------------------------------------------ transport
 
@@ -22,7 +73,7 @@ void AudioEngine::play()
     else if (state.load() == Recording) state = Playing;
 }
 
-void AudioEngine::stop() { state = Stopped; drumReset = true; }   // audio thread returns the playhead to the cursor
+void AudioEngine::stop() { pendingRecord = false; state = Stopped; drumReset = true; }   // audio thread returns the playhead to the cursor
 
 void AudioEngine::seek (juce::int64 pos)
 {
@@ -49,6 +100,20 @@ bool AudioEngine::record()
     recStart = rs;
     sessionLen = loopMode ? (int) (loopLen - rs) : 0;      // loop passes record from rs to the loop end
 
+    armTracksForRecording (loopMode);
+
+    // count-in: whole bars
+    const double spb = getSamplesPerBeat();
+    const int beats = juce::jlimit (0, 8, countInBars.load());
+    countInLen = (juce::int64) std::ceil (beats * getBarBeats() * spb);
+
+    jumpTo = rs;                      // recording starts at the chosen bar (after the count-in)
+    state = beats > 0 ? (int) CountIn : (int) Recording;
+    return true;
+}
+
+void AudioEngine::armTracksForRecording (bool loopMode)
+{
     for (int i = 0; i < maxTracks; ++i)
     {
         auto& tr = tracks[i];
@@ -63,22 +128,13 @@ bool AudioEngine::record()
         tr.stagePos = 0;
         tr.recActive = true;
     }
-
-    // count-in: whole bars
-    const double spb = getSamplesPerBeat();
-    const int beats = juce::jlimit (0, 8, countInBars.load());
-    countInLen = (juce::int64) std::ceil (beats * getBarBeats() * spb);
-
-    jumpTo = rs;                      // recording starts at the chosen bar (after the count-in)
-    state = beats > 0 ? (int) CountIn : (int) Recording;
-    return true;
 }
 
 // Message thread: pick up finished loop passes (and a partial first pass if stopped early).
 void AudioEngine::pollRecording()
 {
     const auto st = getState();
-    const bool running = (st == Recording || st == CountIn);
+    const bool running = (st == Recording || st == CountIn || pendingRecord.load());   // a queued overdub must keep its session alive
 
     for (int i = 0; i < maxTracks; ++i)
     {
@@ -188,6 +244,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* in, int 
 
     if (const int tc = tunerChannel.load(); tc >= 0 && tc < numIn && in[tc] != nullptr)
         pushTunerSamples (in[tc], numSamples);
+    if (const int cl = catchChanL.load(); cl >= 0 && cl < numIn && in[cl] != nullptr)
+    {
+        const int cr = catchChanR.load();
+        writeCatch (in[cl], (cr >= 0 && cr < numIn) ? in[cr] : nullptr, numSamples);
+    }
 
     for (int done = 0; done < numSamples;)
         done += processChunk (in, numIn, out, numOut, done, juce::jmin (chunk, numSamples - done));
@@ -455,6 +516,8 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
         {
             newPos = 0;
             ++drumPass;
+            if (st == Playing && pendingRecord.exchange (false))
+                state.store ((int) Recording);       // armed tracks start recording exactly at the loop start
             if (st == Recording)   // loop pass complete: hand the staging buffer to the UI thread
                 for (int t = 0; t < maxTracks; ++t)
                 {

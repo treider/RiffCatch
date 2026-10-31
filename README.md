@@ -15,6 +15,10 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 - Undo/redo for editing actions
 - Autosave with restore prompt after a crash
 
+### Catch and looper
+- **Catch** (button or Shift+C): the app always listens to the armed input and keeps the last 70 seconds in memory (nothing is written to disk). Catch saves the last 15, 30 or 60 seconds into a new track, with silence trimmed
+- **Looper mode** (button): one key (Shift+Space) or a MIDI foot switch. First press records the first loop, second press closes it (rounded to whole bars, BPM follows), then each press records one pass on a new track starting at the next loop start. Learn the foot switch from File > Looper pedal
+
 ### Drum machine
 - 16-step-per-beat grid with Kick, Snare, Clap, Hat, Open hat and Cymbal
 - Per-row volume and pan (pitch on Cymbal), master mute/solo and level meter

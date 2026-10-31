@@ -150,6 +150,44 @@ MainComponent::MainComponent()
     projectLabel.setFont (juce::Font (juce::FontOptions (14.0f)));
     projectLabel.setColour (juce::Label::textColourId, Theme::dim);
     addAndMakeVisible (projectLabel);
+    catchBtn.setWantsKeyboardFocus (false);
+    catchBtn.setTooltip ("Save what you just played into a new track (Shift+C). The app always listens to the armed input.");
+    catchBtn.onClick = [this] { catchNow(); grabKeyboardFocus(); };
+    addAndMakeVisible (catchBtn);
+    for (int s : { 15, 30, 60 }) catchLenBox.addItem ("Last " + juce::String (s) + " s", s);
+    catchLenBox.setWantsKeyboardFocus (false);
+    catchLenBox.setTooltip ("How far back Catch reaches");
+    {
+        int secs = 30;
+        if (auto* f = props.getUserSettings()) secs = f->getIntValue ("catchSeconds", 30);
+        catchLenBox.setSelectedId (secs == 15 || secs == 60 ? secs : 30, juce::dontSendNotification);
+    }
+    catchLenBox.onChange = [this]
+    {
+        if (auto* f = props.getUserSettings()) { f->setValue ("catchSeconds", catchLenBox.getSelectedId()); f->saveIfNeeded(); }
+        grabKeyboardFocus();
+    };
+    addAndMakeVisible (catchLenBox);
+
+    looperBtn.setClickingTogglesState (true);
+    looperBtn.setWantsKeyboardFocus (false);
+    looperBtn.setTooltip ("Looper mode: Shift+Space (or a MIDI foot switch) records the first loop, closes it, then adds a new track for each overdub");
+    looperBtn.onClick = [this]
+    {
+        if (looperBtn.getToggleState()) setStatus ("Looper: Shift+Space or your pedal. First press records, second press closes the loop", 200);
+        else looperReset ("Looper off");
+        grabKeyboardFocus();
+    };
+    addAndMakeVisible (looperBtn);
+    pedal.onTrigger = [this] { looperPress(); };
+    pedal.onLearned = [this] (const juce::String& d)
+    {
+        if (auto* f = props.getUserSettings()) { f->setValue ("pedalType", pedal.getType()); f->setValue ("pedalNumber", pedal.getNumber()); f->saveIfNeeded(); }
+        setStatus ("Pedal learned: " + d, 200);
+    };
+    if (auto* f = props.getUserSettings()) pedal.set (f->getIntValue ("pedalType", 0), f->getIntValue ("pedalNumber", -1));
+    pedal.open();
+
     notesBtn.setClickingTogglesState (false);
     notesBtn.setWantsKeyboardFocus (false);
     notesBtn.setTooltip ("Project notes (a dot of colour means there are notes)");
@@ -459,6 +497,12 @@ void MainComponent::fileMenu()
         themes.addSubMenu ("Delete custom theme", del);
     }
     m.addSubMenu ("Theme", themes);
+    {
+        juce::PopupMenu pm;
+        pm.addItem (600, pedal.isLearning() ? "Press the pedal now..." : "Learn MIDI foot switch...");
+        pm.addItem (601, "Forget pedal (now: " + pedal.describe() + ")", pedal.isSet());
+        m.addSubMenu ("Looper pedal", pm);
+    }
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileBtn), [this] (int id)
     {
         switch (id)
@@ -471,6 +515,15 @@ void MainComponent::fileMenu()
             case 6: showAudioSettings(); break;
             case 7: importAudio(); break;
             case 290: openThemeEditor(); break;
+            case 600:
+                pedal.startLearning();
+                setStatus (pedal.getNumInputs() > 0 ? "Press your MIDI foot switch now (note or controller)..." : "No MIDI input found - connect the pedal and try again", 300);
+                break;
+            case 601:
+                pedal.forget();
+                if (auto* f = props.getUserSettings()) { f->setValue ("pedalType", 0); f->setValue ("pedalNumber", -1); f->saveIfNeeded(); }
+                setStatus ("Pedal forgotten");
+                break;
             default:
                 if (id >= 300 && id < 300 + Theme::numPresets()) applyTheme (id - 300);
                 else if (id >= 500 && id < 500 + Theme::numPresets())
@@ -790,6 +843,8 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
         return false;
     }
 
+    if (code == 32 && mods.isShiftDown()) { looperPress(); return true; }
+    if (code == 'C' && mods.isShiftDown()) { catchNow(); return true; }
     if (k == juce::KeyPress::spaceKey) { togglePlay(); return true; }
     if (k == juce::KeyPress::returnKey || k == juce::KeyPress::homeKey)
     {
@@ -943,6 +998,8 @@ void MainComponent::handleWheel (const juce::MouseEvent& e, const juce::MouseWhe
 void MainComponent::timerCallback()
 {
     engine.pollRecording();
+    engine.updateCaptureChannels();
+    looperTick();
     autosaveTick();
     // dark title bar on every top-level window we open (audio settings, alert boxes, ...)
     for (int i = 0; i < juce::TopLevelWindow::getNumTopLevelWindows(); ++i)
@@ -1104,6 +1161,9 @@ void MainComponent::resized()
     punchBtn.setBounds (sb.removeFromLeft (56));  sb.removeFromLeft (18);
     countCaption.setBounds (sb.removeFromLeft (64));
     countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (18);
+    catchBtn.setBounds (sb.removeFromLeft (58));   sb.removeFromLeft (4);
+    catchLenBox.setBounds (sb.removeFromLeft (92)); sb.removeFromLeft (14);
+    looperBtn.setBounds (sb.removeFromLeft (64));  sb.removeFromLeft (18);
     for (auto* b : { &zoomInBtn, &zoomOutBtn, &zoomFitBtn })
         { b->setBounds (sb.removeFromRight (32).withSizeKeepingCentre (32, 28)); sb.removeFromRight (4); }
     sb.removeFromRight (10);
@@ -1171,6 +1231,237 @@ void MainComponent::showAudioSettings()
     o.resizable = false;
     o.componentToCentreAround = this;
     audioDialog = o.launchAsync();
+}
+
+// ---------------------------------------------------------------- Catch: save what was just played
+
+void MainComponent::catchNow()
+{
+    const auto st = engine.getState();
+    if (st == AudioEngine::Recording || st == AudioEngine::CountIn) { setStatus ("Stop recording first"); return; }
+    if (engine.getNumTracks() >= AudioEngine::maxTracks) { setStatus ("All tracks are in use"); return; }
+    const int secs = catchLenBox.getSelectedId() > 0 ? catchLenBox.getSelectedId() : 30;
+    auto buf = std::make_shared<juce::AudioBuffer<float>>();
+    if (! engine.readCatch (*buf, (double) secs)) { setStatus ("Nothing buffered yet - play something first"); return; }
+    const double sr = juce::jmax (1.0, engine.getSampleRate());
+    const int len = buf->getNumSamples();
+    if (buf->getMagnitude (0, len) < 0.003f && buf->getMagnitude (1, 0, len) < 0.003f)
+    {
+        setStatus ("Only silence in the last " + juce::String (secs) + " s - is the right input armed?");
+        return;
+    }
+    juce::int64 a = 0, z = 0;
+    if (SilenceTrim::findRange (*buf, len, sr, a, z))
+    {
+        juce::AudioBuffer<float> kept (2, (int) (z - a));
+        for (int c = 0; c < 2; ++c) kept.copyFrom (c, 0, *buf, c, (int) a, (int) (z - a));
+        *buf = std::move (kept);
+    }
+    const double caught = buf->getNumSamples() / sr;
+
+    auto slot = std::make_shared<int> (-1);
+    auto snap = std::make_shared<TrackSnap>();
+    snap->valid = true; snap->slot = -1; snap->orderPos = 1000;
+    snap->name = "Catch " + juce::Time::getCurrentTime().formatted ("%H:%M:%S");
+    snap->echoDiv = (int) TrackFx::Quarter;
+    snap->audio = std::move (*buf);
+    record ("Catch",
+            [this, slot, snap] { snap->slot = *slot; *slot = restoreTrack (*snap); syncRows(); },
+            [this, slot, snap] { *snap = captureTrack (*slot); engine.removeTrack (*slot); syncRows(); });
+    zoom = 1.0; zoomStart = 0.0;
+    viewport.setViewPosition (0, list.contentHeight());
+    setStatus ("Caught " + juce::String (caught, 1) + " s into a new track. Select the part you want and Crop to loop it", 250);
+}
+
+// ---------------------------------------------------------------- Looper: one button (key or foot switch)
+// Idle -> first press records the first loop freely, second press closes it (length rounded to whole bars, BPM follows),
+// then it plays; each further press records one pass on a NEW track, starting at the next loop start.
+
+void MainComponent::looperReset (const juce::String& why)
+{
+    if (looperState == LooperState::FirstTake || looperState == LooperState::Finishing)
+    {
+        engine.stop();
+        engine.countInBars = looperSavedCountIn;
+        updateSettingsFromEngine();
+    }
+    if (looperState == LooperState::Queued || looperState == LooperState::Overdub) { engine.stop(); disarmAll(); }
+    looperState = LooperState::Idle;
+    if (why.isNotEmpty()) setStatus (why);
+}
+
+void MainComponent::looperPress()
+{
+    if (! looperBtn.getToggleState()) looperBtn.setToggleState (true, juce::dontSendNotification);   // the key or pedal switches Looper mode on
+    switch (looperState)
+    {
+        case LooperState::Idle:
+        {
+            if (engine.getState() != AudioEngine::Stopped) { setStatus ("Stop the transport first"); return; }
+            bool hasAudio = false;
+            for (int slot : engine.order) hasAudio |= engine.tracks[slot].length.load() > 0;
+            if (hasAudio) { looperState = LooperState::Playing; engine.play(); setStatus ("Looper: playing - press again to overdub on a new track"); }
+            else looperStartFirstTake();
+            break;
+        }
+        case LooperState::FirstTake:
+            looperFirstSamples = engine.getPosition();
+            stopTransport();
+            looperState = LooperState::Finishing;
+            break;
+        case LooperState::Playing:
+            if (engine.getState() == AudioEngine::Stopped) { engine.play(); setStatus ("Looper: playing"); }
+            else looperQueueOverdub();
+            break;
+        default:
+            setStatus ("Looper: wait for the current pass to finish", 100);
+            break;
+    }
+}
+
+void MainComponent::looperStartFirstTake()
+{
+    if (engine.getNumTracks() == 0) addTrack();
+    int slot = engine.order.front();
+    for (int s : engine.order) if (engine.tracks[s].armed.load()) { slot = s; break; }
+    disarmAll();
+    engine.tracks[slot].armed = true;
+    rows[slot]->syncArm();
+    looperSavedCountIn = engine.countInBars.load();
+    engine.countInBars = 0;
+    engine.loopEnabled = false;
+    engine.setCursor (0);
+    if (! engine.record())
+    {
+        engine.countInBars = looperSavedCountIn;
+        setStatus ("Looper: could not start recording");
+        return;
+    }
+    looperSlot = slot;
+    looperState = LooperState::FirstTake;
+    updateSettingsFromEngine();
+    setStatus ("Looper: recording the first loop - press again to close it", 400);
+}
+
+void MainComponent::looperFinishFirstTake()
+{
+    auto& t = engine.tracks[looperSlot];
+    const double sr = juce::jmax (1.0, engine.getSampleRate());
+    const double secs = (double) looperFirstSamples / sr;
+    engine.countInBars = looperSavedCountIn;
+    if (secs < 0.5 || t.length.load() <= 0)
+    {
+        t.clearAudio();
+        looperState = LooperState::Idle;
+        updateSettingsFromEngine();
+        setStatus ("Looper: that take was only " + juce::String (secs, 2) + " s - hold the loop open longer (press once to start, once to close)", 300);
+        return;
+    }
+
+    // whole bars at a BPM close to the current one
+    static const int options[] = { 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 24, 32 };
+    const double cur = engine.bpm.load(), barBeats = engine.getBarBeats();
+    int bars = 0; double bpm = cur, best = 1.0e9;
+    for (int pass = 0; pass < 2 && bars == 0; ++pass)
+        for (int b : options)
+        {
+            const double v = b * barBeats * 60.0 / secs;
+            if (v < (pass == 0 ? 40.0 : 30.0) || v > (pass == 0 ? 240.0 : 300.0)) continue;
+            const double score = std::abs (std::log (v / cur));
+            if (score < best) { best = score; bars = b; bpm = v; }
+        }
+    if (bars == 0)
+    {
+        t.clearAudio();
+        looperState = LooperState::Idle;
+        setStatus ("Looper: could not fit that length to a loop - try again");
+        return;
+    }
+    engine.bpm = bpm;
+    engine.loopBars = bars;
+    engine.loopEnabled = true;
+    const auto loopLen = engine.getLoopLength();
+    {
+        const juce::int64 keep = juce::jmin<juce::int64> (t.length.load(), loopLen);
+        auto src = t.copyRegion (0, keep);
+        juce::AudioBuffer<float> nb (2, (int) loopLen);
+        nb.clear();
+        for (int c = 0; c < 2; ++c) nb.copyFrom (c, 0, src, c, 0, (int) keep);
+        t.setAudio (std::move (nb));
+        t.offset = 0;
+    }
+    updateSettingsFromEngine();
+    for (auto* r : rows) r->repaint();
+    engine.setCursor (0);
+    engine.play();
+    looperState = LooperState::Playing;
+    setStatus ("Looper: " + juce::String (bars) + (bars == 1 ? " bar" : " bars") + " at " + juce::String (bpm, 1) + " BPM - press again to overdub on a new track", 400);
+}
+
+void MainComponent::looperQueueOverdub()
+{
+    if (engine.getNumTracks() >= AudioEngine::maxTracks) { setStatus ("Looper: all tracks are in use"); return; }
+    addTrack();
+    const int slot = engine.order.back();
+    engine.tracks[slot].inputCode = engine.tracks[looperSlot >= 0 ? looperSlot : slot].inputCode.load();
+    disarmAll();
+    engine.tracks[slot].armed = true;
+    rows[slot]->syncArm();
+    if (! engine.recordAtNextLoop()) { setStatus ("Looper: could not start the overdub"); return; }
+    looperLayerSlot = slot;
+    looperState = LooperState::Queued;
+    setStatus ("Looper: overdub starts at the next loop start", 200);
+}
+
+void MainComponent::looperTick()
+{
+    {   // the button shows what the looper is doing
+        const char* label = "Looper";
+        switch (looperState)
+        {
+            case LooperState::FirstTake: label = "REC 1st"; break;
+            case LooperState::Finishing: label = "..."; break;
+            case LooperState::Playing:   label = "Loop"; break;
+            case LooperState::Queued:    label = "Dub next"; break;
+            case LooperState::Overdub:   label = "REC dub"; break;
+            default: break;
+        }
+        if (looperBtn.getButtonText() != label) looperBtn.setButtonText (label);
+        if (looperState == LooperState::FirstTake && engine.getState() == AudioEngine::Recording)
+            setStatus ("Looper: recording the first loop, " + juce::String ((double) engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()), 1)
+                           + " s - press again to close it", 15);
+    }
+    switch (looperState)
+    {
+        case LooperState::FirstTake:
+            if (engine.getState() == AudioEngine::Stopped)       // stopped from elsewhere: give up this take
+            {
+                engine.tracks[looperSlot].clearAudio();
+                engine.countInBars = looperSavedCountIn;
+                looperState = LooperState::Idle;
+                updateSettingsFromEngine();
+            }
+            break;
+        case LooperState::Finishing:
+            if (! engine.tracks[looperSlot].recSession && engine.getState() == AudioEngine::Stopped) looperFinishFirstTake();
+            break;
+        case LooperState::Queued:
+            if (engine.getState() == AudioEngine::Recording) { looperState = LooperState::Overdub; setStatus ("Looper: overdubbing one pass", 200); }
+            else if (engine.getState() == AudioEngine::Stopped) { disarmAll(); looperState = LooperState::Playing; }
+            break;
+        case LooperState::Overdub:
+            if (engine.tracks[looperLayerSlot].sessionCommits >= 1)
+            {
+                engine.play();                                    // keeps playing, stops recording
+                disarmAll();
+                looperState = LooperState::Playing;
+                setStatus ("Looper: layer added - press again for another", 300);
+            }
+            else if (engine.getState() == AudioEngine::Stopped) { disarmAll(); looperState = LooperState::Playing; }
+            break;
+        default:
+            break;
+    }
 }
 
 void MainComponent::syncTimeSigBox()

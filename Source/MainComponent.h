@@ -3,6 +3,7 @@
 #include "audio/AudioEngine.h"
 #include "ui/ThemeEditor.h"
 #include "audio/SilenceTrim.h"
+#include "audio/MidiPedal.h"
 #include "ui/TrackRow.h"
 #include "ui/DrumPanel.h"
 #include "ui/MixerPanel.h"
@@ -123,6 +124,21 @@ private:
     ToolButton fileBtn { ToolButton::Menu };
     AddTrackButton addTrackBtn;
     juce::TextButton notesBtn { "Notes" };
+    // Catch (always-on capture) and the one-button looper
+    juce::TextButton catchBtn { "Catch" }, looperBtn { "Looper" };
+    juce::ComboBox catchLenBox;
+    MidiPedal pedal;
+    enum class LooperState { Idle, FirstTake, Finishing, Playing, Queued, Overdub };
+    LooperState looperState = LooperState::Idle;
+    int looperSlot = -1, looperLayerSlot = -1, looperSavedCountIn = 1;
+    juce::int64 looperFirstSamples = 0;
+    void catchNow();
+    void looperPress();
+    void looperTick();
+    void looperReset (const juce::String& why = {});
+    void looperStartFirstTake();
+    void looperFinishFirstTake();
+    void looperQueueOverdub();
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
     juce::Label bpmLabel;
     juce::TextButton tapBtn { "Tap" }, clickBtn { "Click" };

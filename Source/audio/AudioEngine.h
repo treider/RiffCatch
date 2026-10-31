@@ -17,7 +17,7 @@ public:
 
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
-    void prepareForTest (double sr, int numIn) { sampleRate = sr; numInputs = numIn; prepareFx(); }
+    void prepareForTest (double sr, int numIn) { sampleRate = sr; numInputs = numIn; prepareFx(); allocCatch(); }
     void prepareFx() { for (auto& t : tracks) t.fx.prepare (sampleRate.load()); }
     void audioDeviceIOCallbackWithContext (const float* const* in, int numIn,
                                            float* const* out, int numOut,
@@ -104,6 +104,14 @@ public:
         for (int i = 0; i < n; ++i) tunerRing[(size_t) ((w + i) & (tunerRingSize - 1))] = src[i];
         tunerWrite.store (w + n, std::memory_order_release);
     }
+    // Always-on capture: the last 70 s of the armed track's input (stereo pair, or mono copied to both sides).
+    static constexpr double catchSeconds = 70.0;
+    std::atomic<int> catchChanL { -1 }, catchChanR { -1 };
+    void updateCaptureChannels();                                   // message thread: follow the armed track (else track 1)
+    double getCatchAvailableSeconds() const noexcept { return juce::jmin (catchSeconds, (double) catchWrite.load() / juce::jmax (1.0, sampleRate.load())); }
+    bool readCatch (juce::AudioBuffer<float>& out, double seconds) const;   // the newest `seconds` (fewer if not yet available)
+    void pushCatchForTest (const float* l, const float* r, int n) { writeCatch (l, r, n); }
+    bool recordAtNextLoop();                                        // while playing in loop mode: start recording on the next loop start, without a jump
     juce::String projectNotes;                            // message thread only; saved in project.json
 
 private:
@@ -124,6 +132,23 @@ private:
     std::atomic<bool> drumReset { false };
     int sessionLen = 0;                         // loop length (samples) of current record session
 
+    void allocCatch();
+    void armTracksForRecording (bool loopMode);
+    void writeCatch (const float* l, const float* r, int n)
+    {
+        if (catchSize <= 0) return;
+        auto w = catchWrite.load (std::memory_order_relaxed);
+        for (int i = 0; i < n; ++i)
+        {
+            const int idx = (int) ((w + i) % catchSize);
+            catchL[idx] = l[i]; catchR[idx] = r != nullptr ? r[i] : l[i];
+        }
+        catchWrite.store (w + n, std::memory_order_release);
+    }
+    juce::HeapBlock<float> catchL, catchR;
+    int catchSize = 0;
+    std::atomic<juce::int64> catchWrite { 0 };
+    std::atomic<bool> pendingRecord { false };
     std::array<float, tunerRingSize> tunerRing {};
     std::atomic<juce::int64> tunerWrite { 0 };
     juce::HeapBlock<float> mixL, mixR, nudgeL, nudgeR, fxL, fxR;   // on the heap: engines are also created on the stack in tests
