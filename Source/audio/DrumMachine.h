@@ -12,7 +12,8 @@
 class DrumMachine
 {
 public:
-    static constexpr int numVoices = 6, maxBars = 8, stepsPerBar = 16, maxSteps = maxBars * stepsPerBar;
+    // stepsPerBar is the 4/4 layout (16 sixteenths). Other time signatures use barSteps (up to maxStepsPerBar, e.g. 20 in 5/4).
+    static constexpr int numVoices = 6, maxBars = 8, stepsPerBar = 16, maxStepsPerBar = 20, maxSteps = maxBars * maxStepsPerBar;
     enum Voice { Kick = 0, Snare, Clap, Hat, OpenHat, Cymbal };
     static const char* voiceName (int v)
     {
@@ -25,14 +26,16 @@ public:
     {
         uint8_t steps[numVoices][maxSteps];
         int bars = 1;
+        int barSteps = stepsPerBar;
         Snapshot() { std::memset (steps, 0, sizeof (steps)); }
-        bool operator== (const Snapshot& o) const { return bars == o.bars && std::memcmp (steps, o.steps, sizeof (steps)) == 0; }
+        bool operator== (const Snapshot& o) const { return bars == o.bars && barSteps == o.barSteps && std::memcmp (steps, o.steps, sizeof (steps)) == 0; }
         bool operator!= (const Snapshot& o) const { return ! (*this == o); }
     };
 
     // ---- pattern + mixer (message thread writes, audio thread reads)
     std::atomic<uint8_t> steps[numVoices][maxSteps];   // 0 = off, 1 = hit, 2 = accent
     std::atomic<int> bars { 1 };
+    std::atomic<int> barSteps { stepsPerBar };          // sixteenth steps in one bar of the current time signature
     std::atomic<float> volume { 0.8f };
     std::atomic<bool> mute { false }, solo { false };
     std::atomic<float> level[numVoices];
@@ -48,7 +51,17 @@ public:
         for (int v = 0; v < numVoices; ++v) { level[v] = 1.0f; pan[v] = 0.0f; voiceMute[v] = false; audition[v] = false; }
     }
 
-    int patternSteps() const noexcept { return juce::jlimit (1, maxBars, bars.load()) * stepsPerBar; }
+    int patternSteps() const noexcept { return juce::jlimit (1, maxBars, bars.load()) * juce::jlimit (4, maxStepsPerBar, barSteps.load()); }
+
+    // Changes the bar layout (time signature). Existing steps are kept per bar as far as they fit.
+    void setBarSteps (int n)
+    {
+        n = juce::jlimit (4, maxStepsPerBar, n);
+        if (n == barSteps.load()) return;
+        auto s = snapshot();
+        barSteps = n;
+        apply (s);
+    }
 
     bool hasAnySteps() const
     {
@@ -63,6 +76,7 @@ public:
     {
         Snapshot s;
         s.bars = bars.load();
+        s.barSteps = barSteps.load();
         for (int v = 0; v < numVoices; ++v)
             for (int k = 0; k < maxSteps; ++k) s.steps[v][k] = steps[v][k].load();
         return s;
@@ -71,15 +85,22 @@ public:
     void apply (const Snapshot& s)
     {
         bars = juce::jlimit (1, maxBars, s.bars);
+        const int nb = barSteps.load(), sb = juce::jlimit (4, maxStepsPerBar, s.barSteps);
         for (int v = 0; v < numVoices; ++v)
-            for (int k = 0; k < maxSteps; ++k) steps[v][k] = s.steps[v][k];
+        {
+            if (sb == nb) { for (int k = 0; k < maxSteps; ++k) steps[v][k] = s.steps[v][k]; continue; }
+            for (int bar = 0; bar < maxBars; ++bar)       // different bar layout: keep what fits, per bar
+                for (int k = 0; k < nb; ++k)
+                    steps[v][bar * nb + k] = k < sb ? s.steps[v][bar * sb + k] : (uint8_t) 0;
+        }
     }
 
-    void clearPattern() { Snapshot s; s.bars = bars.load(); apply (s); }
+    void clearPattern() { Snapshot s; s.bars = bars.load(); s.barSteps = barSteps.load(); apply (s); }
 
     void resetAll()
     {
         Snapshot s;
+        s.barSteps = barSteps.load();
         apply (s);
         volume = 0.8f; mute = false; solo = false;
         cymbalPitch = 0.0f;

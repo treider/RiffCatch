@@ -64,10 +64,10 @@ bool AudioEngine::record()
         tr.recActive = true;
     }
 
-    // count-in: whole bars of 4 beats
+    // count-in: whole bars
     const double spb = getSamplesPerBeat();
-    const int beats = juce::jlimit (0, 8, countInBars.load()) * 4;
-    countInLen = (juce::int64) std::ceil (beats * spb);
+    const int beats = juce::jlimit (0, 8, countInBars.load());
+    countInLen = (juce::int64) std::ceil (beats * getBarBeats() * spb);
 
     jumpTo = rs;                      // recording starts at the chosen bar (after the count-in)
     state = beats > 0 ? (int) CountIn : (int) Recording;
@@ -382,8 +382,10 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
     if (clickOn)
     {
         const juce::int64 t0 = st == CountIn ? countPos.load() : pos;
-        auto beatSample = [spb] (juce::int64 k) { return (juce::int64) std::ceil ((double) k * spb); };
-        juce::int64 k = (juce::int64) std::floor ((double) t0 / spb);
+        const double pulse = getPulseSamples();
+        const int perBar = getPulsesPerBar();
+        auto beatSample = [pulse] (juce::int64 k) { return (juce::int64) std::ceil ((double) k * pulse); };
+        juce::int64 k = (juce::int64) std::floor ((double) t0 / pulse);
         while (k > 0 && beatSample (k - 1) >= t0) --k;
         while (beatSample (k) < t0) ++k;
         for (; nTrig < 4; ++k)
@@ -391,7 +393,7 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
             const auto off = beatSample (k) - t0;
             if (off >= n) break;
             trig[nTrig] = (int) off;
-            trigFreq[nTrig] = (k % 4 == 0) ? 1600.0f : 1000.0f;   // accent on the downbeat
+            trigFreq[nTrig] = (k % perBar == 0) ? 1600.0f : 1000.0f;   // accent on the downbeat
             ++nTrig;
         }
     }

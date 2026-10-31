@@ -378,14 +378,15 @@ void TrackRow::paint (juce::Graphics& g)
 
     if (barSeconds > 0.0)
     {
-        const double beat = barSeconds / 4.0;
+        const int perBar = engine.getPulsesPerBar();
+        const double beat = barSeconds / perBar;
         int stride = 1;                                   // zoomed far out: label only every Nth bar
         for (int s : { 1, 2, 4, 5, 8, 10, 16, 20, 32, 50, 100 }) { stride = s; if (s * barSeconds * pxPerSec >= 30.0) break; }
         const bool dense = beat * pxPerSec < 5.0;          // skip beat ticks when they would blur together
         for (int k = juce::jmax (0, (int) std::floor (viewStart / beat)); k * beat < viewStart + viewSeconds - 0.001; ++k)
         {
-            const bool bar = (k % 4 == 0);
-            if ((dense && ! bar) || (bar && (k / 4) % stride != 0)) continue;
+            const bool bar = (k % perBar == 0);
+            if ((dense && ! bar) || (bar && (k / perBar) % stride != 0)) continue;
             g.setColour (bar ? Theme::border.withAlpha (0.8f) : Theme::border.withAlpha (0.25f));
             g.fillRect ((float) (w.getX() + (k * beat - viewStart) * pxPerSec), w.getY(), 1.0f, w.getHeight());
         }
@@ -714,17 +715,17 @@ void TrackRow::mouseDrag (const juce::MouseEvent& e)
         {
             if (! e.mods.isShiftDown())
             {
-                const double step = engine.getSamplesPerBeat() * (e.mods.isAltDown() ? 1.0 : 4.0);
+                const double step = engine.getSamplesPerBeat() * (e.mods.isAltDown() ? 1.0 : engine.getBarBeats());
                 v = std::round (v / step) * step;
             }
-            const double maxCopy = 64.0 * 4.0 * engine.getSamplesPerBeat();   // up to 64 bars; the loop grows to fit
+            const double maxCopy = 64.0 * engine.getBarBeats() * engine.getSamplesPerBeat();   // up to 64 bars; the loop grows to fit
             copyOffset = (int) juce::jlimit (0.0, maxCopy, v);
             repaint (wave);
             return;
         }
         if (! moveByRight && ! e.mods.isShiftDown())
         {
-            const double step = engine.getSamplesPerBeat() * (e.mods.isAltDown() ? 4.0 : 1.0);
+            const double step = engine.getSamplesPerBeat() * (e.mods.isAltDown() ? engine.getBarBeats() : 1.0);
             v = std::round (v / step) * step;
         }
         const double maxV = engine.loopEnabled.load() ? (double) engine.getLoopLength() - 1.0 : sr * 600.0;   // beyond the loop end it is cut off
@@ -828,7 +829,7 @@ juce::int64 TrackRow::xToTake (float x, bool snap, bool snapBar) const
     double t = (double) xToSample (x);
     if (snap || snapBar)
     {
-        const double step = engine.getSamplesPerBeat() * (snapBar ? 4.0 : 0.25);     // whole bars (Alt) or 1/16 notes (Shift)
+        const double step = engine.getSamplesPerBeat() * (snapBar ? engine.getBarBeats() : 0.25);     // whole bars (Alt) or 1/16 notes (Shift)
         t = std::round (t / step) * step;
     }
     const auto& tr = engine.tracks[index];
@@ -934,6 +935,29 @@ void TrackRow::cropToSelection()
     if (onCropped) onCropped (newLen);
 }
 
+// Cuts silence before and after the audible part. The clip keeps its place on the timeline (offset moves with the cut). Undoable.
+void TrackRow::trimSilence()
+{
+    auto& t = track();
+    const auto st = engine.getState();
+    auto say = [this] (const juce::String& s) { if (onStatus) onStatus (s); };
+    if (st == AudioEngine::Recording || st == AudioEngine::CountIn) { say ("Stop recording first"); return; }
+    if (t.editing) { say ("Leave hit editing first"); return; }
+    const juce::int64 len = t.length.load();
+    if (len <= 0) return;
+    auto whole = std::make_shared<juce::AudioBuffer<float>> (t.copyRegion (0, len));
+    juce::int64 a = 0, z = 0;
+    if (! SilenceTrim::findRange (*whole, (int) len, engine.getSampleRate(), a, z)) { say ("Nothing to trim"); return; }
+    auto part = std::make_shared<juce::AudioBuffer<float>> (t.copyRegion (a, z));
+    const int oldOffset = t.offset.load(), newOffset = oldOffset + (int) a;
+    t.resetEdit();
+    selStart = selEnd = 0;
+    push ("Trim silence",
+          [this, part, newOffset] { auto c = *part; track().setAudio (std::move (c)); track().offset = newOffset; selStart = selEnd = 0; repaint(); },
+          [this, whole, oldOffset] { auto c = *whole; track().setAudio (std::move (c)); track().offset = oldOffset; selStart = selEnd = 0; repaint(); });
+    say ("Trimmed " + juce::String ((double) (len - (z - a)) / juce::jmax (1.0, engine.getSampleRate()), 2) + " s of silence");
+}
+
 // Ctrl+drag a clip: put a copy of the whole clip at newOffset (overwriting what is there; the clip grows as needed). Undoable.
 void TrackRow::duplicateClipTo (int newOffset)
 {
@@ -993,6 +1017,7 @@ void TrackRow::showClipMenu()
     m.addItem (8, "Reverse");
     m.addItem (9, "Select all\tCtrl+A");
     m.addItem (10, "Crop to selection (move to bar 1)", sel);
+    m.addItem (11, "Trim silence (keeps the timing)");
     m.addSeparator();
     m.addItem (7, "Duplicate track\tCtrl+D");
     m.showMenuAsync (juce::PopupMenu::Options(), [this] (int id)
@@ -1008,6 +1033,7 @@ void TrackRow::showClipMenu()
             case 7: if (onDuplicate) onDuplicate (this); break;
             case 8: selectionCommand (SelReverse); break;
             case 10: cropToSelection(); break;
+            case 11: trimSilence(); break;
             case 9: selectAll(); break;
             default: break;
         }
@@ -1201,7 +1227,7 @@ void Ruler::seekTo (const juce::MouseEvent& e)
     double pos = (juce::jlimit (0.0, 1.0, (double) (e.x - x0) / wdt) * viewSeconds + viewStart) * sr;
     if (! e.mods.isAltDown())
     {
-        const double step = engine.getSamplesPerBeat() * (e.mods.isShiftDown() ? 4.0 : 1.0);
+        const double step = engine.getSamplesPerBeat() * (e.mods.isShiftDown() ? engine.getBarBeats() : 1.0);
         pos = std::round (pos / step) * step;
     }
     if (engine.loopEnabled.load()) pos = juce::jmin (pos, (double) (engine.getLoopLength() - 1));
@@ -1226,17 +1252,18 @@ void Ruler::paint (juce::Graphics& g)
 
     if (barSeconds > 0.0)
     {
-        const double beat = barSeconds / 4.0;
+        const int perBar = engine.getPulsesPerBar();
+        const double beat = barSeconds / perBar;
         for (int k = juce::jmax (0, (int) std::floor (viewStart / beat)); k * beat < viewStart + viewSeconds - 0.001; ++k)
         {
             const float x = x0 + (float) ((k * beat - viewStart) * pxPerSec);
-            const bool bar = (k % 4 == 0);
+            const bool bar = (k % perBar == 0);
             g.setColour (bar ? Theme::dim : Theme::border);
             g.fillRect (x, bar ? pill.getY() + 5.0f : pill.getBottom() - 8.0f, 1.0f, bar ? pill.getHeight() - 10.0f : 5.0f);
             if (bar)
             {
                 g.setColour (Theme::text);
-                g.drawText (juce::String (k / 4 + 1), (int) x + 5, (int) pill.getY(), 40, (int) pill.getHeight() - 4, juce::Justification::centredLeft);
+                g.drawText (juce::String (k / perBar + 1), (int) x + 5, (int) pill.getY(), 40, (int) pill.getHeight() - 4, juce::Justification::centredLeft);
             }
         }
         if (engine.punchActive())        // punch region: red band

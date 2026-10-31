@@ -49,11 +49,11 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
             for (int v = 0; v < DrumMachine::numVoices; ++v)
             {
                 bool empty = true;
-                for (int k = 0; k < DrumMachine::stepsPerBar; ++k)
-                    empty &= after.steps[v][bar * DrumMachine::stepsPerBar + k] == 0;
+                for (int k = 0; k < engine.drums.barSteps.load(); ++k)
+                    empty &= after.steps[v][bar * engine.drums.barSteps.load() + k] == 0;
                 if (empty)
-                    for (int k = 0; k < DrumMachine::stepsPerBar; ++k)
-                        after.steps[v][bar * DrumMachine::stepsPerBar + k] = after.steps[v][k];
+                    for (int k = 0; k < engine.drums.barSteps.load(); ++k)
+                        after.steps[v][bar * engine.drums.barSteps.load() + k] = after.steps[v][k];
             }        pushPattern ("Pattern length", before, after);
         if (onReleaseFocus) onReleaseFocus();
     };
@@ -223,12 +223,12 @@ void DrumPanel::refreshFromEngine()
 
 double DrumPanel::stepSec() const
 {
-    return barSeconds > 0.0 ? barSeconds / DrumMachine::stepsPerBar : fullSeconds / (4.0 * DrumMachine::stepsPerBar);
+    return barSeconds > 0.0 ? barSeconds / engine.drums.barSteps.load() : fullSeconds / (4.0 * engine.drums.barSteps.load());
 }
 
 int DrumPanel::viewSteps() const
 {
-    return barSeconds > 0.0 ? juce::jmax (1, (int) std::lround (fullSeconds / barSeconds) * DrumMachine::stepsPerBar) : 4 * DrumMachine::stepsPerBar;
+    return barSeconds > 0.0 ? juce::jmax (1, (int) std::lround (fullSeconds / barSeconds) * engine.drums.barSteps.load()) : 4 * engine.drums.barSteps.load();
 }
 
 void DrumPanel::updateControls()
@@ -243,7 +243,7 @@ void DrumPanel::updateControls()
     prevPage.setEnabled (page > 0); nextPage.setEnabled (page < pages - 1);
     if (paged)
     {
-        const int b0 = page * vs / DrumMachine::stepsPerBar + 1, b1 = juce::jmin (engine.drums.bars.load(), b0 + vs / DrumMachine::stepsPerBar - 1);
+        const int b0 = page * vs / engine.drums.barSteps.load() + 1, b1 = juce::jmin (engine.drums.bars.load(), b0 + vs / engine.drums.barSteps.load() - 1);
         pageLabel.setText ("bars " + juce::String (b0) + "-" + juce::String (b1), juce::dontSendNotification);
     }
 }
@@ -400,7 +400,7 @@ void DrumPanel::paint (juce::Graphics& g)
     // bar lines
     g.saveState();
     g.reduceClipRegion (la);
-    for (int c = (c0 / DrumMachine::stepsPerBar) * DrumMachine::stepsPerBar; c < c1; c += DrumMachine::stepsPerBar)
+    for (int c = (c0 / engine.drums.barSteps.load()) * engine.drums.barSteps.load(); c < c1; c += engine.drums.barSteps.load())
     {
         g.setColour (Theme::border.withAlpha (0.9f));
         g.fillRect (xOrigin + c * cellW - 0.5f, (float) la.getY(), 1.0f, (float) la.getHeight());

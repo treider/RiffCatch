@@ -35,7 +35,7 @@ public:
     void pollRecording();   // call regularly from the UI thread: commits finished loop passes
     State getState() const noexcept { return (State) state.load(); }
     juce::int64 getPosition() const noexcept { return playPos.load(); }
-    juce::int64 getBarLength() const noexcept { return (juce::int64) std::llround (4.0 * getSamplesPerBeat()); }
+    juce::int64 getBarLength() const noexcept { return (juce::int64) std::llround (getBarBeats() * getSamplesPerBeat()); }
     juce::int64 getRecordStart() const noexcept { return recStart.load(); }   // where the current/last recording started
     juce::int64 getCountInPosition() const noexcept { return countPos.load(); }
     juce::int64 getCountInLength() const noexcept { return countInLen.load(); }
@@ -43,7 +43,17 @@ public:
 
     // Tempo / loop (change only while stopped)
     double getSamplesPerBeat() const noexcept { return sampleRate.load() * 60.0 / juce::jmax (1.0, bpm.load()); }
-    juce::int64 getLoopLength() const noexcept { return (juce::int64) std::llround (loopBars.load() * 4.0 * getSamplesPerBeat()); }
+    juce::int64 getLoopLength() const noexcept { return (juce::int64) std::llround (loopBars.load() * getBarBeats() * getSamplesPerBeat()); }
+    // Time signature: BPM counts quarter notes. A bar is tsNum * 4 / tsDen quarters (6/8 = 3, 7/8 = 3.5).
+    std::atomic<int> tsNum { 4 }, tsDen { 4 };
+    double getBarBeats() const noexcept { return tsNum.load() * 4.0 / tsDen.load(); }
+    double getPulseSamples() const noexcept { return getSamplesPerBeat() * 4.0 / tsDen.load(); }   // one click / ruler subdivision
+    int getPulsesPerBar() const noexcept { return tsNum.load(); }
+    void setTimeSignature (int num, int den)
+    {
+        tsNum = juce::jlimit (1, 16, num); tsDen = (den == 8) ? 8 : 4;
+        drums.setBarSteps ((int) std::lround (getBarBeats() * 4.0));
+    }
     std::atomic<double> bpm { 120.0 };
     std::atomic<int> loopBars { 4 };
     std::atomic<bool> loopEnabled { true };

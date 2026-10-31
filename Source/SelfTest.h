@@ -423,6 +423,61 @@ inline juce::String runEngineSelfTest()
         check (b4.bars == 4 && std::memcmp (&b4.steps[1][0], &b4.steps[1][32], 16) == 0, "longer patterns repeat the two bars");
     }
 
+    {   // time signatures
+        auto tsP = std::make_unique<AudioEngine>(); auto& ts = *tsP;
+        ts.prepareForTest (48000.0, 1);
+        ts.bpm = 120.0;
+        const double spb = 24000.0;
+        check (ts.getBarLength() == (juce::int64) (4 * spb), "4/4 bar = 4 quarters");
+        ts.setTimeSignature (3, 4);
+        check (ts.getBarLength() == (juce::int64) (3 * spb) && ts.drums.barSteps.load() == 12, "3/4 bar = 3 quarters, 12 drum steps");
+        ts.setTimeSignature (6, 8);
+        check (ts.getBarLength() == (juce::int64) (3 * spb) && ts.getPulsesPerBar() == 6 && std::abs (ts.getPulseSamples() - spb / 2) < 1e-6, "6/8 bar = 3 quarters, 6 eighth pulses");
+        ts.setTimeSignature (7, 8);
+        check (ts.getBarLength() == (juce::int64) (3.5 * spb) && ts.drums.barSteps.load() == 14, "7/8 bar = 3.5 quarters, 14 drum steps");
+        ts.setTimeSignature (5, 4);
+        check (ts.getBarLength() == (juce::int64) (5 * spb) && ts.drums.barSteps.load() == 20, "5/4 bar = 5 quarters, 20 drum steps");
+        ts.loopBars = 2;
+        check (ts.getLoopLength() == (juce::int64) (10 * spb), "loop length follows the time signature");
+
+        // drum pattern survives a layout change as far as it fits
+        auto dm4P = std::make_unique<AudioEngine>(); auto& dm4 = *dm4P;
+        dm4.setTimeSignature (4, 4);
+        dm4.drums.steps[0][0] = 2; dm4.drums.steps[0][12] = 1; dm4.drums.steps[0][16] = 1;
+        dm4.drums.bars = 2;
+        dm4.setTimeSignature (3, 4);
+        check (dm4.drums.steps[0][0].load() == 2 && dm4.drums.steps[0][12].load() == 1 && dm4.drums.steps[0][13].load() == 0, "3/4: bar 2 starts at step 12 (the cut 4/4 tail is dropped)");
+        dm4.setTimeSignature (4, 4);
+        check (dm4.drums.barSteps.load() == 16, "back to 4/4: 16 steps");
+
+        // time signature in the project file
+        auto peP = std::make_unique<AudioEngine>(); auto& pe = *peP;
+        pe.prepareForTest (44100.0, 2);
+        pe.addTrack();
+        pe.setTimeSignature (6, 8);
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("riffcatch-ts-test");
+        dir.deleteRecursively();
+        juce::String err;
+        check (ProjectIO::save (pe, dir, err), "time signature test: saved");
+        auto pe2P = std::make_unique<AudioEngine>(); auto& pe2 = *pe2P;
+        pe2.prepareForTest (44100.0, 2);
+        check (ProjectIO::load (pe2, dir, err) && pe2.tsNum.load() == 6 && pe2.tsDen.load() == 8 && pe2.drums.barSteps.load() == 12, "time signature round-trips through the project file");
+        dir.deleteRecursively();
+    }
+    {   // silence trimming
+        juce::AudioBuffer<float> b (2, 48000);
+        b.clear();
+        for (int i = 20000; i < 30000; ++i) { b.setSample (0, i, 0.5f); b.setSample (1, i, 0.5f); }
+        juce::int64 a = 0, z = 0;
+        check (SilenceTrim::findRange (b, 48000, 48000.0, a, z), "silence trim finds audio");
+        check (a > 19000 && a <= 20000 && z >= 30000 && z < 33000, "silence trim keeps the audible part with a little padding (" + juce::String (a) + ".." + juce::String (z) + ")");
+        juce::AudioBuffer<float> full (2, 1000);
+        for (int i = 0; i < 1000; ++i) { full.setSample (0, i, 0.5f); full.setSample (1, i, 0.5f); }
+        check (! SilenceTrim::findRange (full, 1000, 48000.0, a, z), "nothing to trim when the clip is full");
+        juce::AudioBuffer<float> empty (2, 1000);
+        empty.clear();
+        check (! SilenceTrim::findRange (empty, 1000, 48000.0, a, z), "all-silent clips are left alone");
+    }
     {   // tuner: pitch detection on synthetic guitar-range tones, through the real input ring
         for (double sr : { 44100.0, 48000.0 })
             for (double f : { 82.41, 110.0, 196.0, 329.63, 440.0, 659.26 })
@@ -447,7 +502,7 @@ inline juce::String runEngineSelfTest()
         check (TunerCard::noteName (69) == "A" && TunerCard::octaveOf (69) == 4 && TunerCard::noteName (40) == "E" && TunerCard::octaveOf (40) == 2, "tuner note names (A4, E2)");
     }
     {   // project notes survive save and load
-        AudioEngine ne;
+        auto neP = std::make_unique<AudioEngine>(); auto& ne = *neP;
         ne.prepareForTest (44100.0, 2);
         ne.addTrack();
         ne.projectNotes = "E minor, capo 2\nidea: slower";
@@ -455,7 +510,7 @@ inline juce::String runEngineSelfTest()
         dir.deleteRecursively();
         juce::String err;
         check (ProjectIO::save (ne, dir, err), "notes test: project saved");
-        AudioEngine ne2;
+        auto ne2P = std::make_unique<AudioEngine>(); auto& ne2 = *ne2P;
         ne2.prepareForTest (44100.0, 2);
         check (ProjectIO::load (ne2, dir, err), "notes test: project loaded");
         check (ne2.projectNotes == ne.projectNotes, "project notes round-trip");

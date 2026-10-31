@@ -274,7 +274,24 @@ MainComponent::MainComponent()
 
     for (int b : { 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 24, 32, 48, 64 }) barsBox.addItem (juce::String (b) + (b == 1 ? " bar" : " bars"), b);
     barsBox.setWantsKeyboardFocus (false);
-    barsBox.setTooltip ("Loop length in bars (4/4)");
+    barsBox.setTooltip ("Loop length in bars");
+    {
+        static const char* const sigs[] = { "2/4", "3/4", "4/4", "5/4", "6/8", "7/8" };
+        for (int i = 0; i < 6; ++i) timeSigBox.addItem (sigs[i], i + 1);
+        timeSigBox.setWantsKeyboardFocus (false);
+        timeSigBox.setTooltip ("Time signature. BPM counts quarter notes; drum templates are for 4/4");
+        timeSigBox.onChange = [this]
+        {
+            static const int nums[] = { 2, 3, 4, 5, 6, 7 }, dens[] = { 4, 4, 4, 4, 8, 8 };
+            const int i = juce::jlimit (1, 6, timeSigBox.getSelectedId()) - 1;
+            engine.setTimeSignature (nums[i], dens[i]);
+            ++editCounter;
+            drumPanel.setTemplatesEnabled (engine.drums.barSteps.load() == DrumMachine::stepsPerBar);
+            drumPanel.repaint();
+            grabKeyboardFocus();
+        };
+        addAndMakeVisible (timeSigBox);
+    }
     barsBox.onChange = [this] { engine.loopBars = barsBox.getSelectedId(); grabKeyboardFocus(); };
     addAndMakeVisible (barsBox);
 
@@ -377,6 +394,7 @@ void MainComponent::updateSettingsFromEngine()
     loopBtn.setToggleState (engine.loopEnabled.load(), juce::dontSendNotification);
     clickBtn.setToggleState (engine.clickEnabled.load(), juce::dontSendNotification);
     barsBox.setSelectedId (engine.loopBars.load(), juce::dontSendNotification);
+    syncTimeSigBox();
     clickVol.setValue (engine.clickVolume.load(), juce::dontSendNotification);
     const int cb = engine.countInBars.load();
     countInBox.setSelectedId (cb <= 0 ? 1 : 10 + cb, juce::dontSendNotification);
@@ -956,7 +974,7 @@ void MainComponent::timerCallback()
     playBtn.setToggleState (st == AudioEngine::Playing, juce::dontSendNotification);
 
     const bool idle = st == AudioEngine::Stopped;
-    for (auto* c : std::initializer_list<juce::Component*> { &bpmLabel, &tapBtn, &loopBtn, &barsBox })
+    for (auto* c : std::initializer_list<juce::Component*> { &bpmLabel, &tapBtn, &loopBtn, &barsBox, &timeSigBox })
         c->setEnabled (idle);
 
     const double sr = juce::jmax (1.0, engine.getSampleRate());
@@ -969,7 +987,7 @@ void MainComponent::timerCallback()
 
     if (st == AudioEngine::CountIn)
     {
-        const int beat = (int) (engine.getCountInPosition() / spb) % 4 + 1;     // 1-2-3-4
+        const int beat = (int) (engine.getCountInPosition() / engine.getPulseSamples()) % engine.getPulsesPerBar() + 1;     // 1-2-3-4
         barLabel.setText ("Count " + juce::String (beat), juce::dontSendNotification);
         barLabel.setColour (juce::Label::textColourId, Theme::yellow);
     }
@@ -993,7 +1011,7 @@ void MainComponent::timerCallback()
         for (int slot : engine.order) clipEnd = juce::jmax (clipEnd, engine.tracks[slot].length.load() + juce::jmax (0, engine.tracks[slot].offset.load()));
         const auto barLen = juce::jmax<juce::int64> (1, engine.getBarLength());
         view = (double) juce::jmax (engine.getLoopLength(), ((clipEnd + barLen - 1) / barLen) * barLen) / sr;
-        barSecs = 4.0 * spb / sr;
+        barSecs = engine.getBarBeats() * spb / sr;
     }
     else
         view = juce::jmax (30.0, std::ceil ((longest / sr + 1.0) / 30.0) * 30.0);
@@ -1079,7 +1097,8 @@ void MainComponent::resized()
     bpmCaption.setBounds (sb.removeFromLeft (36));
     bpmLabel.setBounds (sb.removeFromLeft (64));  sb.removeFromLeft (6);
     tapBtn.setBounds (sb.removeFromLeft (48));    sb.removeFromLeft (18);
-    barsBox.setBounds (sb.removeFromLeft (80));   sb.removeFromLeft (18);
+    barsBox.setBounds (sb.removeFromLeft (80));   sb.removeFromLeft (6);
+    timeSigBox.setBounds (sb.removeFromLeft (64)); sb.removeFromLeft (18);
     clickBtn.setBounds (sb.removeFromLeft (56));  sb.removeFromLeft (6);
     clickVol.setBounds (sb.removeFromLeft (90));  sb.removeFromLeft (18);
     punchBtn.setBounds (sb.removeFromLeft (56));  sb.removeFromLeft (18);
@@ -1154,6 +1173,16 @@ void MainComponent::showAudioSettings()
     audioDialog = o.launchAsync();
 }
 
+void MainComponent::syncTimeSigBox()
+{
+    const int n = engine.tsNum.load(), d = engine.tsDen.load();
+    int id = 3;
+    if (d == 4) id = n == 2 ? 1 : n == 3 ? 2 : n == 5 ? 4 : 3;
+    else id = n == 7 ? 6 : 5;
+    timeSigBox.setSelectedId (id, juce::dontSendNotification);
+    drumPanel.setTemplatesEnabled (engine.drums.barSteps.load() == DrumMachine::stepsPerBar);
+}
+
 void MainComponent::updateNotesButton()
 {
     notesBtn.setToggleState (engine.projectNotes.trim().isNotEmpty(), juce::dontSendNotification);
@@ -1185,6 +1214,7 @@ void MainComponent::newProject()
     engine.masterVolume = 1.0f;
     engine.drums.resetAll();
     engine.bpm = 120.0; engine.loopBars = 4; engine.loopEnabled = true;
+    engine.setTimeSignature (4, 4);
     engine.countInBars = 1; engine.clickEnabled = false; engine.clickVolume = 0.5f;
     engine.projectNotes.clear();
     updateNotesButton();
@@ -1282,13 +1312,24 @@ void MainComponent::doImport (const juce::File& file)
         snap->valid = true; snap->slot = -1; snap->orderPos = 1000;
         snap->name = file.getFileNameWithoutExtension();
         snap->echoDiv = (int) TrackFx::Quarter;
+        juce::String trimNote;
+        {
+            juce::int64 a = 0, z = 0;
+            if (SilenceTrim::findRange (*buf, buf->getNumSamples(), engine.getSampleRate(), a, z))
+            {
+                juce::AudioBuffer<float> kept (2, (int) (z - a));
+                for (int c = 0; c < 2; ++c) kept.copyFrom (c, 0, *buf, c, (int) a, (int) (z - a));
+                trimNote = " (trimmed " + juce::String ((buf->getNumSamples() - (int) (z - a)) / juce::jmax (1.0, engine.getSampleRate()), 1) + " s of silence)";
+                *buf = std::move (kept);
+            }
+        }
         snap->audio = std::move (*buf);
         record ("Import audio",
                 [this, slot, snap] { snap->slot = *slot; *slot = restoreTrack (*snap); syncRows(); },
                 [this, slot, snap] { *snap = captureTrack (*slot); engine.removeTrack (*slot); syncRows(); });
         zoom = 1.0; zoomStart = 0.0;
         viewport.setViewPosition (0, list.contentHeight());
-        setStatus ("Imported " + file.getFileName() + ". Select the part you want (Alt+drag = whole bars), then Crop to loop it");
+        setStatus ("Imported " + file.getFileName() + trimNote + ". Select the part you want (Alt+drag = whole bars), then Crop to loop it");
     }), true);
 }
 

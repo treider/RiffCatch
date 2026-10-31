@@ -2,6 +2,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "audio/AudioEngine.h"
 #include "ui/ThemeEditor.h"
+#include "audio/SilenceTrim.h"
 #include "ui/TrackRow.h"
 #include "ui/DrumPanel.h"
 #include "ui/MixerPanel.h"
@@ -125,7 +126,8 @@ private:
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
     juce::Label bpmLabel;
     juce::TextButton tapBtn { "Tap" }, clickBtn { "Click" };
-    juce::ComboBox barsBox, countInBox;
+    juce::ComboBox barsBox, countInBox, timeSigBox;
+    void syncTimeSigBox();
     juce::Slider clickVol, latAdjust;
     juce::Label latLabel;
     std::vector<double> taps;

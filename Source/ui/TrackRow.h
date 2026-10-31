@@ -2,6 +2,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Theme.h"
 #include "audio/AudioEngine.h"
+#include "audio/SilenceTrim.h"
 #include "Undo.h"
 
 // Record-arm button drawn as a record dot (filled red button with dark dot when armed).
@@ -52,6 +53,7 @@ public:
     enum SelCmd { SelSilence, SelCut, SelCopy, SelPaste, SelFadeIn, SelFadeOut, SelReverse };
     void selectAll();
     void cropToSelection();
+    void trimSilence();
     std::function<void (juce::int64)> onCropped;
     std::function<void (juce::int64)> onClipGrew;   // end of the clip (samples on the timeline) after a duplicate   // length of the cropped clip in samples
     void restyle();

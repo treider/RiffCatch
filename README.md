@@ -9,6 +9,7 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 ### Recording and looping
 - Up to 16 tracks, each with its own input selector, arm, mute, solo, volume and pan
 - Loop lengths from 1 to 64 bars at 4/4, sample-synchronous transport
+- Time signatures 2/4, 3/4, 4/4, 5/4, 6/8 and 7/8 (BPM counts quarter notes; the click, ruler, loop length and drum grid follow)
 - Count-in, metronome click with volume, tap tempo
 - Punch in/out recording
 - Undo/redo for editing actions
@@ -28,6 +29,7 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 - Ctrl+drag the title strip to duplicate a clip (snaps to bars, loop grows automatically)
 - Snap to beats, bars or 1/16 with modifier keys
 - Zoom with Ctrl+wheel, pan with Shift+wheel
+- Trim silence (clip menu) keeps the timing. Imported files are trimmed automatically
 - Import audio files (WAV and others) onto a new track by menu, drag and drop, or right-click in the empty area below the tracks
 
 ### Mixer
