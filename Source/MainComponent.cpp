@@ -422,7 +422,19 @@ void MainComponent::fileMenu()
     m.addItem (6, "Audio settings...");
     m.addSeparator();
     juce::PopupMenu themes;
-    for (int i = 0; i < Theme::numPresets; ++i) themes.addItem (300 + i, Theme::presets[i].name, true, i == Theme::current);
+    for (int i = 0; i < Theme::numPresets(); ++i)
+    {
+        if (i == Theme::builtinCount) themes.addSeparator();
+        themes.addItem (300 + i, Theme::presets[(size_t) i].name, true, i == Theme::current);
+    }
+    themes.addSeparator();
+    themes.addItem (290, "Custom theme...");
+    if (Theme::numPresets() > Theme::builtinCount)
+    {
+        juce::PopupMenu del;
+        for (int i = Theme::builtinCount; i < Theme::numPresets(); ++i) del.addItem (500 + i, Theme::presets[(size_t) i].name);
+        themes.addSubMenu ("Delete custom theme", del);
+    }
     m.addSubMenu ("Theme", themes);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileBtn), [this] (int id)
     {
@@ -435,7 +447,18 @@ void MainComponent::fileMenu()
             case 5: exportMenu(); break;
             case 6: showAudioSettings(); break;
             case 7: importAudio(); break;
-            default: if (id >= 300 && id < 300 + Theme::numPresets) applyTheme (id - 300); break;
+            case 290: openThemeEditor(); break;
+            default:
+                if (id >= 300 && id < 300 + Theme::numPresets()) applyTheme (id - 300);
+                else if (id >= 500 && id < 500 + Theme::numPresets())
+                {
+                    const int idx = id - 500, cur = Theme::current;
+                    const auto name = Theme::presets[(size_t) idx].name;
+                    ThemeStore::remove (idx);
+                    applyTheme (cur == idx ? 3 : ThemeStore::indexOf (Theme::presets[(size_t) juce::jlimit (0, Theme::numPresets() - 1, cur)].name));
+                    setStatus ("Deleted theme: " + name, 60);
+                }
+                break;
         }
         grabKeyboardFocus();
     });
@@ -712,7 +735,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
     {
         if (mods.isShiftDown() && (code == 'O' || code == 'P'))     // previous / next theme
         {
-            applyTheme ((Theme::current + (code == 'P' ? 1 : Theme::numPresets - 1)) % Theme::numPresets);
+            applyTheme ((Theme::current + (code == 'P' ? 1 : Theme::numPresets() - 1)) % Theme::numPresets());
             return true;
         }
         if (code == 'S') { saveProject (mods.isShiftDown()); return true; }
@@ -805,11 +828,49 @@ void MainComponent::lookAndFeelChanged() { restyle(); }
 void MainComponent::applyTheme (int index)
 {
     Theme::apply (index);
+    refreshTheme();
+    if (auto* f = props.getUserSettings())
+    {
+        f->setValue ("theme", Theme::current);
+        f->setValue ("themeName", Theme::presets[(size_t) Theme::current].name);
+        f->saveIfNeeded();
+    }
+    setStatus (juce::String ("Theme: ") + Theme::presets[(size_t) Theme::current].name, 60);
+}
+
+void MainComponent::refreshTheme()
+{
     if (auto* laf = dynamic_cast<RiffLookAndFeel*> (&getLookAndFeel())) laf->applyColours();
     if (auto* top = getTopLevelComponent()) top->sendLookAndFeelChange(); else sendLookAndFeelChange();
     if (auto* peer = getPeer()) applyDarkTitleBar (peer, Theme::bg, Theme::text);
-    if (auto* f = props.getUserSettings()) { f->setValue ("theme", Theme::current); f->saveIfNeeded(); }
-    setStatus (juce::String ("Theme: ") + Theme::presets[Theme::current].name, 60);
+}
+
+void MainComponent::openThemeEditor()
+{
+    const int before = Theme::current;
+    auto* ed = new ThemeEditor (Theme::blue, Theme::cyan, Theme::bg.getPerceivedBrightness() < 0.5f);
+    juce::Component::SafePointer<MainComponent> self (this);
+    ed->onDiscard = [self, before] { if (self != nullptr) self->applyTheme (before); };
+    ed->onPreview = [this] (const Theme::Preset& p) { Theme::applyPreset (p, false); refreshTheme(); };
+
+    juce::DialogWindow::LaunchOptions o;
+    o.content.setOwned (ed);
+    o.dialogTitle = "Custom theme";
+    o.dialogBackgroundColour = Theme::bg;
+    o.escapeKeyTriggersCloseButton = true;
+    o.useNativeTitleBar = true;
+    o.resizable = false;
+    auto* win = o.launchAsync();
+    juce::Component::SafePointer<juce::DialogWindow> sp (win);
+    ed->onCancel = [sp] { if (sp != nullptr) sp->exitModalState (0); };
+    ed->onSave = [self, sp] (const Theme::Preset& p)
+    {
+        ThemeStore::save (p);
+        ThemeStore::reload();
+        const int idx = ThemeStore::indexOf (p.name);
+        if (self != nullptr) self->applyTheme (idx >= 0 ? idx : 3);
+        if (sp != nullptr) sp->exitModalState (1);
+    };
 }
 
 // The info bar (the yellow field at the top right) also shows hover hints instead of pop-up tooltips.

@@ -1,7 +1,7 @@
 #pragma once
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "audio/AudioEngine.h"
-#include "ui/Theme.h"
+#include "ui/ThemeEditor.h"
 #include "ui/TrackRow.h"
 #include "ui/DrumPanel.h"
 #include "ui/MixerPanel.h"
@@ -49,6 +49,8 @@ private:
     void lookAndFeelChanged() override;
     void restyle();
     void applyTheme (int index);
+    void refreshTheme();
+    void openThemeEditor();
     void mouseEnter (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
     void stopTransport();

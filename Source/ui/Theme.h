@@ -33,8 +33,8 @@ namespace Theme
     inline constexpr int   shadowRadius  = 8;       // blur size in px
     inline constexpr int   shadowOffsetY = 2;       // how far the shadow falls downwards
 
-    struct Preset { const char* name; juce::uint32 primary, secondary, accent, background, surface, text; };
-    inline const Preset presets[] =
+    struct Preset { juce::String name; juce::uint32 primary, secondary, accent, background, surface, text; };
+    inline std::vector<Preset> presets =   // the nine built-ins first, then user themes loaded from disk
     {
         { "Tokyo Night", 0xff7aa2f7, 0xffbb9af7, 0xff7dcfff, 0xff1a1b26, 0xff1f2133, 0xffc0caf5 },
         { "Ocean",       0xff2563eb, 0xff0ea5e9, 0xff06b6d4, 0xff0f172a, 0xff1e293b, 0xfff1f5f9 },
@@ -46,21 +46,19 @@ namespace Theme
         { "Coral",       0xfff43f5e, 0xfffb7185, 0xfffda4af, 0xff451a1a, 0xff7f1d1d, 0xffffe4e6 },
         { "Mint",        0xff14b8a6, 0xff2dd4bf, 0xff5eead4, 0xff134e4a, 0xff0f766e, 0xffccfbf1 },
     };
-    inline constexpr int numPresets = (int) (sizeof (presets) / sizeof (presets[0]));
+    inline constexpr int builtinCount = 9;
+    inline int numPresets() { return (int) presets.size(); }
     inline int current = 3;   // Sunset
 
-    inline void apply (int index)
+    inline void applyPreset (const Preset& p, bool legacy)
     {
-        index = juce::jlimit (0, numPresets - 1, index);
-        current = index;
-        const auto& p = presets[index];
         const juce::Colour B (p.background), S (p.surface), T (p.text);
         blue = accent = juce::Colour (p.primary);
         purple = juce::Colour (p.secondary);
         cyan = juce::Colour (p.accent);
         text = T;
-        legacyTracks = (index == 0);
-        if (index == 0)   // the original palette, exactly
+        legacyTracks = legacy;
+        if (legacy)   // the original palette, exactly
         {
             bg = B; panel = S;
             deep = juce::Colour (0xff14151d); raised = juce::Colour (0xff292e42); border = juce::Colour (0xff2f334d); dim = juce::Colour (0xff565f89);
@@ -75,6 +73,24 @@ namespace Theme
         }
         frame = deep;
         onAccent = accent.getPerceivedBrightness() > 0.55f ? juce::Colour (0xff14151d) : juce::Colour (0xfff8fafc);
+    }
+    inline void apply (int index)
+    {
+        index = juce::jlimit (0, numPresets() - 1, index);
+        current = index;
+        applyPreset (presets[(size_t) index], index == 0);
+    }
+
+    // Build a full theme from just a primary and an accent colour. The base is tinted with the primary hue.
+    inline Preset generate (const juce::String& name, juce::Colour primary, juce::Colour accentCol, bool dark)
+    {
+        const float h = primary.getHue();
+        const float s = juce::jlimit (0.12f, 0.45f, primary.getSaturation() * 0.5f);
+        const juce::Colour bgC   = dark ? juce::Colour::fromHSV (h, s, 0.10f, 1.0f) : juce::Colour::fromHSV (h, s * 0.25f, 0.96f, 1.0f);
+        const juce::Colour surfC = dark ? juce::Colour::fromHSV (h, s, 0.17f, 1.0f) : juce::Colour::fromHSV (h, s * 0.35f, 0.89f, 1.0f);
+        const juce::Colour textC = dark ? juce::Colour::fromHSV (h, 0.12f, 0.95f, 1.0f) : juce::Colour::fromHSV (h, 0.30f, 0.14f, 1.0f);
+        return { name, primary.getARGB(), primary.withRotatedHue (0.08f).getARGB(), accentCol.getARGB(),
+                 bgC.getARGB(), surfC.getARGB(), textC.getARGB() };
     }
 
     inline juce::Colour trackColour (int i)

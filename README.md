@@ -40,6 +40,7 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 
 ### Themes
 - Nine built-in themes, switched from the File menu or with `Ctrl+Shift+O` / `Ctrl+Shift+P` (previous / next)
+- Custom theme generator (File > Theme > Custom theme...): pick a primary and an accent colour plus dark or light, and the rest of the palette is derived with a live preview. Saved themes are stored as JSON in `%APPDATA%\RiffCatch\themes` and appear in the Theme menu
 
 ![RiffCatch main window, Midnight theme](docs/screenshots/main-midnight.png)
 

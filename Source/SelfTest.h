@@ -4,6 +4,7 @@
 #include "ui/Undo.h"
 #include "audio/DrumTemplates.h"
 #include "project/AudioImport.h"
+#include "ui/ThemeStore.h"
 
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
@@ -418,6 +419,27 @@ inline juce::String runEngineSelfTest()
         cur.bars = 4;
         auto b4 = DrumTemplates::apply (cur, 0);
         check (b4.bars == 4 && std::memcmp (&b4.steps[1][0], &b4.steps[1][32], 16) == 0, "longer patterns repeat the two bars");
+    }
+
+    {   // custom themes
+        const auto dk = Theme::generate ("selftest-theme", juce::Colour (0xffea580c), juce::Colour (0xfffbbf24), true);
+        const auto lt = Theme::generate ("selftest-light", juce::Colour (0xff2563eb), juce::Colour (0xff06b6d4), false);
+        auto contrast = [] (juce::uint32 a, juce::uint32 b) { return std::abs (juce::Colour (a).getPerceivedBrightness() - juce::Colour (b).getPerceivedBrightness()); };
+        check (contrast (dk.background, dk.text) > 0.6f, "generated dark theme: text contrasts with background");
+        check (contrast (lt.background, lt.text) > 0.6f, "generated light theme: text contrasts with background");
+        check (juce::Colour (dk.background).getPerceivedBrightness() < juce::Colour (lt.background).getPerceivedBrightness(), "dark base is darker than light base");
+        check (ThemeStore::save (dk), "custom theme saved to disk");
+        ThemeStore::reload();
+        const int idx = ThemeStore::indexOf ("selftest-theme");
+        check (idx >= Theme::builtinCount, "custom theme found after reload");
+        if (idx >= 0)
+        {
+            const auto& r = Theme::presets[(size_t) idx];
+            check (r.primary == dk.primary && r.accent == dk.accent && r.background == dk.background && r.surface == dk.surface && r.text == dk.text,
+                   "custom theme round-trips through JSON");
+            check (ThemeStore::remove (idx) && ThemeStore::indexOf ("selftest-theme") < 0, "custom theme deleted");
+        }
+        check (Theme::numPresets() == Theme::builtinCount, "only built-in themes remain");
     }
 
     log << (ok ? "ALL OK" : "FAILURES") << "\n";
