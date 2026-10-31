@@ -50,6 +50,7 @@ MainComponent::MainComponent()
     if (auto* f = props.getUserSettings()) drumPanel.setExpanded (f->getBoolValue ("drumsExpanded", true));
     mixer.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
     mixer.onTrackChanged = [this] (int slot) { if (slot >= 0 && slot < rows.size() && rows[slot] != nullptr) rows[slot]->syncMix(); };
+    mixer.onAddTrack = [this] { addTrack(); };
     mixer.onInfo = [this] (const juce::String& s) { setStatus (s, 45); };
     mixer.onLayoutChanged = [this]
     {
@@ -761,6 +762,7 @@ void MainComponent::timerCallback()
         dupBtn.setEnabled (selectionRow() != nullptr);
     }
     addTrackBtn.setEnabled (engine.getNumTracks() < AudioEngine::maxTracks);
+    mixer.setCanAdd (engine.getNumTracks() < AudioEngine::maxTracks);
     undoBtn.setEnabled (undoManager.canUndo());
     redoBtn.setEnabled (undoManager.canRedo());
     undoBtn.setTooltip (undoManager.canUndo() ? "Undo " + undoManager.getUndoDescription() + " (Ctrl+Z)" : "Nothing to undo");

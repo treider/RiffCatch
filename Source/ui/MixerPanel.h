@@ -54,10 +54,10 @@ private:
 class MixerPanel : public juce::Component
 {
 public:
-    static constexpr int headerH = 26, stripH = 238;
+    static constexpr int headerH = 34, stripH = 238, padX = 10, padBottom = 10;
     explicit MixerPanel (AudioEngine& e);
 
-    int preferredHeight() const { return expanded ? headerH + stripH + 8 : headerH; }
+    int preferredHeight() const { return expanded ? headerH + stripH + padBottom : headerH; }
     bool isExpanded() const noexcept { return expanded; }
     void setExpanded (bool b);
     void refreshFromEngine();
@@ -70,6 +70,8 @@ public:
     std::function<void (const juce::String&)> onInfo;
     UndoPush onUndoable;
     std::function<void()> onLayoutChanged;
+    std::function<void()> onAddTrack;
+    void setCanAdd (bool b) { if (b == canAdd) return; canAdd = b; plus.setVisible (b && expanded); layoutStrips(); }
 
 private:
     struct Chevron : juce::Button
@@ -87,8 +89,28 @@ private:
         }
     };
 
+    struct PlusTile : juce::Button
+    {
+        PlusTile() : juce::Button ({}) { setWantsKeyboardFocus (false); setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+        void paintButton (juce::Graphics& g, bool over, bool down) override
+        {
+            auto r = getLocalBounds().toFloat();
+            g.setColour (Theme::deep.withAlpha (0.55f));
+            g.fillRoundedRectangle (r, Theme::radiusLg);
+            g.setColour ((over || down ? Theme::accent : Theme::dim).withAlpha (0.8f));
+            g.drawRoundedRectangle (r.reduced (0.5f), Theme::radiusLg, 1.0f);
+            const auto c = r.getCentre();
+            g.drawLine (c.x - 8.0f, c.y, c.x + 8.0f, c.y, 2.0f);
+            g.drawLine (c.x, c.y - 8.0f, c.x, c.y + 8.0f, 2.0f);
+        }
+    };
+
     void rebuild();
     void layoutStrips();
+
+    bool canAdd = true;
+    PlusTile plus;
+    LevelMeter rowMeter;   // master VU in the header, visible while collapsed
 
     AudioEngine& engine;
     bool expanded = true;

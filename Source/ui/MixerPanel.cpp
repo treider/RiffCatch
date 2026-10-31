@@ -190,9 +190,9 @@ void ChannelStrip::paint (juce::Graphics& g)
         g.setColour (Theme::panel);
         g.fillRect (b);
         g.setColour (accent);
-        g.fillRect (isMaster() ? b.withWidth (4.0f) : b.withHeight (3.0f));   // master: side stripe like Drums
+        g.fillRect (b.withHeight (3.0f));
     }
-    g.setColour (isMaster() ? accent.withAlpha (0.35f) : Theme::border.withAlpha (0.55f));
+    g.setColour (Theme::border.withAlpha (0.55f));
     g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
 
     {   // dark well around VU + fader, with a lighter ring
@@ -236,9 +236,16 @@ MixerPanel::MixerPanel (AudioEngine& e) : engine (e), master (e, -1, 0)
     chevron.onClick = [this] { setExpanded (! expanded); };
     title.setText ("MIXER", juce::dontSendNotification);
     title.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
-    title.setColour (juce::Label::textColourId, Theme::dim);
+    title.setColour (juce::Label::textColourId, Theme::text);
     title.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (title);
+
+    plus.setTooltip ("Add new track");
+    plus.onClick = [this] { if (onAddTrack) onAddTrack(); };
+    holder.addChildComponent (plus);
+    rowMeter.setHorizontal (true);
+    addChildComponent (rowMeter);
+    rowMeter.setVisible (false);
 
     stripView.setViewedComponent (&holder, false);
     stripView.setScrollBarsShown (false, true);
@@ -257,6 +264,8 @@ void MixerPanel::setExpanded (bool b)
     chevron.repaint();
     stripView.setVisible (b);
     master.setVisible (b);
+    rowMeter.setVisible (! b);
+    plus.setVisible (b && canAdd);
     if (onLayoutChanged) onLayoutChanged();
 }
 
@@ -287,31 +296,54 @@ void MixerPanel::layoutStrips()
 {
     const int n = strips.size();
     const int avail = stripView.getWidth();
-    const int sw = n > 0 ? juce::jlimit (66, 120, avail / n) : 80;
-    holder.setSize (juce::jmax (avail, n * sw), juce::jmax (40, stripView.getMaximumVisibleHeight()));
+    const int slots = n + (canAdd ? 1 : 0);
+    const int sw = slots > 0 ? juce::jlimit (66, 120, avail / slots) : 80;
+    holder.setSize (juce::jmax (avail, slots * sw), juce::jmax (40, stripView.getMaximumVisibleHeight()));
     for (int i = 0; i < n; ++i)
         strips[i]->setBounds (i * sw, 0, sw - 4, holder.getHeight());
+    plus.setBounds (n * sw, 0, sw - 4, holder.getHeight());
+    plus.setVisible (canAdd && expanded);
 }
 
 void MixerPanel::tick()
 {
     rebuild();
-    if (! expanded) return;
+    if (! expanded) { rowMeter.setLevels (engine.masterPeakL.exchange (0.0f), engine.masterPeakR.exchange (0.0f)); return; }
     for (auto* s : strips) s->tick();
     master.tick();
 }
 
-void MixerPanel::paint (juce::Graphics&) {}
+void MixerPanel::paint (juce::Graphics& g)
+{
+    const auto accent = Theme::purple;
+    const auto b = getLocalBounds().toFloat();
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        juce::Path card;
+        card.addRoundedRectangle (b, Theme::radiusLg);
+        g.reduceClipRegion (card);
+        g.setColour (Theme::panel);
+        g.fillRect (b);
+        g.setColour (accent);
+        g.fillRect (b.withWidth (4.0f));
+    }
+    g.setColour (accent.withAlpha (0.22f));
+    g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
+}
 
-void MixerPanel::lookAndFeelChanged() { title.setColour (juce::Label::textColourId, Theme::dim); }
+void MixerPanel::lookAndFeelChanged() { title.setColour (juce::Label::textColourId, Theme::text); }
 
 void MixerPanel::resized()
 {
     auto r = getLocalBounds();
     auto head = r.removeFromTop (headerH);
+    head.removeFromLeft (8);
     chevron.setBounds (head.removeFromLeft (30).reduced (2));
     title.setBounds (head.removeFromLeft (100));
-    r.removeFromTop (0);
+    head.removeFromRight (padX + 6);
+    rowMeter.setBounds (head.removeFromRight (190).withSizeKeepingCentre (190, 14));
+    r.removeFromLeft (padX + 4);
+    r.removeFromRight (padX);
     auto body = r.withHeight (stripH);
     master.setBounds (body.removeFromRight (104));
     body.removeFromRight (6);
