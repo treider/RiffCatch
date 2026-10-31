@@ -279,14 +279,14 @@ MainComponent::MainComponent()
         static const char* const sigs[] = { "2/4", "3/4", "4/4", "5/4", "6/8", "7/8" };
         for (int i = 0; i < 6; ++i) timeSigBox.addItem (sigs[i], i + 1);
         timeSigBox.setWantsKeyboardFocus (false);
-        timeSigBox.setTooltip ("Time signature. BPM counts quarter notes; drum templates are for 4/4");
+        timeSigBox.setTooltip ("Time signature. BPM counts quarter notes");
         timeSigBox.onChange = [this]
         {
             static const int nums[] = { 2, 3, 4, 5, 6, 7 }, dens[] = { 4, 4, 4, 4, 8, 8 };
             const int i = juce::jlimit (1, 6, timeSigBox.getSelectedId()) - 1;
             engine.setTimeSignature (nums[i], dens[i]);
             ++editCounter;
-            drumPanel.setTemplatesEnabled (engine.drums.barSteps.load() == DrumMachine::stepsPerBar);
+            drumPanel.refreshTemplates();
             drumPanel.repaint();
             grabKeyboardFocus();
         };
@@ -1180,7 +1180,7 @@ void MainComponent::syncTimeSigBox()
     if (d == 4) id = n == 2 ? 1 : n == 3 ? 2 : n == 5 ? 4 : 3;
     else id = n == 7 ? 6 : 5;
     timeSigBox.setSelectedId (id, juce::dontSendNotification);
-    drumPanel.setTemplatesEnabled (engine.drums.barSteps.load() == DrumMachine::stepsPerBar);
+    drumPanel.refreshTemplates();
 }
 
 void MainComponent::updateNotesButton()

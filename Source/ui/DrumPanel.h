@@ -17,7 +17,7 @@ public:
     int preferredHeight() const { return expanded ? headerH + DrumMachine::numVoices * laneH + bottomPad : headerH; }
     bool isExpanded() const noexcept { return expanded; }
     void setExpanded (bool b);
-    void setTemplatesEnabled (bool on) { templateBox.setEnabled (on); templateBox.setTooltip (on ? "Replace the pattern with a ready-made two-bar groove (undoable)" : "Templates are written for 4/4"); }
+    void refreshTemplates();
     void setView (double seconds, double barSecs, double start = 0.0, double full = -1.0);
     std::function<void (const juce::MouseEvent&, const juce::MouseWheelDetails&)> onWheel;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override { if (onWheel) onWheel (e, w); }

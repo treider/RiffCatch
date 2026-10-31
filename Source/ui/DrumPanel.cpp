@@ -60,14 +60,7 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
     addAndMakeVisible (barsBox);
 
     {   // ready-made patterns
-        int n = 0;
-        const auto* t = DrumTemplates::all (n);
-        const char* group = "";
-        for (int i = 0; i < n; ++i)
-        {
-            if (juce::String (group) != t[i].group) { group = t[i].group; templateBox.addSectionHeading (group); }
-            templateBox.addItem (t[i].name, i + 1);
-        }
+        refreshTemplates();
         templateBox.setTextWhenNothingSelected ("Template");
         templateBox.setWantsKeyboardFocus (false);
         templateBox.setTooltip ("Replace the pattern with a ready-made two-bar groove (undoable)");
@@ -229,6 +222,25 @@ double DrumPanel::stepSec() const
 int DrumPanel::viewSteps() const
 {
     return barSeconds > 0.0 ? juce::jmax (1, (int) std::lround (fullSeconds / barSeconds) * engine.drums.barSteps.load()) : 4 * engine.drums.barSteps.load();
+}
+
+// Lists the templates written for the current time signature.
+void DrumPanel::refreshTemplates()
+{
+    const auto sig = juce::String (engine.tsNum.load()) + "/" + juce::String (engine.tsDen.load());
+    templateBox.clear (juce::dontSendNotification);
+    int n = 0;
+    const auto* t = DrumTemplates::all (n);
+    juce::String group;
+    for (int i = 0; i < n; ++i)
+    {
+        if (sig != t[i].sig) continue;
+        if (group != t[i].group) { group = t[i].group; templateBox.addSectionHeading (group); }
+        templateBox.addItem (t[i].name, i + 1);
+    }
+    templateBox.setEnabled (templateBox.getNumItems() > 0);
+    templateBox.setTooltip (templateBox.isEnabled() ? "Replace the pattern with a ready-made two-bar groove (undoable)"
+                                                    : "No templates for this time signature yet");
 }
 
 void DrumPanel::updateControls()

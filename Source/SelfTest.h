@@ -401,12 +401,25 @@ inline juce::String runEngineSelfTest()
     {   // drum templates
         int n = 0;
         const auto* t = DrumTemplates::all (n);
-        check (n == 8, "8 drum templates");
+        check (n == 21, "21 drum templates (got " + juce::String (n) + ")");
+        {
+            bool lengthsOk = true;
+            for (int i = 0; i < n; ++i)
+            {
+                const juce::String sig (t[i].sig);
+                const int num = sig.upToFirstOccurrenceOf ("/", false, false).getIntValue(), den = sig.fromFirstOccurrenceOf ("/", false, false).getIntValue();
+                const int steps = (int) std::lround (num * 4.0 * 4.0 / den);
+                for (int b = 0; b < 2; ++b)
+                    for (int v = 0; v < DrumMachine::numVoices; ++v)
+                        lengthsOk &= (int) std::strlen (t[i].bar[b][v]) == steps;
+            }
+            check (lengthsOk, "every template row has exactly one character per step of its time signature");
+        }
         bool lenOk = true, kickOk = true;
         for (int i = 0; i < n; ++i)
             for (int b = 0; b < 2; ++b)
             {
-                for (int v = 0; v < DrumMachine::numVoices; ++v) lenOk &= juce::String (t[i].bar[b][v]).length() == DrumMachine::stepsPerBar;
+                for (int v = 0; v < DrumMachine::numVoices; ++v) lenOk &= juce::String (t[i].sig) != "4/4" || juce::String (t[i].bar[b][v]).length() == DrumMachine::stepsPerBar;
                 kickOk &= t[i].bar[b][DrumMachine::Kick][0] == 'x';
             }
         check (lenOk, "every template row has 16 steps");
