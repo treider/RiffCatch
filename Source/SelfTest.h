@@ -2,6 +2,7 @@
 #include "audio/AudioEngine.h"
 #include "project/Exporter.h"
 #include "ui/Undo.h"
+#include "audio/DrumTemplates.h"
 
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
@@ -360,6 +361,43 @@ inline juce::String runEngineSelfTest()
         check (pkDry < 1.0e-6f && pkEcho > 0.1f, "echo 1/4 repeats the hit exactly one beat later (peak " + juce::String (pkEcho, 3) + ")");
         check (std::abs (echo[5000]) > 0.3f && std::abs (dry[5000]) > 0.3f, "the dry hit is unchanged with echo on");
         check (tailRev > 0.001f, "reverb adds a tail after the hit (" + juce::String (tailRev, 4) + ")");
+    }
+
+    {   // punch in/out: the old clip stays outside the punch window, the new take replaces it inside
+        Track tr;
+        juce::AudioBuffer<float> oldB (2, 1000), newB (2, 1000);
+        for (int i = 0; i < 1000; ++i) for (int c = 0; c < 2; ++c) { oldB.setSample (c, i, 0.25f); newB.setSample (c, i, 0.75f); }
+        tr.data.setSize (2, 1000); tr.data.makeCopyOf (oldB); tr.length = 1000; tr.offset = 0;
+        tr.commitTake (newB, 1000, 0, false, 0, 400, 600);
+        const auto& d = tr.data;
+        check (tr.length.load() == 1000, "punch keeps the clip length");
+        check (std::abs (d.getSample (0, 100) - 0.25f) < 1.0e-5f && std::abs (d.getSample (0, 800) - 0.25f) < 1.0e-5f, "punch: old audio kept outside the window");
+        check (std::abs (d.getSample (0, 500) - 0.75f) < 1.0e-3f, "punch: new audio inside the window");
+    }
+
+    {   // drum templates
+        int n = 0;
+        const auto* t = DrumTemplates::all (n);
+        check (n == 8, "8 drum templates");
+        bool lenOk = true, kickOk = true;
+        for (int i = 0; i < n; ++i)
+            for (int b = 0; b < 2; ++b)
+            {
+                for (int v = 0; v < DrumMachine::numVoices; ++v) lenOk &= juce::String (t[i].bar[b][v]).length() == DrumMachine::stepsPerBar;
+                kickOk &= t[i].bar[b][DrumMachine::Kick][0] == 'x';
+            }
+        check (lenOk, "every template row has 16 steps");
+        check (kickOk, "every template has a kick on the one");
+        DrumMachine::Snapshot cur;
+        cur.bars = 1;
+        cur.steps[DrumMachine::Cymbal][5] = 1;
+        auto a = DrumTemplates::apply (cur, 0);
+        check (a.bars == 2, "a template makes the pattern two bars");
+        check (a.steps[DrumMachine::Snare][4] == 2 && a.steps[DrumMachine::Snare][12] == 2, "Rock 1: accented snare on 2 and 4");
+        check (a.steps[DrumMachine::Cymbal][5] == 0, "old steps are replaced");
+        cur.bars = 4;
+        auto b4 = DrumTemplates::apply (cur, 0);
+        check (b4.bars == 4 && std::memcmp (&b4.steps[1][0], &b4.steps[1][32], 16) == 0, "longer patterns repeat the two bars");
     }
 
     log << (ok ? "ALL OK" : "FAILURES") << "\n";

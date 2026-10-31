@@ -46,6 +46,10 @@ public:
     std::atomic<double> bpm { 120.0 };
     std::atomic<int> loopBars { 4 };
     std::atomic<bool> loopEnabled { true };
+    // Punch in/out (loop recording only): a new take replaces the old clip only inside [punchStart, punchEnd) (timeline samples)
+    std::atomic<bool> punchEnabled { false };
+    std::atomic<juce::int64> punchStart { 0 }, punchEnd { 0 };
+    bool punchActive() const noexcept { return punchEnabled.load() && loopEnabled.load() && punchEnd.load() > punchStart.load(); }
     std::atomic<int> countInBars { 1 };          // 0 = off, else whole bars of 4 beats
     std::atomic<bool> clickEnabled { false };
     std::atomic<float> clickVolume { 0.5f };

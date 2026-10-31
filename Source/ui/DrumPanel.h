@@ -71,7 +71,7 @@ private:
 
     Chevron chevron;
     juce::Label title;
-    juce::ComboBox barsBox;
+    juce::ComboBox barsBox, templateBox;
     juce::TextButton clearBtn { "Clear" }, prevPage { "<" }, nextPage { ">" }, muteBtn { "M" }, soloBtn { "S" };
     juce::Label pageLabel;
     juce::Slider volume, laneVol[DrumMachine::numVoices], lanePan[DrumMachine::numVoices], cymPitch;

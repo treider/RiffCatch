@@ -44,6 +44,7 @@ bool AudioEngine::record()
     const auto loopLen = getLoopLength();
     const auto bar = juce::jmax<juce::int64> (1, getBarLength());
     juce::int64 rs = (cursorPos.load() / bar) * bar;       // recording starts at the bar the playhead is in
+    if (punchActive()) rs = (punchStart.load() / bar) * bar;   // punch: from the bar where the punch-in point is
     if (loopMode && rs >= loopLen) rs = 0;
     recStart = rs;
     sessionLen = loopMode ? (int) (loopLen - rs) : 0;      // loop passes record from rs to the loop end
@@ -89,7 +90,8 @@ void AudioEngine::pollRecording()
         {
             tr.seenSeq = seq;
             const int rsI = (int) recStart.load();
-            const auto pc = tr.commitTake (tr.stage[tr.completedStage.load()], sessionLen, getCompensationSamples(), rsI == 0, rsI);
+            const auto pc = tr.commitTake (tr.stage[tr.completedStage.load()], sessionLen, getCompensationSamples(), rsI == 0, rsI,
+                                    punchActive() ? punchStart.load() : -1, punchActive() ? punchEnd.load() : -1);
             if (onTakeCommitted) onTakeCommitted (i, pc.first, pc.second);
             ++tr.sessionCommits;
         }
@@ -111,7 +113,8 @@ void AudioEngine::pollRecording()
                 const int len = (int) juce::jmin<juce::int64> (sessionLen, ((written + bar - 1) / bar) * bar);
                 if (written < len) sb.clear ((int) written, len - (int) written);
                 const int rsI = (int) recStart.load();
-                const auto pc = tr.commitTake (sb, len, getCompensationSamples(), rsI == 0 && len == sessionLen, rsI);
+                const auto pc = tr.commitTake (sb, len, getCompensationSamples(), rsI == 0 && len == sessionLen, rsI,
+                                        punchActive() ? punchStart.load() : -1, punchActive() ? punchEnd.load() : -1);
                 if (onTakeCommitted) onTakeCommitted (i, pc.first, pc.second);
             }
         }

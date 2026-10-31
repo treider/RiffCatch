@@ -1,4 +1,5 @@
 #include "DrumPanel.h"
+#include "audio/DrumTemplates.h"
 
 juce::Colour DrumPanel::voiceColour (int v)
 {
@@ -57,6 +58,34 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
         if (onReleaseFocus) onReleaseFocus();
     };
     addAndMakeVisible (barsBox);
+
+    {   // ready-made patterns
+        int n = 0;
+        const auto* t = DrumTemplates::all (n);
+        const char* group = "";
+        for (int i = 0; i < n; ++i)
+        {
+            if (juce::String (group) != t[i].group) { group = t[i].group; templateBox.addSectionHeading (group); }
+            templateBox.addItem (t[i].name, i + 1);
+        }
+        templateBox.setTextWhenNothingSelected ("Template");
+        templateBox.setWantsKeyboardFocus (false);
+        templateBox.setTooltip ("Replace the pattern with a ready-made two-bar groove (undoable)");
+        templateBox.onChange = [this]
+        {
+            const int id = templateBox.getSelectedId();
+            if (id < 1) return;
+            const auto before = engine.drums.snapshot();
+            const auto after = DrumTemplates::apply (before, id - 1);
+            int n2 = 0;
+            const auto name = juce::String (DrumTemplates::all (n2)[id - 1].name);
+            page = 0;
+            pushPattern ("Drum template: " + name, before, after);
+            templateBox.setSelectedId (0, juce::dontSendNotification);
+            if (onReleaseFocus) onReleaseFocus();
+        };
+        addAndMakeVisible (templateBox);
+    }
 
     clearBtn.setWantsKeyboardFocus (false);
     clearBtn.setTooltip ("Clear the pattern");
@@ -265,7 +294,8 @@ void DrumPanel::resized()
     r.removeFromLeft (6);
     chevron.setBounds (r.removeFromLeft (24));
     title.setBounds (r.removeFromLeft (64));
-    barsBox.setBounds (r.removeFromLeft (84)); r.removeFromLeft (8);
+    barsBox.setBounds (r.removeFromLeft (84)); r.removeFromLeft (6);
+    templateBox.setBounds (r.removeFromLeft (112)); r.removeFromLeft (8);
     prevPage.setBounds (r.removeFromLeft (26)); r.removeFromLeft (4);
     pageLabel.setBounds (r.removeFromLeft (72)); r.removeFromLeft (4);
     nextPage.setBounds (r.removeFromLeft (26)); r.removeFromLeft (16);

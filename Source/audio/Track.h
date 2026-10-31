@@ -136,7 +136,8 @@ public:
     // otherwise the first samples are dropped and the tail is padded with silence.
     // Returns {previous take index (-1 = none), new take index} for undo.
     std::pair<int, int> commitTake (const juce::AudioBuffer<float>& src, int len, int shiftEarlier = 0,
-                                    bool circular = true, int startOffset = 0)
+                                    bool circular = true, int startOffset = 0,
+                                    juce::int64 punchStart = -1, juce::int64 punchEnd = -1)
     {
         if (takes.empty() && length.load() > 0)
         {
@@ -159,8 +160,33 @@ public:
             if (circular && sh > 0) t.copyFrom (c, len - sh, src, c, 0, sh);
         }
         declickSeam (t, len, circular ? (len - sh) % juce::jmax (1, len) : 0);
+        int newOffset = startOffset;
+        if (punchEnd > punchStart && prev >= 0 && prev < (int) takes.size())
+        {
+            // punch in/out: the old clip stays everywhere except inside [punchStart, punchEnd), where the new take replaces it
+            const auto& pb = takes[(size_t) prev];
+            const int po = takeOffsets[(size_t) prev], pLen = pb.getNumSamples();
+            const int lo = juce::jmin (po, startOffset), hi = juce::jmax (po + pLen, startOffset + len);
+            juce::AudioBuffer<float> m (2, juce::jmax (1, hi - lo));
+            m.clear();
+            for (int c = 0; c < 2; ++c)
+            {
+                for (int i = 0; i < pLen; ++i)
+                {
+                    const juce::int64 tp = (juce::int64) po + i;
+                    if (tp < punchStart || tp >= punchEnd) m.setSample (c, po + i - lo, pb.getSample (c, i));
+                }
+                for (int i = 0; i < len; ++i)
+                {
+                    const juce::int64 tp = (juce::int64) startOffset + i;
+                    if (tp >= punchStart && tp < punchEnd) m.setSample (c, startOffset + i - lo, t.getSample (c, i));
+                }
+            }
+            t = std::move (m);
+            newOffset = lo;
+        }
         takes.push_back (std::move (t));
-        takeOffsets.push_back (startOffset);
+        takeOffsets.push_back (newOffset);
         if ((int) takes.size() > maxTakes) { takes.erase (takes.begin()); takeOffsets.erase (takeOffsets.begin()); }
         applyTake ((int) takes.size() - 1);
         return { prev, currentTake };

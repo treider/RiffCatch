@@ -28,6 +28,11 @@ private:
     void openProject();
     void saveProject (bool saveAs);
     void doSave (const juce::File& dir);
+    static juce::File autosaveDir();
+    void autosaveTick();
+    void offerRestore();
+    int autosaveTicks = 0, editCounter = 0;
+    juce::int64 lastAutosaveSig = 0;
     void doOpen (const juce::File& dir);
     void refreshStrips();
     void addTrack();
@@ -98,6 +103,7 @@ private:
     IconButton playBtn { IconButton::Play,   Theme::green };
     IconButton stopBtn { IconButton::Stop,   Theme::text };
     IconButton skipStartBtn { IconButton::SkipStart, Theme::text }, skipEndBtn { IconButton::SkipEnd, Theme::text };
+    juce::TextButton punchBtn { "Punch" };
     IconButton loopBtn { IconButton::Loop,   Theme::accent };
     ToolButton zoomInBtn { ToolButton::ZoomIn }, zoomOutBtn { ToolButton::ZoomOut }, zoomFitBtn { ToolButton::ZoomFit };
     ToolButton undoBtn { ToolButton::Undo }, redoBtn { ToolButton::Redo };

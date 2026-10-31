@@ -54,7 +54,10 @@ public:
     void restyle();
     static bool hasClipboard() { return clipboard.getNumSamples() > 0; }
     bool hasSelection() const noexcept { return selEnd > selStart; }
-    void clearSelection() { if (selEnd > selStart) { selStart = selEnd = 0; repaint (wave); } }
+    juce::int64 selectionStart() const noexcept { return selStart; }
+    juce::int64 selectionEnd() const noexcept { return selEnd; }
+    int clipOffset() { return track().offset.load(); }
+    void clearSelection() { if (selEnd > selStart) { selStart = selEnd = 0; repaint(); } }
     void selectionCommand (SelCmd cmd);
     std::function<void (TrackRow*)> onSelectionStarted, onDuplicate;
     std::function<void (const juce::String&)> onStatus;

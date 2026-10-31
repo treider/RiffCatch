@@ -343,14 +343,20 @@ void TrackRow::paint (juce::Graphics& g)
     juce::Path card;
     card.addRoundedRectangle (b, Theme::radiusLg);
     g.reduceClipRegion (card);                                          // everything below is clipped to a rounded card
-    g.setColour (Theme::panel);
+    const bool picked = hasSelection();                                 // the row being edited stands out
+    g.setColour (picked ? Theme::panel.brighter (0.10f) : Theme::panel);
     g.fillRect (b);
-    g.setColour (Theme::panel.brighter (0.05f));
+    g.setColour (Theme::panel.brighter (picked ? 0.14f : 0.05f));
     g.fillRect (b.withRight ((float) meter.getX() - 3.0f));            // header block
     g.setColour (accent.withAlpha (0.92f));
     g.fillRoundedRectangle (nameBar.toFloat(), Theme::radius);          // coloured name bar
     g.setColour (accent);
-    g.fillRect (b.withWidth (4.0f));                                    // track colour stripe
+    g.fillRect (b.withWidth (picked ? 7.0f : 4.0f));                    // track colour stripe
+    if (picked)
+    {
+        g.setColour (accent.withAlpha (0.75f));
+        g.drawRoundedRectangle (b.reduced (0.75f), Theme::radiusLg, 1.5f);
+    }
     {   // line along the top edge: strongest in the middle, fading out to both sides
         juce::ColourGradient line (glow.withAlpha (0.0f), b.getX(), b.getY(), glow.withAlpha (0.0f), b.getRight(), b.getY(), false);
         line.addColour (0.5, glow.withAlpha (0.9f));
@@ -677,7 +683,7 @@ void TrackRow::mouseDrag (const juce::MouseEvent& e)
         const auto cur = xToTake ((float) e.x, e.mods.isShiftDown());
         selStart = juce::jmin (selAnchor, cur);
         selEnd = juce::jmax (selAnchor, cur);
-        repaint (wave);
+        repaint();
         return;
     }
     if (nudging)
@@ -708,7 +714,7 @@ void TrackRow::mouseUp (const juce::MouseEvent& e)
     if (selecting)
     {
         selecting = false;
-        if (std::abs (e.getDistanceFromDragStartX()) < 3) { selStart = selEnd = 0; repaint (wave); }   // a plain click clears
+        if (std::abs (e.getDistanceFromDragStartX()) < 3) { selStart = selEnd = 0; repaint(); }   // a plain click clears
         if (onReleaseFocus) onReleaseFocus();
         return;
     }
@@ -867,7 +873,7 @@ void TrackRow::selectAll()
     if (len <= 0 || track().editing) return;
     if (onSelectionStarted) onSelectionStarted (this);
     selStart = 0; selEnd = len;
-    repaint (wave);
+    repaint();
 }
 
 void TrackRow::showClipMenu()
@@ -1130,6 +1136,17 @@ void Ruler::paint (juce::Graphics& g)
                 g.setColour (Theme::text);
                 g.drawText (juce::String (k / 4 + 1), (int) x + 5, (int) pill.getY(), 40, (int) pill.getHeight() - 4, juce::Justification::centredLeft);
             }
+        }
+        if (engine.punchActive())        // punch region: red band
+        {
+            const double sr = juce::jmax (1.0, engine.getSampleRate());
+            const float px0 = x0 + (float) (((double) engine.punchStart.load() / sr - viewStart) * pxPerSec);
+            const float px1 = x0 + (float) (((double) engine.punchEnd.load() / sr - viewStart) * pxPerSec);
+            g.setColour (Theme::red.withAlpha (0.28f));
+            g.fillRect (px0, pill.getY(), px1 - px0, pill.getHeight());
+            g.setColour (Theme::red);
+            g.fillRect (px0, pill.getY(), 2.0f, pill.getHeight());
+            g.fillRect (px1 - 2.0f, pill.getY(), 2.0f, pill.getHeight());
         }
         if (engine.loopEnabled.load())   // loop region as a thin rounded pill along the bottom
         {

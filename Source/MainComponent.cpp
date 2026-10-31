@@ -205,6 +205,27 @@ MainComponent::MainComponent()
     loopBtn.onClick  = [this] { engine.loopEnabled = loopBtn.getToggleState(); };
     clickBtn.onClick = [this] { engine.clickEnabled = clickBtn.getToggleState(); };
 
+    punchBtn.setClickingTogglesState (true);
+    punchBtn.setWantsKeyboardFocus (false);
+    punchBtn.setColour (juce::TextButton::buttonOnColourId, Theme::red);
+    punchBtn.setColour (juce::TextButton::textColourOnId, Theme::deep);
+    punchBtn.setTooltip ("Punch in/out: select a region in a waveform, arm the track and record - only that region is replaced (loop mode)");
+    punchBtn.onClick = [this]
+    {
+        if (! punchBtn.getToggleState()) { engine.punchEnabled = false; ruler.repaint(); grabKeyboardFocus(); return; }
+        auto* r = selectionRow();
+        if (r == nullptr) { punchBtn.setToggleState (false, juce::dontSendNotification); setStatus ("Punch: select a region in a waveform first"); grabKeyboardFocus(); return; }
+        const auto off = (juce::int64) r->clipOffset();
+        engine.punchStart = off + r->selectionStart();
+        engine.punchEnd = off + r->selectionEnd();
+        engine.punchEnabled = true;
+        if (! engine.loopEnabled.load()) setStatus ("Punch works in loop mode - turn Loop on");
+        else setStatus ("Punch region set - arm a track and record");
+        ruler.repaint();
+        grabKeyboardFocus();
+    };
+    addAndMakeVisible (punchBtn);
+
     for (int b : { 1, 2, 4, 8, 16 }) barsBox.addItem (juce::String (b) + (b == 1 ? " bar" : " bars"), b);
     barsBox.setWantsKeyboardFocus (false);
     barsBox.setTooltip ("Loop length in bars (4/4)");
@@ -267,12 +288,14 @@ MainComponent::MainComponent()
     {   // optional: a project folder passed on the command line is opened at start
         const auto arg = juce::JUCEApplication::getCommandLineParameters().removeCharacters ("\"").trim();
                 if (arg.isNotEmpty() && ! arg.startsWith ("--") && juce::File (arg).isDirectory()) doOpen (juce::File (arg));
+        else juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)] { if (safe != nullptr) safe->offerRestore(); });
     }
 }
 
 MainComponent::~MainComponent()
 {
     stopTimer();
+    autosaveDir().deleteRecursively();
     if (audioDialog != nullptr) delete audioDialog.getComponent();
     deviceManager.removeChangeListener (this);
     deviceManager.removeAudioCallback (&engine);
@@ -431,8 +454,49 @@ void MainComponent::doExport (const juce::File& f, int kind, int loops)
 }
 void MainComponent::record (const juce::String& name, std::function<void()> redo, std::function<void()> undo)
 {
+    ++editCounter;
     undoManager.beginNewTransaction (name);
     undoManager.perform (new LambdaAction (std::move (redo), std::move (undo)));
+}
+
+// ---- autosave: a copy of the work in progress is written every minute (only when something changed and nothing is recording).
+// It is removed on a normal exit and after a normal save, so a leftover copy means the last session ended unexpectedly.
+juce::File MainComponent::autosaveDir()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("RiffCatch").getChildFile ("autosave");
+}
+
+void MainComponent::autosaveTick()
+{
+    if (++autosaveTicks < 30 * 60) return;
+    autosaveTicks = 0;
+    if (engine.getState() == AudioEngine::Recording || engine.getState() == AudioEngine::CountIn) return;
+    juce::int64 sig = (juce::int64) editCounter * 1000003 + (juce::int64) (engine.bpm.load() * 100.0);
+    bool any = engine.drums.hasAnySteps();
+    for (int slot : engine.order) { const auto len = engine.tracks[slot].length.load(); sig += len; any = any || len > 0; }
+    if (! any || sig == lastAutosaveSig) return;
+    juce::String err;
+    if (ProjectIO::save (engine, autosaveDir(), err)) lastAutosaveSig = sig;
+}
+
+void MainComponent::offerRestore()
+{
+    const auto dir = autosaveDir();
+    if (! dir.getChildFile ("project.json").existsAsFile()) return;
+    auto opts = juce::MessageBoxOptions::makeOptionsOkCancel (juce::MessageBoxIconType::QuestionIcon, "Restore unsaved work?",
+                    "RiffCatch did not close normally last time. Restore the automatic backup?", "Restore", "Discard");
+    juce::AlertWindow::showAsync (opts, [this, dir] (int result)
+    {
+        if (result == 1)
+        {
+            doOpen (dir);
+            projectDir = juce::File();
+            projectLabel.setText ("restored", juce::dontSendNotification);
+            setStatus ("Restored the automatic backup - save it to keep it");
+        }
+        else
+            dir.deleteRecursively();
+    });
 }
 
 void MainComponent::syncRows()
@@ -744,6 +808,7 @@ void MainComponent::handleWheel (const juce::MouseEvent& e, const juce::MouseWhe
 void MainComponent::timerCallback()
 {
     engine.pollRecording();
+    autosaveTick();
     // dark title bar on every top-level window we open (audio settings, alert boxes, ...)
     for (int i = 0; i < juce::TopLevelWindow::getNumTopLevelWindows(); ++i)
         if (auto* w = juce::TopLevelWindow::getTopLevelWindow (i))
@@ -891,6 +956,7 @@ void MainComponent::resized()
     barsBox.setBounds (sb.removeFromLeft (80));   sb.removeFromLeft (18);
     clickBtn.setBounds (sb.removeFromLeft (56));  sb.removeFromLeft (6);
     clickVol.setBounds (sb.removeFromLeft (90));  sb.removeFromLeft (18);
+    punchBtn.setBounds (sb.removeFromLeft (56));  sb.removeFromLeft (18);
     countCaption.setBounds (sb.removeFromLeft (64));
     countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (18);
     for (auto* b : { &zoomInBtn, &zoomOutBtn, &zoomFitBtn })
@@ -998,6 +1064,7 @@ void MainComponent::doSave (const juce::File& dir)
         projectDir = dir;
         projectLabel.setText (dir.getFileName(), juce::dontSendNotification);
         setStatus ("Saved to " + dir.getFullPathName());
+        autosaveDir().deleteRecursively();
     }
     else
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Save failed", err);
