@@ -4,6 +4,7 @@
 #include <atomic>
 #include <vector>
 #include "HitEditor.h"
+#include "TrackFx.h"
 
 // Fader position (0..1) <-> linear gain. Linear in dB from -60 to +6, 0 = -inf.
 inline float faderToGain (float pos)
@@ -27,6 +28,10 @@ public:
     std::atomic<float> volume { 1.0f };   // linear gain
     std::atomic<float> pan { 0.0f };      // -1..+1
     std::atomic<bool> mute { false }, solo { false }, armed { false };
+    std::atomic<bool> echoOn { false }, reverbOn { false };
+    std::atomic<float> mixPeakL { 0.0f }, mixPeakR { 0.0f };     // peaks for the mixer strip (the track row has its own)
+    std::atomic<int> echoDiv { TrackFx::Quarter };
+    TrackFx fx;                                        // audio-thread state (delay line, reverb)
     std::atomic<bool> active { false };            // slot in use
     std::atomic<unsigned> revision { 0 };          // bumped when audio is replaced/truncated (waveform cache)
 
@@ -96,7 +101,7 @@ public:
     void resetToDefaults (int index)
     {
         name = "Track " + juce::String (index + 1);
-        volume = 1.0f; pan = 0.0f; mute = false; solo = false; armed = false; inputCode = 0; offset = 0;
+        volume = 1.0f; pan = 0.0f; mute = false; solo = false; armed = false; inputCode = 0; offset = 0; echoOn = false; reverbOn = false; echoDiv = TrackFx::Quarter;
         clearAudio();
     }
 

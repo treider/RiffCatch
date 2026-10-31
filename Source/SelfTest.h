@@ -327,7 +327,43 @@ inline juce::String runEngineSelfTest()
         wav.deleteFile();
     }
 
+    // ---- track echo (tempo synced) and reverb
+    {
+        std::vector<float> zin (block, 0.0f), fl (block), fr (block);
+        const float* zi[2] = { zin.data(), zin.data() };
+        float* zo[2] = { fl.data(), fr.data() };
+        juce::AudioIODeviceCallbackContext cf;
+        auto runFx = [&] (bool echo, bool reverb, std::vector<float>& cap)
+        {
+            AudioEngine ef;
+            ef.prepareForTest (sr, 2);
+            ef.bpm = 120.0; ef.loopBars = 1; ef.loopEnabled = true; ef.countInBars = 0; ef.clickEnabled = false;
+            const int sf = ef.addTrack();
+            auto& tf = ef.tracks[sf];
+            juce::AudioBuffer<float> imp (2, 96000);
+            imp.clear();
+            imp.setSample (0, 5000, 1.0f); imp.setSample (1, 5000, 1.0f);
+            tf.setAudio (std::move (imp));
+            tf.echoOn = echo; tf.reverbOn = reverb; tf.echoDiv = TrackFx::Quarter;   // 1/4 @120 = 24000 samples
+            ef.play();
+            for (int i = 0; i < 96000 / block; ++i)
+            {
+                ef.audioDeviceIOCallbackWithContext (zi, 2, zo, 2, block, cf);
+                cap.insert (cap.end(), fl.begin(), fl.end());
+            }
+        };
+        std::vector<float> dry, echo, rev;
+        runFx (false, false, dry); runFx (true, false, echo); runFx (false, true, rev);
+        float pkDry = 0.0f, pkEcho = 0.0f, tailRev = 0.0f;
+        for (int i = 28990; i < 29010; ++i) { pkDry = juce::jmax (pkDry, std::abs (dry[(size_t) i])); pkEcho = juce::jmax (pkEcho, std::abs (echo[(size_t) i])); }
+        for (int i = 8000; i < 25000; ++i) tailRev = juce::jmax (tailRev, std::abs (rev[(size_t) i]));
+        check (pkDry < 1.0e-6f && pkEcho > 0.1f, "echo 1/4 repeats the hit exactly one beat later (peak " + juce::String (pkEcho, 3) + ")");
+        check (std::abs (echo[5000]) > 0.3f && std::abs (dry[5000]) > 0.3f, "the dry hit is unchanged with echo on");
+        check (tailRev > 0.001f, "reverb adds a tail after the hit (" + juce::String (tailRev, 4) + ")");
+    }
+
     log << (ok ? "ALL OK" : "FAILURES") << "\n";
+
 
 
     return log;

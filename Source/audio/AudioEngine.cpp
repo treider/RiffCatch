@@ -5,6 +5,7 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
     sampleRate = device->getCurrentSampleRate();
     numInputs = device->getActiveInputChannels().countNumberOfSetBits();
     deviceLatency = device->getInputLatencyInSamples() + device->getOutputLatencyInSamples();
+    prepareFx();
     playPos = 0; countPos = 0;
     state = Stopped;
     masterCur = masterVolume.load();
@@ -289,6 +290,9 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
             }
         }
         float pl = 0.0f, pr = 0.0f;
+        const bool fxOn = tr.echoOn.load() || tr.reverbOn.load();
+        const bool fxRun = fxOn || tr.fx.wasActive();
+        if (fxRun) { juce::FloatVectorOperations::clear (fxL, n); juce::FloatVectorOperations::clear (fxR, n); }
         if (pbAvail > 0 || armed)
         {
             float gl = tr.curGainL, gr = tr.curGainR;
@@ -305,11 +309,19 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
                     b += inR != nullptr ? inR[i] : x;
                 }
                 const float yl = a * gl, yr = b * gr;
-                mixL[i] += yl; mixR[i] += yr;
+                if (fxRun) { fxL[i] = yl; fxR[i] = yr; } else { mixL[i] += yl; mixR[i] += yr; }
                 pl = juce::jmax (pl, std::abs (yl)); pr = juce::jmax (pr, std::abs (yr));
             }
         }
+        if (fxRun)   // insert effects: echo (tempo synced) and reverb; tails keep ringing while the track is silent
+        {
+            tr.fx.process (fxL, fxR, n, tr.echoOn.load(), tr.echoDiv.load(), tr.reverbOn.load(), spb);
+            juce::FloatVectorOperations::add (mixL, fxL, n);
+            juce::FloatVectorOperations::add (mixR, fxR, n);
+        }
         tr.curGainL = tgtL; tr.curGainR = tgtR;
+        if (pl > tr.mixPeakL.load()) tr.mixPeakL = pl;
+        if (pr > tr.mixPeakR.load()) tr.mixPeakR = pr;
         if (pl > tr.peakL.load()) tr.peakL = pl;
         if (pr > tr.peakR.load()) tr.peakR = pr;
 

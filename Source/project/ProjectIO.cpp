@@ -41,6 +41,9 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
         o->setProperty ("mute", tr.mute.load());
         o->setProperty ("solo", tr.solo.load());
         o->setProperty ("input", tr.inputCode.load());
+        o->setProperty ("echo", tr.echoOn.load());
+        o->setProperty ("echoDiv", tr.echoDiv.load());
+        o->setProperty ("reverb", tr.reverbOn.load());
         o->setProperty ("offsetMs", tr.offset.load() * 1000.0 / juce::jmax (1.0, e.getSampleRate()));
         tracks.add (juce::var (o));
     }
@@ -129,6 +132,9 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
         tr.mute = (bool) t.getProperty ("mute", false);
         tr.solo = (bool) t.getProperty ("solo", false);
         tr.inputCode = (int) t.getProperty ("input", 0);
+        tr.echoOn = (bool) t.getProperty ("echo", false);
+        tr.echoDiv = juce::jlimit (0, (int) TrackFx::numDivs - 1, (int) t.getProperty ("echoDiv", (int) TrackFx::Quarter));
+        tr.reverbOn = (bool) t.getProperty ("reverb", false);
         tr.offset = juce::jmax (0, (int) std::lround ((double) (t.hasProperty ("offsetMs") ? t.getProperty ("offsetMs", 0.0) : t.getProperty ("nudgeMs", 0.0)) * devRate / 1000.0));
 
         auto file = dir.getChildFile (t["file"].toString());

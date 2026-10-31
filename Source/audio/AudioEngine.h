@@ -10,12 +10,14 @@
 class AudioEngine : public juce::AudioIODeviceCallback
 {
 public:
+    AudioEngine() { for (auto* b : { &mixL, &mixR, &nudgeL, &nudgeR, &fxL, &fxR }) b->allocate ((size_t) chunk, true); }
     static constexpr int maxTracks = 16;
     enum State { Stopped = 0, Playing = 1, Recording = 2, CountIn = 3 };
 
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
-    void prepareForTest (double sr, int numIn) { sampleRate = sr; numInputs = numIn; }
+    void prepareForTest (double sr, int numIn) { sampleRate = sr; numInputs = numIn; prepareFx(); }
+    void prepareFx() { for (auto& t : tracks) t.fx.prepare (sampleRate.load()); }
     void audioDeviceIOCallbackWithContext (const float* const* in, int numIn,
                                            float* const* out, int numOut,
                                            int numSamples, const juce::AudioIODeviceCallbackContext&) override;
@@ -89,7 +91,7 @@ private:
     std::atomic<bool> drumReset { false };
     int sessionLen = 0;                         // loop length (samples) of current record session
 
-    float mixL[chunk] {}, mixR[chunk] {}, nudgeL[chunk] {}, nudgeR[chunk] {};
+    juce::HeapBlock<float> mixL, mixR, nudgeL, nudgeR, fxL, fxR;   // on the heap: engines are also created on the stack in tests
     float masterCur = 1.0f;
 
     // click voice (audio thread)

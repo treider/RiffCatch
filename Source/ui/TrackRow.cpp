@@ -240,6 +240,17 @@ void TrackRow::refreshFromTrack()
     repaint();
 }
 
+void TrackRow::syncMix()
+{
+    auto& t = track();
+    lastVol = t.volume.load(); lastPan = t.pan.load();
+    mute.setToggleState (t.mute.load(), juce::dontSendNotification);
+    solo.setToggleState (t.solo.load(), juce::dontSendNotification);
+    pan.setValue (t.pan.load(), juce::dontSendNotification);
+    fader.setValue (gainToFader (t.volume.load()), juce::dontSendNotification);
+    updateDb();
+}
+
 void TrackRow::updateDb()
 {
     dbLabel.setText (dbText ((float) fader.getValue()), juce::dontSendNotification);
@@ -776,6 +787,7 @@ void TrackRow::selectionCommand (SelCmd cmd)
         if (s0 < 0 || s0 >= len) { say ("Playhead is outside this track"); return; }
         s1 = juce::jmin<juce::int64> (len, s0 + clipboard.getNumSamples());
     }
+    else if (cmd == SelReverse && ! hasSelection()) { s0 = 0; s1 = len; }          // no selection: reverse the whole clip
     else if (! hasSelection() || s1 <= s0) { say ("Select a region first: drag in the waveform"); return; }
 
     auto before = std::make_shared<juce::AudioBuffer<float>> (t.copyRegion (s0, s1));
@@ -807,6 +819,14 @@ void TrackRow::selectionCommand (SelCmd cmd)
             }
             name = cmd == SelFadeIn ? "Fade in" : "Fade out";
             break;
+        case SelReverse:
+            for (int c = 0; c < 2; ++c)
+            {
+                after->copyFrom (c, 0, *before, c, 0, n);
+                std::reverse (after->getWritePointer (c), after->getWritePointer (c) + n);
+            }
+            name = "Reverse";
+            break;
         case SelPaste:
             for (int c = 0; c < 2; ++c) after->copyFrom (c, 0, clipboard, c, 0, n);
             name = "Paste";
@@ -818,6 +838,15 @@ void TrackRow::selectionCommand (SelCmd cmd)
     push (name,
           [this, s0, after] { track().writeRegion (s0, *after); repaint(); },
           [this, s0, before] { track().writeRegion (s0, *before); repaint(); });
+}
+
+void TrackRow::selectAll()
+{
+    const auto len = track().length.load();
+    if (len <= 0 || track().editing) return;
+    if (onSelectionStarted) onSelectionStarted (this);
+    selStart = 0; selEnd = len;
+    repaint (wave);
 }
 
 void TrackRow::showClipMenu()
@@ -834,6 +863,9 @@ void TrackRow::showClipMenu()
     m.addItem (5, "Fade in", sel);
     m.addItem (6, "Fade out", sel);
     m.addSeparator();
+    m.addItem (8, "Reverse");
+    m.addItem (9, "Select all\tCtrl+A");
+    m.addSeparator();
     m.addItem (7, "Duplicate track\tCtrl+D");
     m.showMenuAsync (juce::PopupMenu::Options(), [this] (int id)
     {
@@ -846,6 +878,8 @@ void TrackRow::showClipMenu()
             case 5: selectionCommand (SelFadeIn); break;
             case 6: selectionCommand (SelFadeOut); break;
             case 7: if (onDuplicate) onDuplicate (this); break;
+            case 8: selectionCommand (SelReverse); break;
+            case 9: selectAll(); break;
             default: break;
         }
         if (onReleaseFocus) onReleaseFocus();

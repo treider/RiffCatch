@@ -46,8 +46,16 @@ MainComponent::MainComponent()
     drumPanel.onReleaseFocus = [this] { grabKeyboardFocus(); };
     drumPanel.onInfo = [this] (const juce::String& s) { setStatus (s, 45); };
     addAndMakeVisible (drumPanel);
+    addMouseListener (this, true);     // hover hints go to the info bar
     if (auto* f = props.getUserSettings()) drumPanel.setExpanded (f->getBoolValue ("drumsExpanded", true));
-    master.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
+    mixer.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
+    mixer.onTrackChanged = [this] (int slot) { if (slot >= 0 && slot < rows.size() && rows[slot] != nullptr) rows[slot]->syncMix(); };
+    mixer.onInfo = [this] (const juce::String& s) { setStatus (s, 45); };
+    mixer.onLayoutChanged = [this]
+    {
+        resized();
+        if (auto* f = props.getUserSettings()) { f->setValue ("mixerExpanded", mixer.isExpanded()); f->saveIfNeeded(); }
+    };
     list.onReordered = [this] (std::vector<int> before, std::vector<int> after)
     {
         record ("Reorder tracks",
@@ -63,7 +71,8 @@ MainComponent::MainComponent()
     viewport.setViewedComponent (&list, false);
     viewport.setScrollBarsShown (false, false, true, false);   // wheel scrolling, no scrollbar that would narrow the rows
     addAndMakeVisible (viewport);
-    addAndMakeVisible (master);
+    addAndMakeVisible (mixer);
+    if (auto* f = props.getUserSettings()) mixer.setExpanded (f->getBoolValue ("mixerExpanded", true));
     addAndMakeVisible (ruler);
 
     titleLabel.setText ("RiffCatch", juce::dontSendNotification);
@@ -124,7 +133,7 @@ MainComponent::MainComponent()
     bpmLabel.onTextChange = [this] { setBpm (bpmLabel.getText().getDoubleValue()); grabKeyboardFocus(); };
     addAndMakeVisible (bpmLabel);
 
-    for (auto* b : { &undoBtn, &redoBtn, &cutBtn, &copyBtn, &pasteBtn, &silenceBtn, &fadeInBtn, &fadeOutBtn, &dupBtn })
+    for (auto* b : { &undoBtn, &redoBtn, &cutBtn, &copyBtn, &pasteBtn, &silenceBtn, &fadeInBtn, &fadeOutBtn, &dupBtn, &reverseBtn, &selectAllBtn })
     {
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (b);
@@ -140,7 +149,14 @@ MainComponent::MainComponent()
     pasteBtn.setTooltip ("Paste at selection / playhead (Ctrl+V)"); pasteBtn.onClick = [selCmd] { selCmd (TrackRow::SelPaste); };
     silenceBtn.setTooltip ("Silence selection (Del)");          silenceBtn.onClick = [selCmd] { selCmd (TrackRow::SelSilence); };
     fadeInBtn.setTooltip ("Fade in over selection");            fadeInBtn.onClick = [selCmd] { selCmd (TrackRow::SelFadeIn); };
-    fadeOutBtn.setTooltip ("Fade out over selection");          fadeOutBtn.onClick = [selCmd] { selCmd (TrackRow::SelFadeOut); };
+    fadeOutBtn.setTooltip ("Fade out over selection");
+    reverseBtn.setTooltip ("Reverse selection (whole clip if nothing is selected)");
+    reverseBtn.onClick = [selCmd] { selCmd (TrackRow::SelReverse); };
+    selectAllBtn.setTooltip ("Select the whole clip (Ctrl+A)");
+    selectAllBtn.onClick = [this]
+    {
+        if (auto* r = selectionRow()) r->selectAll(); else setStatus ("Click a track first");
+    };          fadeOutBtn.onClick = [selCmd] { selCmd (TrackRow::SelFadeOut); };
     dupBtn.setTooltip ("Duplicate track (Ctrl+D)");             dupBtn.onClick = [this] { if (auto* r = selectionRow()) duplicateTrack (r->slot()); grabKeyboardFocus(); };
     undoBtn.onClick = [this] { doUndo (false); };
     redoBtn.onClick = [this] { doUndo (true); };
@@ -242,7 +258,10 @@ MainComponent::MainComponent()
     changeListenerCallback (nullptr);
     refreshStrips();
     setWantsKeyboardFocus (true);
-    setSize (1280, 760);
+    {
+        const auto area = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea;
+        setSize (juce::jmin (1400, area.getWidth() - 40), juce::jmin (940, area.getHeight() - 60));
+    }
     startTimerHz (30);
     {   // optional: a project folder passed on the command line is opened at start
         const auto arg = juce::JUCEApplication::getCommandLineParameters().removeCharacters ("\"").trim();
@@ -272,7 +291,7 @@ void MainComponent::refreshStrips()
 {
     for (auto* r : rows)
         if (engine.tracks[r->slot()].active.load()) r->refreshFromTrack();
-    master.refreshFromEngine();
+    mixer.refreshFromEngine();
     drumPanel.refreshFromEngine();
     updateSettingsFromEngine();
     projectLabel.setText (projectDir == juce::File() ? "Untitled" : projectDir.getFileName(), juce::dontSendNotification);
@@ -423,7 +442,7 @@ MainComponent::TrackSnap MainComponent::captureTrack (int slot)
     auto& t = engine.tracks[slot];
     s.slot = slot; s.valid = true;
     s.name = t.name; s.vol = t.volume.load(); s.pan = t.pan.load();
-    s.mute = t.mute.load(); s.solo = t.solo.load(); s.input = t.inputCode.load(); s.offset = t.offset.load();
+    s.mute = t.mute.load(); s.solo = t.solo.load(); s.input = t.inputCode.load(); s.offset = t.offset.load(); s.echoOn = t.echoOn.load(); s.reverbOn = t.reverbOn.load(); s.echoDiv = t.echoDiv.load();
     s.orderPos = (int) (std::find (engine.order.begin(), engine.order.end(), slot) - engine.order.begin());
     const auto len = (int) t.length.load();
     if (len > 0)
@@ -441,7 +460,7 @@ int MainComponent::restoreTrack (const TrackSnap& s)
     if (slot < 0) return -1;
     auto& t = engine.tracks[slot];
     t.name = s.name; t.volume = s.vol; t.pan = s.pan; t.mute = s.mute; t.solo = s.solo;
-    t.inputCode = s.input; t.offset = s.offset;
+    t.inputCode = s.input; t.offset = s.offset; t.echoOn = s.echoOn; t.reverbOn = s.reverbOn; t.echoDiv = s.echoDiv;
     if (s.audio.getNumSamples() > 0) { auto copy = s.audio; t.setAudio (std::move (copy)); }
     engine.order.erase (std::remove (engine.order.begin(), engine.order.end(), slot), engine.order.end());
     engine.order.insert (engine.order.begin() + juce::jmin (s.orderPos, (int) engine.order.size()), slot);
@@ -588,6 +607,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
             return true;
         }
         if (code == 'D') { if (auto* r = selectionRow()) duplicateTrack (r->slot()); return true; }
+        if (code == 'A') { if (auto* r = selectionRow()) r->selectAll(); else setStatus ("Click a track first"); return true; }
         if (code == 'Z') { doUndo (mods.isShiftDown()); return true; }
         if (code == 'Y') { doUndo (true); return true; }
         if (code >= '1' && code <= '8')
@@ -639,6 +659,20 @@ bool MainComponent::keyPressed (const juce::KeyPress& k)
     }
     return false;
 }
+// The info bar (the yellow field at the top right) also shows hover hints instead of pop-up tooltips.
+void MainComponent::mouseEnter (const juce::MouseEvent& e)
+{
+    juce::String tip;
+    if (auto* tc = dynamic_cast<juce::TooltipClient*> (e.eventComponent)) tip = tc->getTooltip();
+    if (tip.isNotEmpty()) { statusLabel.setText (tip, juce::dontSendNotification); statusTicks = 0; hoverTip = true; }
+    else if (hoverTip) { statusLabel.setText ({}, juce::dontSendNotification); hoverTip = false; }
+}
+
+void MainComponent::mouseExit (const juce::MouseEvent&)
+{
+    if (hoverTip) { statusLabel.setText ({}, juce::dontSendNotification); hoverTip = false; }
+}
+
 void MainComponent::clampZoom()
 {
     zoom = juce::jlimit (1.0, 64.0, zoom);
@@ -685,6 +719,7 @@ void MainComponent::timerCallback()
         for (auto* r : rows) anySel = anySel || r->hasSelection();
         const bool idle = engine.getState() != AudioEngine::Recording && engine.getState() != AudioEngine::CountIn;
         for (auto* b : { &cutBtn, &copyBtn, &silenceBtn, &fadeInBtn, &fadeOutBtn }) b->setEnabled (anySel && idle);
+    for (auto* b : { &reverseBtn, &selectAllBtn }) b->setEnabled (idle && selectionRow() != nullptr);
         pasteBtn.setEnabled (TrackRow::hasClipboard() && selectionRow() != nullptr && idle);
         dupBtn.setEnabled (selectionRow() != nullptr);
     }
@@ -755,7 +790,7 @@ void MainComponent::timerCallback()
         drumPanel.repaint();
     }
     ruler.repaint();
-    master.tick();
+    mixer.tick();
     drumPanel.tick();
 
     if (statusTicks > 0 && --statusTicks == 0) statusLabel.setText ({}, juce::dontSendNotification);
@@ -805,7 +840,7 @@ void MainComponent::resized()
     for (auto* b : { &redoBtn, &undoBtn })
         { b->setBounds (bar.removeFromRight (32).withSizeKeepingCentre (32, 28)); bar.removeFromRight (4); }
     bar.removeFromRight (12);
-    for (auto* b : { &dupBtn, &fadeOutBtn, &fadeInBtn, &silenceBtn, &pasteBtn, &copyBtn, &cutBtn })
+    for (auto* b : { &dupBtn, &fadeOutBtn, &fadeInBtn, &reverseBtn, &silenceBtn, &pasteBtn, &copyBtn, &cutBtn, &selectAllBtn })
         { b->setBounds (bar.removeFromRight (32).withSizeKeepingCentre (32, 28)); bar.removeFromRight (4); }
     bar.removeFromRight (12);
     projectLabel.setBounds (bar);   // whatever is left of the top row
@@ -825,7 +860,7 @@ void MainComponent::resized()
     statusLabel.setBounds (sb);
 
     r.removeFromTop (10);
-    master.setBounds (r.removeFromBottom (56));
+    mixer.setBounds (r.removeFromBottom (mixer.preferredHeight()));
     r.removeFromBottom (10);
     drumPanel.setBounds (r.removeFromBottom (drumPanel.preferredHeight()));
     r.removeFromBottom (10);

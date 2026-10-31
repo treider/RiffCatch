@@ -13,7 +13,13 @@ namespace Theme
     inline const juce::Colour text   { 0xffc0caf5 };
     inline const juce::Colour dim    { 0xff565f89 };
     inline const juce::Colour blue   { 0xff7aa2f7 };
-inline const juce::Colour accent { 0xff7aa2f7 };   // the one UI colour (text/controls); yellow/orange stay for warnings and info
+inline const juce::Colour accent { 0xff7aa2f7 };
+// Button tile: a subtle inverted gradient (a little darker at the top, lighter at the bottom)
+inline void fillTile (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c, float radius)
+{
+    g.setGradientFill (juce::ColourGradient (c.darker (0.14f), r.getX(), r.getY(), c.brighter (0.10f), r.getX(), r.getBottom(), false));
+    g.fillRoundedRectangle (r, radius);
+}   // the one UI colour (text/controls); yellow/orange stay for warnings and info
     inline const juce::Colour cyan   { 0xff7dcfff };
     inline const juce::Colour green  { 0xff9ece6a };
     inline const juce::Colour yellow { 0xffe0af68 };
@@ -107,9 +113,8 @@ public:
     {
         auto c = bgc;
         if (down) c = c.darker (0.15f); else if (over) c = c.brighter (0.12f);
-        g.setColour (c);
         const auto r = b.getLocalBounds().toFloat().reduced (0.5f);
-        g.fillRoundedRectangle (r, Theme::radius);
+        Theme::fillTile (g, r, c, Theme::radius);
         if (b.getProperties().contains ("outline"))
         {
             g.setColour (juce::Colour ((juce::uint32) (int) b.getProperties()["outline"]));
@@ -265,8 +270,7 @@ public:
         if (on && icon == Record)   // gentle pulse while recording
             bgc = bgc.interpolatedWith (juce::Colours::white, 0.12f + 0.12f * std::sin ((float) juce::Time::getMillisecondCounter() * 0.008f));
         if (down) bgc = bgc.darker (0.2f); else if (over) bgc = bgc.brighter (0.12f);
-        g.setColour (bgc);
-        g.fillRoundedRectangle (b, Theme::radiusLg);
+        Theme::fillTile (g, b, bgc, Theme::radiusLg);
 
         g.setColour (on ? Theme::deep : colour);
         auto ic = b.withSizeKeepingCentre (b.getHeight() * 0.38f, b.getHeight() * 0.38f);
@@ -295,18 +299,20 @@ public:
             case Loop:
             {
                 const auto c = b.getCentre();
-                const float r = b.getHeight() * 0.22f, a = 5.5f;
-                juce::Path arc;
-                arc.addCentredArc (c.x, c.y, r, r, 0.0f, 0.7f, a, true);
-                g.strokePath (arc, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-                const float px = c.x + r * std::sin (a), py = c.y - r * std::cos (a);   // arrow head at the arc end
-                const float tx = std::cos (a), ty = std::sin (a), nx = std::sin (a), ny = -std::cos (a);
-                juce::Path head;
-                head.addTriangle (px + tx * 5.5f, py + ty * 5.5f, px + nx * 4.0f, py + ny * 4.0f, px - nx * 4.0f, py - ny * 4.0f);
-                g.fillPath (head);
+                const float hw = b.getHeight() * 0.27f, hh = b.getHeight() * 0.17f;
+                const float x0 = c.x - hw, x1 = c.x + hw, y0 = c.y - hh, y1 = c.y + hh;
+                juce::Path top, bottom;
+                top.startNewSubPath (x0, y0 + 5.0f); top.lineTo (x0, y0); top.lineTo (x1 - 4.0f, y0);
+                bottom.startNewSubPath (x1, y1 - 5.0f); bottom.lineTo (x1, y1); bottom.lineTo (x0 + 4.0f, y1);
+                const juce::PathStrokeType st (2.2f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt);
+                g.strokePath (top.createPathWithRoundedCorners (3.0f), st);
+                g.strokePath (bottom.createPathWithRoundedCorners (3.0f), st);
+                juce::Path heads;
+                heads.addTriangle (x1 - 4.0f, y0 - 4.0f, x1 - 4.0f, y0 + 4.0f, x1 + 2.5f, y0);
+                heads.addTriangle (x0 + 4.0f, y1 - 4.0f, x0 + 4.0f, y1 + 4.0f, x0 - 2.5f, y1);
+                g.fillPath (heads);
                 break;
-            }
-            case Plus:
+            }            case Plus:
                 g.fillRoundedRectangle (ic.withSizeKeepingCentre (ic.getWidth(), 3.0f), 1.5f);
                 g.fillRoundedRectangle (ic.withSizeKeepingCentre (3.0f, ic.getHeight()), 1.5f);
                 break;
@@ -322,16 +328,15 @@ private:
 class ToolButton : public juce::Button
 {
 public:
-    enum Icon { Cut, Copy, Paste, Silence, FadeIn, FadeOut, Duplicate, Undo, Redo, Menu, ZoomIn, ZoomOut, ZoomFit };
+    enum Icon { Cut, Copy, Paste, Silence, FadeIn, FadeOut, Duplicate, Undo, Redo, Menu, ZoomIn, ZoomOut, ZoomFit, SelectAll, Reverse };
     explicit ToolButton (Icon i) : juce::Button ({}), icon (i) { setWantsKeyboardFocus (false); }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
         auto b = getLocalBounds().toFloat().reduced (1.0f);
         const bool en = isEnabled();
-        g.setColour (en ? (down ? Theme::raised.darker (0.2f) : over ? Theme::raised.brighter (0.15f) : Theme::raised.withAlpha (0.7f))
-                        : Theme::raised.withAlpha (0.3f));
-        g.fillRoundedRectangle (b, Theme::radius);
+        Theme::fillTile (g, b, en ? (down ? Theme::raised.darker (0.2f) : over ? Theme::raised.brighter (0.15f) : Theme::raised.withAlpha (0.7f))
+                                  : Theme::raised.withAlpha (0.3f), Theme::radius);
         const auto col = en ? Theme::text : Theme::dim.withAlpha (0.45f);
         g.setColour (col);
 
@@ -385,6 +390,22 @@ public:
                 g.drawRoundedRectangle (x + 1.5f, y + 2.0f, 13.0f, 5.0f, 1.5f, 1.5f);
                 g.setColour (col.withAlpha (0.45f));
                 g.fillRoundedRectangle (x + 1.5f, y + 9.0f, 13.0f, 5.0f, 1.5f);
+                break;
+            case SelectAll:
+            {
+                juce::Path rp, dashed;
+                rp.addRoundedRectangle (x + 1.0f, y + 1.5f, 14.0f, 13.0f, 1.5f);
+                const float dl[] = { 2.6f, 2.0f };
+                juce::PathStrokeType (1.5f).createDashedStroke (dashed, rp, dl, 2);
+                g.fillPath (dashed);
+                g.setColour (col.withAlpha (0.35f));
+                g.fillRect (x + 4.0f, y + 5.0f, 8.0f, 6.0f);
+                break;
+            }
+            case Reverse:
+                p.addTriangle (x + 8.0f, y + 3.0f, x + 8.0f, y + 13.0f, x + 1.0f, y + 8.0f);
+                p.addTriangle (x + 15.0f, y + 3.0f, x + 15.0f, y + 13.0f, x + 8.0f, y + 8.0f);
+                g.fillPath (p);
                 break;
             case ZoomIn: case ZoomOut: case ZoomFit:
                 g.drawEllipse (x + 1.0f, y + 1.0f, 10.0f, 10.0f, 1.6f);

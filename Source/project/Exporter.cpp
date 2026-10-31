@@ -42,8 +42,11 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
         if (len <= 0) continue;
         const float* dl = tr.data.getReadPointer (0);
         const float* dr = tr.data.getReadPointer (1);
-        float* ml = mix.getWritePointer (0);
-        float* mr = mix.getWritePointer (1);
+        const bool useFx = tr.echoOn.load() || tr.reverbOn.load();
+        juce::AudioBuffer<float> fxBuf;
+        if (useFx) { fxBuf.setSize (2, (int) total); fxBuf.clear(); }
+        float* ml = useFx ? fxBuf.getWritePointer (0) : mix.getWritePointer (0);
+        float* mr = useFx ? fxBuf.getWritePointer (1) : mix.getWritePointer (1);
 
         for (juce::int64 p = 0; p < total; ++p)
         {
@@ -52,6 +55,13 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
             if (idx < 0 || idx >= len) continue;
             ml[p] += dl[idx] * gl;
             mr[p] += dr[idx] * gr;
+        }
+        if (useFx)
+        {
+            TrackFx fx;
+            fx.prepare (sr);
+            fx.process (fxBuf.getWritePointer (0), fxBuf.getWritePointer (1), (int) total, tr.echoOn.load(), tr.echoDiv.load(), tr.reverbOn.load(), e.getSamplesPerBeat());
+            for (int c = 0; c < 2; ++c) mix.addFrom (c, 0, fxBuf, c, 0, (int) total);
         }
     }
     // drum machine: rendered on the same absolute clock (loop passes continue the pattern phase)
