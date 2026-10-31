@@ -45,7 +45,7 @@ private:
     void syncRows();
     struct TrackSnap
     {
-        int slot = -1, orderPos = 0, input = 0, nudge = 0;
+        int slot = -1, orderPos = 0, input = 0, offset = 0;
         juce::String name;
         float vol = 1.0f, pan = 0.0f;
         bool mute = false, solo = false, valid = false;

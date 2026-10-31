@@ -76,7 +76,9 @@ public:
         length = out.getNumSamples();
         ++revision;
     }
-    std::atomic<int> nudge { 0 };         // manual timing offset in samples (+ = later)
+    std::atomic<int> offset { 0 };        // where the clip starts on the timeline, in samples (0 = bar 1)
+    std::vector<int> takeOffsets;         // clip offset of each take (parallel to `takes`)
+    void setOffset (int v) { offset = v; if (currentTake >= 0 && currentTake < (int) takeOffsets.size()) takeOffsets[(size_t) currentTake] = v; }
     std::atomic<int> inputCode { 0 };     // 0..N-1 = mono input N, 100+i = stereo pair (i, i+1)
     std::atomic<float> peakL { 0.0f }, peakR { 0.0f };   // peak since last UI read
 
@@ -94,13 +96,13 @@ public:
     void resetToDefaults (int index)
     {
         name = "Track " + juce::String (index + 1);
-        volume = 1.0f; pan = 0.0f; mute = false; solo = false; armed = false; inputCode = 0; nudge = 0;
+        volume = 1.0f; pan = 0.0f; mute = false; solo = false; armed = false; inputCode = 0; offset = 0;
         clearAudio();
     }
 
     void clearAudio()
     {
-        takes.clear(); currentTake = -1; resetEdit();
+        takes.clear(); takeOffsets.clear(); currentTake = -1; resetEdit();
         juce::SpinLock::ScopedLockType l (lock);
         length = 0;
         ++revision;
@@ -109,7 +111,7 @@ public:
     // Allocate capacity and truncate the take at fromPos.
     void prepareRecording (juce::int64 fromPos, double sampleRate)
     {
-        takes.clear(); currentTake = -1; resetEdit();
+        takes.clear(); takeOffsets.clear(); currentTake = -1; resetEdit();
         juce::SpinLock::ScopedLockType l (lock);
         const auto cap = (int) (sampleRate * maxRecordSeconds);
         if (data.getNumSamples() < cap)
@@ -124,10 +126,12 @@ public:
         writeStage = 0; stagePos = 0;
     }
 
-    // Replace track audio with a completed loop pass; older audio is kept as a take.
-    // shiftEarlier: input/output latency compensation, circular because the take loops.
+    // Replace track audio with a completed record pass; older audio is kept as a take.
+    // shiftEarlier: input/output latency compensation. Circular when the pass is the whole loop (the take wraps),
+    // otherwise the first samples are dropped and the tail is padded with silence.
     // Returns {previous take index (-1 = none), new take index} for undo.
-    std::pair<int, int> commitTake (const juce::AudioBuffer<float>& src, int len, int shiftEarlier = 0)
+    std::pair<int, int> commitTake (const juce::AudioBuffer<float>& src, int len, int shiftEarlier = 0,
+                                    bool circular = true, int startOffset = 0)
     {
         if (takes.empty() && length.load() > 0)
         {
@@ -137,23 +141,41 @@ public:
                 for (int c = 0; c < 2; ++c) old.copyFrom (c, 0, data, c, 0, old.getNumSamples());
             }
             takes.push_back (std::move (old));
+            takeOffsets.push_back (offset.load());
             currentTake = 0;
         }
         const int prev = currentTake;
         juce::AudioBuffer<float> t (2, len);
-        const int sh = len > 0 ? ((shiftEarlier % len) + len) % len : 0;
+        t.clear();
+        const int sh = circular ? (len > 0 ? ((shiftEarlier % len) + len) % len : 0) : juce::jlimit (0, len, shiftEarlier);
         for (int c = 0; c < 2; ++c)
         {
-            t.copyFrom (c, 0, src, c, sh, len - sh);
-            if (sh > 0) t.copyFrom (c, len - sh, src, c, 0, sh);
+            if (sh < len) t.copyFrom (c, 0, src, c, sh, len - sh);
+            if (circular && sh > 0) t.copyFrom (c, len - sh, src, c, 0, sh);
         }
-        declickSeam (t, len, (len - sh) % juce::jmax (1, len));
+        declickSeam (t, len, circular ? (len - sh) % juce::jmax (1, len) : 0);
         takes.push_back (std::move (t));
-        if ((int) takes.size() > maxTakes) takes.erase (takes.begin());
+        takeOffsets.push_back (startOffset);
+        if ((int) takes.size() > maxTakes) { takes.erase (takes.begin()); takeOffsets.erase (takeOffsets.begin()); }
         applyTake ((int) takes.size() - 1);
         return { prev, currentTake };
     }
 
+    // Linear (non-loop) recording finished: compensate latency, round the clip up to whole bars, set its position.
+    void finishLinearRecording (int comp, juce::int64 barSamples, int startOffset)
+    {
+        shiftEarlier (comp);
+        juce::SpinLock::ScopedLockType l (lock);
+        const auto len = length.load();
+        if (len > 0 && barSamples > 0)
+        {
+            const auto rounded = juce::jmin<juce::int64> (((len + barSamples - 1) / barSamples) * barSamples, data.getNumSamples());
+            for (int c = 0; c < 2; ++c) data.clear (c, (int) len, (int) (rounded - len));
+            length = rounded;
+        }
+        offset = startOffset;
+        ++revision;
+    }
     // --- region editing (message thread): used by selection cut/fade/paste, all undoable by swapping regions ---
     juce::AudioBuffer<float> copyRegion (juce::int64 s0, juce::int64 s1)
     {
@@ -206,6 +228,7 @@ public:
     {
         if (i < 0 || i >= (int) takes.size()) return;
         currentTake = i; resetEdit();
+        if (i < (int) takeOffsets.size()) offset = takeOffsets[(size_t) i];
         const auto& src = takes[(size_t) i];
         juce::SpinLock::ScopedLockType l (lock);
         data.setSize (2, src.getNumSamples(), false, false, true);
@@ -237,7 +260,7 @@ public:
 
     void setAudio (juce::AudioBuffer<float>&& b)
     {
-        takes.clear(); currentTake = -1; resetEdit();
+        takes.clear(); takeOffsets.clear(); currentTake = -1; resetEdit();
         juce::SpinLock::ScopedLockType l (lock);
         const auto n = b.getNumSamples();
         data = std::move (b);

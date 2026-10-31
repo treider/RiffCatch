@@ -206,6 +206,67 @@ inline juce::String runEngineSelfTest()
         check (e2.order.empty() && ! t.active.load(), "removeTrack frees the slot");
     }
 
+    // ---- clips: record from a later bar, whole-bar length, playback without wrap
+    {
+        std::vector<float> in5 (block, 0.25f), l5 (block), r5 (block);
+        const float* ins5[2] = { in5.data(), in5.data() };
+        float* outs5[2] = { l5.data(), r5.data() };
+        juce::AudioIODeviceCallbackContext c5;
+
+        AudioEngine e5;
+        e5.prepareForTest (sr, 2);
+        e5.bpm = 120.0; e5.loopBars = 4; e5.loopEnabled = false; e5.countInBars = 0; e5.clickEnabled = false;
+        const int s5 = e5.addTrack();
+        auto& t5 = e5.tracks[s5];
+        t5.armed = true; t5.volume = 0.0f;
+        const juce::int64 bar = e5.getBarLength();
+        e5.setCursor (2 * bar);
+        check (e5.record(), "record from bar 3 accepted");
+        check (e5.getRecordStart() == 2 * bar, "recording starts at the bar of the playhead (bar 3)");
+        for (juce::int64 i = 0; i * block < bar * 6 / 5; ++i) e5.audioDeviceIOCallbackWithContext (ins5, 2, outs5, 2, block, c5);
+        e5.stop();
+        for (int i = 0; i < 4; ++i) e5.audioDeviceIOCallbackWithContext (ins5, 2, outs5, 2, block, c5);
+        for (int i = 0; i < 3; ++i) e5.pollRecording();
+        check (t5.offset.load() == 2 * bar, "clip offset = recording start (" + juce::String (t5.offset.load()) + ")");
+        check (t5.length.load() == bar * 2, "1.2 bars recorded are rounded up to 2 whole bars (" + juce::String (t5.length.load()) + ")");
+        check (std::abs (t5.data.getSample (0, 5000) - 0.25f) < 1.0e-4f && std::abs (t5.data.getSample (0, (int) (bar * 2) - 10)) < 1.0e-6f,
+               "recorded audio is at the start of the clip, padded with silence at the end");
+
+        t5.armed = false; t5.volume = 1.0f;
+        e5.setCursor (0);
+        e5.play();
+        double before = 0.0, after = 0.0;
+        for (int i = 0; (juce::int64) (i + 1) * block < 2 * bar + 20000; ++i)
+        {
+            e5.audioDeviceIOCallbackWithContext (ins5, 2, outs5, 2, block, c5);
+            const juce::int64 end = (juce::int64) (i + 1) * block;
+            for (int k = 0; k < block; ++k)
+            {
+                if (end <= 2 * bar) before += std::abs (l5[(size_t) k]);
+                else if (end > 2 * bar + 1000) after += std::abs (l5[(size_t) k]);
+            }
+        }
+        check (before == 0.0, "nothing plays before the clip start (no wrapping)");
+        check (after > 100.0, "the clip plays from its start position (energy " + juce::String (after, 1) + ")");
+
+        // loop mode: the pass window runs from the chosen bar to the loop end
+        AudioEngine e6;
+        e6.prepareForTest (sr, 2);
+        e6.bpm = 120.0; e6.loopBars = 4; e6.loopEnabled = true; e6.countInBars = 0; e6.clickEnabled = false;
+        const int s6 = e6.addTrack();
+        auto& t6 = e6.tracks[s6];
+        t6.armed = true; t6.volume = 0.0f;
+        e6.setCursor (2 * bar);
+        e6.record();
+        for (juce::int64 i = 0; i < (2 * bar) / block + 4; ++i) e6.audioDeviceIOCallbackWithContext (ins5, 2, outs5, 2, block, c5);
+        e6.stop();
+        for (int i = 0; i < 4; ++i) e6.audioDeviceIOCallbackWithContext (ins5, 2, outs5, 2, block, c5);
+        for (int i = 0; i < 3; ++i) e6.pollRecording();
+        check (t6.length.load() == 2 * bar && t6.offset.load() == 2 * bar && t6.takes.size() == 1,
+               "loop recording from bar 3 keeps bars 3-4 as one clip (len " + juce::String (t6.length.load()) + ")");
+    }
+
     log << (ok ? "ALL OK" : "FAILURES") << "\n";
+
     return log;
 }

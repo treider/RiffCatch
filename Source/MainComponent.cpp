@@ -87,7 +87,7 @@ MainComponent::MainComponent()
 
     timeLabel.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 26.0f, juce::Font::plain)));
     timeLabel.setJustificationType (juce::Justification::centred);
-    timeLabel.setColour (juce::Label::textColourId, Theme::text);
+    timeLabel.setColour (juce::Label::textColourId, Theme::text.withMultipliedBrightness (0.72f));   // softer than pure white
     addAndMakeVisible (timeLabel);
 
     projectLabel.setJustificationType (juce::Justification::centredRight);
@@ -385,7 +385,7 @@ MainComponent::TrackSnap MainComponent::captureTrack (int slot)
     auto& t = engine.tracks[slot];
     s.slot = slot; s.valid = true;
     s.name = t.name; s.vol = t.volume.load(); s.pan = t.pan.load();
-    s.mute = t.mute.load(); s.solo = t.solo.load(); s.input = t.inputCode.load(); s.nudge = t.nudge.load();
+    s.mute = t.mute.load(); s.solo = t.solo.load(); s.input = t.inputCode.load(); s.offset = t.offset.load();
     s.orderPos = (int) (std::find (engine.order.begin(), engine.order.end(), slot) - engine.order.begin());
     const auto len = (int) t.length.load();
     if (len > 0)
@@ -403,7 +403,7 @@ int MainComponent::restoreTrack (const TrackSnap& s)
     if (slot < 0) return -1;
     auto& t = engine.tracks[slot];
     t.name = s.name; t.volume = s.vol; t.pan = s.pan; t.mute = s.mute; t.solo = s.solo;
-    t.inputCode = s.input; t.nudge = s.nudge;
+    t.inputCode = s.input; t.offset = s.offset;
     if (s.audio.getNumSamples() > 0) { auto copy = s.audio; t.setAudio (std::move (copy)); }
     engine.order.erase (std::remove (engine.order.begin(), engine.order.end(), slot), engine.order.end());
     engine.order.insert (engine.order.begin() + juce::jmin (s.orderPos, (int) engine.order.size()), slot);
@@ -520,6 +520,8 @@ void MainComponent::toggleRecord()
     if (engine.getState() == AudioEngine::CountIn) { stopTransport(); return; }
     warnIfMultipleArmed();
     if (! engine.record()) setStatus ("Arm a track (R) before recording");
+    else if (engine.getRecordStart() > 0)
+        setStatus ("Recording from bar " + juce::String ((int) (engine.getRecordStart() / juce::jmax<juce::int64> (1, engine.getBarLength())) + 1), 150);
 }
 
 void MainComponent::togglePlay()

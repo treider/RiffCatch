@@ -355,11 +355,13 @@ void TrackRow::paint (juce::Graphics& g)
     bool live = false;
     if (recording && tr.recToStage.load()) { clipSecs = tr.stagePos.load() / juce::jmax (1.0, sr); live = true; }
     else if (recording) live = true;
-    const float clipW = juce::jmin (w.getWidth(), (float) (clipSecs * pxPerSec));
+    // clip position: the recording start while recording, else the clip offset on the timeline
+    const float dx = live ? (float) (engine.getRecordStart() / juce::jmax (1.0, sr) * pxPerSec)
+                          : (float) (tr.offset.load() / juce::jmax (1.0, sr) * pxPerSec);
+    const float clipW = juce::jmin ((float) (clipSecs * pxPerSec), w.getWidth() + 2.0f - dx);
 
     if (clipW > 1.0f && (done > 0 || live))
     {
-        const float nudgePx = live ? 0.0f : (float) (tr.nudge.load() / juce::jmax (1.0, sr) * pxPerSec);
         auto drawClip = [&] (float dx)
         {
         auto clip = w.withWidth (clipW).translated (dx, 0.0f);
@@ -375,8 +377,11 @@ void TrackRow::paint (juce::Graphics& g)
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
         juce::String title = live ? juce::String ("Recording") : tr.name;
         if (! live && tr.takes.size() > 1) title << "   take " << (tr.currentTake + 1) << "/" << (int) tr.takes.size();
-        if (! live && tr.nudge.load() != 0)
-            title << "   " << (tr.nudge.load() > 0 ? "+" : "") << juce::String (tr.nudge.load() * 1000.0 / juce::jmax (1.0, sr), 1) << " ms";
+        if (! live && tr.offset.load() != 0)
+        {
+            const double bars = tr.offset.load() / (double) juce::jmax<juce::int64> (1, engine.getBarLength()) + 1.0;
+            title << "   bar " << (std::abs (bars - std::round (bars)) < 0.002 ? juce::String ((int) std::round (bars)) : juce::String (bars, 2));
+        }
         g.drawText (title, strip.reduced (5.0f, 0.0f), juce::Justification::centredLeft);
 
 
@@ -419,10 +424,7 @@ void TrackRow::paint (juce::Graphics& g)
                 drawLane (mn, mx, clip);
         }
         };
-        drawClip (nudgePx);
-        // a one-loop take wraps around when nudged, exactly like it plays back
-        if (! live && nudgePx != 0.0f && engine.loopEnabled.load() && clipW >= w.getWidth() - 3.0f)
-            drawClip (nudgePx + (nudgePx > 0.0f ? -clipW : clipW));
+        drawClip (dx);
     }
     else
     {
@@ -435,7 +437,7 @@ void TrackRow::paint (juce::Graphics& g)
     if (selStart >= selEnd) selStart = selEnd = 0;
     if (hasSelection() && ! tr.editing)
     {
-        const int nd = tr.nudge.load();
+        const int nd = tr.offset.load();
         const float x0 = sampleToX (selStart + nd), x1 = sampleToX (selEnd + nd);
         g.setColour (juce::Colours::white.withAlpha (0.28f));
         g.fillRect (x0, w.getY(), x1 - x0, w.getHeight());
@@ -606,11 +608,14 @@ void TrackRow::mouseDown (const juce::MouseEvent& e)
     }
 
     if (t.length.load() <= 0) return;
-    if (e.mods.isPopupMenu())          // right button: drag = nudge in time, click = clip menu
+    const bool onStrip = e.y >= wave.getY() && e.y < wave.getY() + clipStripH
+                         && sampleToX (t.offset.load()) <= (float) e.x && (float) e.x <= sampleToX ((juce::int64) t.offset.load() + t.length.load());
+    if (e.mods.isPopupMenu() || (e.mods.isLeftButtonDown() && onStrip))   // drag the clip (title strip or right button); right click = clip menu
     {
         nudging = true;
+        moveByRight = e.mods.isPopupMenu();
         nudgeStartX = e.x;
-        nudgeStartVal = t.nudge.load();
+        nudgeStartVal = t.offset.load();
     }
     else if (e.mods.isLeftButtonDown())   // left button: select a region (Shift = snap to 1/16)
     {
@@ -635,13 +640,14 @@ void TrackRow::mouseDrag (const juce::MouseEvent& e)
     if (nudging)
     {
         const double sr = engine.getSampleRate();
-        double total = nudgeStartVal + (e.x - nudgeStartX) / (wave.getWidth() / viewSeconds) * sr;
-        if (e.mods.isShiftDown())        // Shift = snap to 1/16 notes
+        double v = nudgeStartVal + (e.x - nudgeStartX) / (wave.getWidth() / viewSeconds) * sr;
+        if (! e.mods.isShiftDown())      // snaps to beats; Alt = bars; Shift = free
         {
-            const double step = engine.getSamplesPerBeat() / 4.0;
-            total = std::round (total / step) * step;
+            const double step = engine.getSamplesPerBeat() * (e.mods.isAltDown() ? 4.0 : 1.0);
+            v = std::round (v / step) * step;
         }
-        track().nudge = (int) juce::jlimit (-2.0 * sr, 2.0 * sr, total);
+        const double maxV = engine.loopEnabled.load() ? (double) engine.getLoopLength() - 1.0 : sr * 600.0;   // beyond the loop end it is cut off
+        track().offset = (int) juce::jlimit (0.0, maxV, v);
         repaint (wave);
         return;
     }
@@ -665,10 +671,10 @@ void TrackRow::mouseUp (const juce::MouseEvent& e)
     }
     if (nudging)
     {
-        const int before = nudgeStartVal, after = track().nudge.load();
+        const int before = nudgeStartVal, after = track().offset.load();
         if (before != after)
-            push ("Nudge", [this, after] { track().nudge = after; repaint(); }, [this, before] { track().nudge = before; repaint(); });
-        else if (! e.mouseWasDraggedSinceMouseDown())
+            push ("Move clip", [this, after] { track().setOffset (after); repaint(); }, [this, before] { track().setOffset (before); repaint(); });
+        else if (moveByRight && ! e.mouseWasDraggedSinceMouseDown())
         {
             nudging = false;
             showClipMenu();
@@ -688,11 +694,11 @@ void TrackRow::mouseDoubleClick (const juce::MouseEvent& e)
 {
     auto& t = track();
     if (! wave.contains (e.getPosition())) return;
-    if (! t.editing)   // double-click resets the nudge
+    if (! t.editing)   // double-click moves the clip back to bar 1
     {
-        const int before = t.nudge.load();
-        t.nudge = 0;
-        if (before != 0) push ("Reset nudge", [this] { track().nudge = 0; repaint(); }, [this, before] { track().nudge = before; repaint(); });
+        const int before = t.offset.load();
+        t.setOffset (0);
+        if (before != 0) push ("Move clip to start", [this] { track().setOffset (0); repaint(); }, [this, before] { track().setOffset (before); repaint(); });
         repaint (wave);
         return;
     }
@@ -734,7 +740,7 @@ juce::int64 TrackRow::xToTake (float x, bool snap) const
         t = std::round (t / step) * step;
     }
     const auto& tr = engine.tracks[index];
-    return juce::jlimit<juce::int64> (0, tr.length.load(), (juce::int64) std::llround (t) - tr.nudge.load());
+    return juce::jlimit<juce::int64> (0, tr.length.load(), (juce::int64) std::llround (t) - tr.offset.load());
 }
 
 void TrackRow::selectionCommand (SelCmd cmd)
@@ -754,7 +760,7 @@ void TrackRow::selectionCommand (SelCmd cmd)
         if (! hasSelection())    // no selection: paste at the playhead
         {
             const juce::int64 pos = st == AudioEngine::Stopped ? engine.getCursor() : engine.getPosition();
-            s0 = pos - t.nudge.load();
+            s0 = pos - t.offset.load();
         }
         if (s0 < 0 || s0 >= len) { say ("Playhead is outside this track"); return; }
         s1 = juce::jmin<juce::int64> (len, s0 + clipboard.getNumSamples());

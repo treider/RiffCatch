@@ -27,7 +27,7 @@ namespace Theme
     inline juce::Colour trackColour (int i)
     {
         const juce::Colour c[] = { blue, cyan, green, yellow, orange, purple, teal, red };
-        return c[i % 8];
+        return i % 16 < 8 ? c[i % 8] : c[i % 8].darker (0.3f);   // second set of 8: same hues, deeper
     }
 }
 

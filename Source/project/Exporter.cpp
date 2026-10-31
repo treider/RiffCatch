@@ -14,7 +14,7 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
 
     juce::int64 passLen = loopMode ? loopLen : 0;
     if (! loopMode)
-        for (int slot : e.order) passLen = juce::jmax (passLen, e.tracks[slot].length.load());
+        for (int slot : e.order) passLen = juce::jmax<juce::int64> (passLen, e.tracks[slot].length.load() + juce::jmax (0, e.tracks[slot].offset.load()));
     if (passLen <= 0) { error = "Nothing to export - no recorded audio."; return false; }
 
     const juce::int64 total = passLen * juce::jmax (1, loopMode ? loops : 1);
@@ -33,12 +33,11 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
 
         const float theta = (juce::jlimit (-1.0f, 1.0f, tr.pan.load()) + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
         const float gl = tr.volume.load() * std::cos (theta), gr = tr.volume.load() * std::sin (theta);
-        const int nd = tr.nudge.load();
+        const int nd = tr.offset.load();
 
         juce::SpinLock::ScopedLockType lk (tr.lock);
         const juce::int64 len = juce::jmin<juce::int64> (tr.length.load(), tr.data.getNumSamples());
         if (len <= 0) continue;
-        const bool wrap = loopMode && std::abs (len - loopLen) <= 2;
         const float* dl = tr.data.getReadPointer (0);
         const float* dr = tr.data.getReadPointer (1);
         float* ml = mix.getWritePointer (0);
@@ -48,7 +47,6 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
         {
             const juce::int64 q = loopMode ? p % loopLen : p;
             auto idx = q - nd;
-            if (wrap) { idx %= len; if (idx < 0) idx += len; }
             if (idx < 0 || idx >= len) continue;
             ml[p] += dl[idx] * gl;
             mr[p] += dr[idx] * gr;

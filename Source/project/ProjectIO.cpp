@@ -41,7 +41,7 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
         o->setProperty ("mute", tr.mute.load());
         o->setProperty ("solo", tr.solo.load());
         o->setProperty ("input", tr.inputCode.load());
-        o->setProperty ("nudgeMs", tr.nudge.load() * 1000.0 / juce::jmax (1.0, e.getSampleRate()));
+        o->setProperty ("offsetMs", tr.offset.load() * 1000.0 / juce::jmax (1.0, e.getSampleRate()));
         tracks.add (juce::var (o));
     }
     // remove stale wav files from removed/cleared tracks
@@ -105,7 +105,7 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
         tr.mute = (bool) t.getProperty ("mute", false);
         tr.solo = (bool) t.getProperty ("solo", false);
         tr.inputCode = (int) t.getProperty ("input", 0);
-        tr.nudge = (int) std::lround ((double) t.getProperty ("nudgeMs", 0.0) * devRate / 1000.0);
+        tr.offset = juce::jmax (0, (int) std::lround ((double) (t.hasProperty ("offsetMs") ? t.getProperty ("offsetMs", 0.0) : t.getProperty ("nudgeMs", 0.0)) * devRate / 1000.0));
 
         auto file = dir.getChildFile (t["file"].toString());
         if (t["file"].toString().isNotEmpty() && file.existsAsFile())

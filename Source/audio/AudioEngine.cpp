@@ -41,7 +41,11 @@ bool AudioEngine::record()
 
     const bool loopMode = loopEnabled.load();
     const auto loopLen = getLoopLength();
-    sessionLen = (int) loopLen;
+    const auto bar = juce::jmax<juce::int64> (1, getBarLength());
+    juce::int64 rs = (cursorPos.load() / bar) * bar;       // recording starts at the bar the playhead is in
+    if (loopMode && rs >= loopLen) rs = 0;
+    recStart = rs;
+    sessionLen = loopMode ? (int) (loopLen - rs) : 0;      // loop passes record from rs to the loop end
 
     for (int i = 0; i < maxTracks; ++i)
     {
@@ -63,7 +67,7 @@ bool AudioEngine::record()
     const int beats = juce::jlimit (0, 8, countInBars.load()) * 4;
     countInLen = (juce::int64) std::ceil (beats * spb);
 
-    jumpTo = 0;                       // recording always starts at bar 1
+    jumpTo = rs;                      // recording starts at the chosen bar (after the count-in)
     state = beats > 0 ? (int) CountIn : (int) Recording;
     return true;
 }
@@ -83,7 +87,8 @@ void AudioEngine::pollRecording()
         if (seq != tr.seenSeq)
         {
             tr.seenSeq = seq;
-            const auto pc = tr.commitTake (tr.stage[tr.completedStage.load()], sessionLen, getCompensationSamples());
+            const int rsI = (int) recStart.load();
+            const auto pc = tr.commitTake (tr.stage[tr.completedStage.load()], sessionLen, getCompensationSamples(), rsI == 0, rsI);
             if (onTakeCommitted) onTakeCommitted (i, pc.first, pc.second);
             ++tr.sessionCommits;
         }
@@ -97,12 +102,15 @@ void AudioEngine::pollRecording()
             tr.idleTicks = 0;
             const auto written = tr.stagePos.load();
             if (! tr.recToStage.load())
-                tr.shiftEarlier (getCompensationSamples());
-            else if (tr.sessionCommits == 0 && written > 0)   // nothing completed yet: keep what was played
+                tr.finishLinearRecording (getCompensationSamples(), getBarLength(), (int) recStart.load());
+            else if (tr.sessionCommits == 0 && written > 0)   // nothing completed yet: keep what was played, rounded up to whole bars
             {
                 auto& sb = tr.stage[tr.writeStage.load()];
-                if (written < sessionLen) sb.clear ((int) written, sessionLen - (int) written);
-                const auto pc = tr.commitTake (sb, sessionLen, getCompensationSamples());
+                const auto bar = juce::jmax<juce::int64> (1, getBarLength());
+                const int len = (int) juce::jmin<juce::int64> (sessionLen, ((written + bar - 1) / bar) * bar);
+                if (written < len) sb.clear ((int) written, len - (int) written);
+                const int rsI = (int) recStart.load();
+                const auto pc = tr.commitTake (sb, len, getCompensationSamples(), rsI == 0 && len == sessionLen, rsI);
                 if (onTakeCommitted) onTakeCommitted (i, pc.first, pc.second);
             }
         }
@@ -194,7 +202,7 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
     {
         int expected = CountIn;
         state.compare_exchange_strong (expected, (int) Recording);
-        playPos = 0;
+        playPos = recStart.load();
         st = (State) state.load();
     }
 
@@ -207,6 +215,9 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
         if (pos >= loopLen) pos %= loopLen;
         n = (int) juce::jmin<juce::int64> (n, loopLen - pos);
     }
+    const juce::int64 rs = recStart.load();
+    if (st == Recording && looping && pos < rs)       // recording window starts at rs: do not straddle it
+        n = (int) juce::jmin<juce::int64> (n, rs - pos);
     if (st == CountIn)
         n = (int) juce::jmin<juce::int64> (n, countInLen.load() - countPos.load());
     n = juce::jmax (1, n);
@@ -254,36 +265,27 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
         if (playing && ! recording && haveData)
         {
             const auto len = tr.length.load();
-            const int nd = tr.nudge.load();
-            if (len > 0 && tr.data.getNumSamples() >= len)
+            const juce::int64 start = pos - (juce::int64) tr.offset.load();   // data index of the first sample of this chunk
+            if (len > 0 && tr.data.getNumSamples() >= len && start < len)
             {
-                if (nd == 0)
+                if (start >= 0)
                 {
-                    if (pos < len)
-                    {
-                        pbL = tr.data.getReadPointer (0) + pos;
-                        pbR = tr.data.getReadPointer (1) + pos;
-                        pbAvail = (int) juce::jmin<juce::int64> (n, len - pos);
-                    }
+                    pbL = tr.data.getReadPointer (0) + start;
+                    pbR = tr.data.getReadPointer (1) + start;
+                    pbAvail = (int) juce::jmin<juce::int64> (n, len - start);
                 }
-                else   // manual nudge: shifted read, circular when the take is exactly one loop
+                else if (-start < n)   // the clip starts inside this chunk: silence first, then the audio
                 {
-                    const bool wrap = loopEnabled.load() && std::abs (len - loopLen) <= 2;
-                    const float* dl = tr.data.getReadPointer (0);
-                    const float* dr = tr.data.getReadPointer (1);
-                    for (int i = 0; i < n; ++i)
-                    {
-                        auto idx = pos + i - nd;
-                        if (wrap) { idx %= len; if (idx < 0) idx += len; }
-                        const bool ok = idx >= 0 && idx < len;
-                        nudgeL[i] = ok ? dl[idx] : 0.0f;
-                        nudgeR[i] = ok ? dr[idx] : 0.0f;
-                    }
+                    const int lead = (int) -start;
+                    const int cnt = (int) juce::jmin<juce::int64> (n - lead, len);
+                    juce::FloatVectorOperations::clear (nudgeL, n);
+                    juce::FloatVectorOperations::clear (nudgeR, n);
+                    juce::FloatVectorOperations::copy (nudgeL + lead, tr.data.getReadPointer (0), cnt);
+                    juce::FloatVectorOperations::copy (nudgeR + lead, tr.data.getReadPointer (1), cnt);
                     pbL = nudgeL; pbR = nudgeR; pbAvail = n;
                 }
             }
         }
-
         float pl = 0.0f, pr = 0.0f;
         if (pbAvail > 0 || armed)
         {
@@ -312,34 +314,36 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
         if (toStage)   // loop pass goes to staging buffer; the take is only replaced when the pass completes
         {
             auto& sb = tr.stage[tr.writeStage.load()];
-            if (sb.getNumSamples() >= pos + n)
+            const juce::int64 si = pos - rs;       // index inside the pass window
+            if (si >= 0 && sb.getNumSamples() >= si + n)
             {
-                auto* dl = sb.getWritePointer (0) + pos;
-                auto* dr = sb.getWritePointer (1) + pos;
+                auto* dl = sb.getWritePointer (0) + si;
+                auto* dr = sb.getWritePointer (1) + si;
                 for (int i = 0; i < n; ++i)
                 {
                     const float a = inL != nullptr ? inL[i] : 0.0f;
                     dl[i] = a;
                     dr[i] = inR != nullptr ? inR[i] : a;
                 }
-                tr.stagePos = pos + n;
+                tr.stagePos = si + n;
             }
         }
         else if (recording && haveData)   // linear recording straight into the track buffer
         {
             const auto cap = (juce::int64) tr.data.getNumSamples();
-            const int w = (int) juce::jlimit<juce::int64> (0, n, cap - pos);
+            const juce::int64 wi = pos - rs;       // write index in the clip
+            const int w = wi >= 0 ? (int) juce::jlimit<juce::int64> (0, n, cap - wi) : 0;
             if (w > 0)
             {
-                auto* dl = tr.data.getWritePointer (0) + pos;
-                auto* dr = tr.data.getWritePointer (1) + pos;
+                auto* dl = tr.data.getWritePointer (0) + wi;
+                auto* dr = tr.data.getWritePointer (1) + wi;
                 for (int i = 0; i < w; ++i)
                 {
                     const float a = inL != nullptr ? inL[i] : 0.0f;
                     dl[i] = a;
                     dr[i] = inR != nullptr ? inR[i] : a;
                 }
-                if (pos + w > tr.length.load()) tr.length = pos + w;
+                if (wi + w > tr.length.load()) tr.length = wi + w;
             }
             if (w < n) recordFull = true;
         }

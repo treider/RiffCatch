@@ -9,7 +9,7 @@
 class AudioEngine : public juce::AudioIODeviceCallback
 {
 public:
-    static constexpr int maxTracks = 8;
+    static constexpr int maxTracks = 16;
     enum State { Stopped = 0, Playing = 1, Recording = 2, CountIn = 3 };
 
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
@@ -31,6 +31,8 @@ public:
     void pollRecording();   // call regularly from the UI thread: commits finished loop passes
     State getState() const noexcept { return (State) state.load(); }
     juce::int64 getPosition() const noexcept { return playPos.load(); }
+    juce::int64 getBarLength() const noexcept { return (juce::int64) std::llround (4.0 * getSamplesPerBeat()); }
+    juce::int64 getRecordStart() const noexcept { return recStart.load(); }   // where the current/last recording started
     juce::int64 getCountInPosition() const noexcept { return countPos.load(); }
     juce::int64 getCountInLength() const noexcept { return countInLen.load(); }
     double getSampleRate() const noexcept { return sampleRate.load(); }
@@ -76,6 +78,7 @@ private:
     std::atomic<juce::int64> countPos { 0 };    // samples elapsed in count-in
     std::atomic<juce::int64> countInLen { 0 };
     std::atomic<juce::int64> jumpTo { -1 };      // pending position jump (audio thread consumes it)
+    std::atomic<juce::int64> recStart { 0 };     // recording starts here (cursor floored to a bar)
     std::atomic<juce::int64> cursorPos { 0 };    // where Play starts; the stopped playhead
     std::atomic<double> sampleRate { 44100.0 };
     std::atomic<int> numInputs { 0 };

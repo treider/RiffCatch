@@ -95,7 +95,7 @@ private:
     juce::TextButton hitsBtn { "Hits" };
     int dragHit = -1;
     int lastGlowState = -1;
-    bool nudging = false, selecting = false;
+    bool nudging = false, selecting = false, moveByRight = false;
     juce::int64 selStart = 0, selEnd = 0, selAnchor = 0;      // selection in take samples
     juce::int64 xToTake (float x, bool snap) const;
     void showClipMenu();
