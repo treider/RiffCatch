@@ -33,6 +33,7 @@ public:
 
     // --- selection editing (drag in the waveform to select) ---
     enum SelCmd { SelSilence, SelCut, SelCopy, SelPaste, SelFadeIn, SelFadeOut };
+    static bool hasClipboard() { return clipboard.getNumSamples() > 0; }
     bool hasSelection() const noexcept { return selEnd > selStart; }
     void clearSelection() { if (selEnd > selStart) { selStart = selEnd = 0; repaint (wave); } }
     void selectionCommand (SelCmd cmd);

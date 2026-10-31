@@ -122,11 +122,24 @@ MainComponent::MainComponent()
     bpmLabel.onTextChange = [this] { setBpm (bpmLabel.getText().getDoubleValue()); grabKeyboardFocus(); };
     addAndMakeVisible (bpmLabel);
 
-    for (auto* b : { &undoBtn, &redoBtn })
+    for (auto* b : { &undoBtn, &redoBtn, &cutBtn, &copyBtn, &pasteBtn, &silenceBtn, &fadeInBtn, &fadeOutBtn, &dupBtn })
     {
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (b);
     }
+    auto selCmd = [this] (TrackRow::SelCmd c)
+    {
+        if (auto* r = selectionRow()) r->selectionCommand (c);
+        else setStatus ("Select a region first: drag in a waveform");
+        grabKeyboardFocus();
+    };
+    cutBtn.setTooltip ("Cut selection (Ctrl+X)");               cutBtn.onClick = [selCmd] { selCmd (TrackRow::SelCut); };
+    copyBtn.setTooltip ("Copy selection (Ctrl+C)");             copyBtn.onClick = [selCmd] { selCmd (TrackRow::SelCopy); };
+    pasteBtn.setTooltip ("Paste at selection / playhead (Ctrl+V)"); pasteBtn.onClick = [selCmd] { selCmd (TrackRow::SelPaste); };
+    silenceBtn.setTooltip ("Silence selection (Del)");          silenceBtn.onClick = [selCmd] { selCmd (TrackRow::SelSilence); };
+    fadeInBtn.setTooltip ("Fade in over selection");            fadeInBtn.onClick = [selCmd] { selCmd (TrackRow::SelFadeIn); };
+    fadeOutBtn.setTooltip ("Fade out over selection");          fadeOutBtn.onClick = [selCmd] { selCmd (TrackRow::SelFadeOut); };
+    dupBtn.setTooltip ("Duplicate track (Ctrl+D)");             dupBtn.onClick = [this] { if (auto* r = selectionRow()) duplicateTrack (r->slot()); grabKeyboardFocus(); };
     undoBtn.onClick = [this] { doUndo (false); };
     redoBtn.onClick = [this] { doUndo (true); };
 
@@ -203,6 +216,10 @@ MainComponent::MainComponent()
     setWantsKeyboardFocus (true);
     setSize (1280, 760);
     startTimerHz (30);
+    {   // optional: a project folder passed on the command line is opened at start
+        const auto arg = juce::JUCEApplication::getCommandLineParameters().removeCharacters ("\"").trim();
+                if (arg.isNotEmpty() && ! arg.startsWith ("--") && juce::File (arg).isDirectory()) doOpen (juce::File (arg));
+    }
 }
 
 MainComponent::~MainComponent()
@@ -570,6 +587,14 @@ void MainComponent::timerCallback()
                 applyDarkTitleBar (w->getPeer(), Theme::bg, Theme::text);
                 w->getProperties().set ("darkTitle", true);
             }
+    {
+        bool anySel = false;
+        for (auto* r : rows) anySel = anySel || r->hasSelection();
+        const bool idle = engine.getState() != AudioEngine::Recording && engine.getState() != AudioEngine::CountIn;
+        for (auto* b : { &cutBtn, &copyBtn, &silenceBtn, &fadeInBtn, &fadeOutBtn }) b->setEnabled (anySel && idle);
+        pasteBtn.setEnabled (TrackRow::hasClipboard() && selectionRow() != nullptr && idle);
+        dupBtn.setEnabled (selectionRow() != nullptr);
+    }
     undoBtn.setEnabled (undoManager.canUndo());
     redoBtn.setEnabled (undoManager.canRedo());
     undoBtn.setTooltip (undoManager.canUndo() ? "Undo " + undoManager.getUndoDescription() + " (Ctrl+Z)" : "Nothing to undo");
@@ -671,8 +696,12 @@ void MainComponent::resized()
     clickVol.setBounds (sb.removeFromLeft (90));  sb.removeFromLeft (18);
     countCaption.setBounds (sb.removeFromLeft (64));
     countInBox.setBounds (sb.removeFromLeft (70)); sb.removeFromLeft (18);
-    redoBtn.setBounds (sb.removeFromRight (56)); sb.removeFromRight (6);
-    undoBtn.setBounds (sb.removeFromRight (56)); sb.removeFromRight (10);
+    for (auto* b : { &redoBtn, &undoBtn })
+        { b->setBounds (sb.removeFromRight (32).withSizeKeepingCentre (32, 28)); sb.removeFromRight (4); }
+    sb.removeFromRight (12);
+    for (auto* b : { &dupBtn, &fadeOutBtn, &fadeInBtn, &silenceBtn, &pasteBtn, &copyBtn, &cutBtn })
+        { b->setBounds (sb.removeFromRight (32).withSizeKeepingCentre (32, 28)); sb.removeFromRight (4); }
+    sb.removeFromRight (8);
     statusLabel.setBounds (sb);
 
     r.removeFromTop (10);

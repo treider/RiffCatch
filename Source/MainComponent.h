@@ -73,7 +73,10 @@ private:
     IconButton recBtn  { IconButton::Record, Theme::red };
     IconButton playBtn { IconButton::Play,   Theme::green };
     IconButton stopBtn { IconButton::Stop,   Theme::blue };
-    juce::TextButton undoBtn { "Undo" }, redoBtn { "Redo" }, exportBtn { "Export" }, newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" }, audioBtn { "Audio" };
+    ToolButton undoBtn { ToolButton::Undo }, redoBtn { ToolButton::Redo };
+    ToolButton cutBtn { ToolButton::Cut }, copyBtn { ToolButton::Copy }, pasteBtn { ToolButton::Paste }, silenceBtn { ToolButton::Silence },
+               fadeInBtn { ToolButton::FadeIn }, fadeOutBtn { ToolButton::FadeOut }, dupBtn { ToolButton::Duplicate };
+    juce::TextButton exportBtn { "Export" }, newBtn { "New" }, openBtn { "Open" }, saveBtn { "Save" }, audioBtn { "Audio" };
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
     juce::Label bpmLabel;
     juce::TextButton tapBtn { "Tap" }, loopBtn { "Loop" }, clickBtn { "Click" };

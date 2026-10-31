@@ -224,6 +224,89 @@ private:
     juce::Colour colour;
 };
 
+// Small flat icon button for edit operations (cut/copy/paste/fades/...). Icons are drawn as vector paths.
+class ToolButton : public juce::Button
+{
+public:
+    enum Icon { Cut, Copy, Paste, Silence, FadeIn, FadeOut, Duplicate, Undo, Redo };
+    explicit ToolButton (Icon i) : juce::Button ({}), icon (i) { setWantsKeyboardFocus (false); }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto b = getLocalBounds().toFloat().reduced (1.0f);
+        const bool en = isEnabled();
+        g.setColour (en ? (down ? Theme::raised.darker (0.2f) : over ? Theme::raised.brighter (0.15f) : Theme::raised.withAlpha (0.7f))
+                        : Theme::raised.withAlpha (0.3f));
+        g.fillRoundedRectangle (b, 7.0f);
+        const auto col = en ? Theme::text : Theme::dim.withAlpha (0.45f);
+        g.setColour (col);
+
+        const auto r = b.withSizeKeepingCentre (16.0f, 16.0f);
+        const float x = r.getX(), y = r.getY();
+        const juce::PathStrokeType st (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+        juce::Graphics::ScopedSaveState ss (g);
+        if (icon == Redo) g.addTransform (juce::AffineTransform::scale (-1.0f, 1.0f, x + 8.0f, y + 8.0f));
+        juce::Path p;
+        switch (icon)
+        {
+            case Cut:
+                g.drawEllipse (x + 1.5f, y + 9.5f, 5.0f, 5.0f, 1.5f);
+                g.drawEllipse (x + 9.5f, y + 9.5f, 5.0f, 5.0f, 1.5f);
+                p.startNewSubPath (x + 4.8f, y + 9.6f);  p.lineTo (x + 11.8f, y + 1.0f);
+                p.startNewSubPath (x + 11.2f, y + 9.6f); p.lineTo (x + 4.2f, y + 1.0f);
+                g.strokePath (p, st);
+                break;
+            case Copy:
+                g.drawRoundedRectangle (x + 5.0f, y + 1.0f, 9.5f, 10.0f, 2.0f, 1.5f);
+                g.drawRoundedRectangle (x + 1.5f, y + 5.0f, 9.5f, 10.0f, 2.0f, 1.5f);
+                break;
+            case Paste:
+                g.drawRoundedRectangle (x + 2.0f, y + 3.0f, 12.0f, 12.0f, 2.0f, 1.5f);
+                g.fillRoundedRectangle (x + 5.0f, y + 1.0f, 6.0f, 4.0f, 1.2f);
+                g.fillRect (x + 5.0f, y + 8.0f, 6.0f, 1.4f);
+                g.fillRect (x + 5.0f, y + 11.0f, 4.0f, 1.4f);
+                break;
+            case Silence:
+                p.startNewSubPath (x + 1.0f, y + 6.0f); p.lineTo (x + 4.5f, y + 6.0f); p.lineTo (x + 8.5f, y + 2.5f);
+                p.lineTo (x + 8.5f, y + 13.5f); p.lineTo (x + 4.5f, y + 10.0f); p.lineTo (x + 1.0f, y + 10.0f); p.closeSubPath();
+                g.fillPath (p);
+                p.clear();
+                p.startNewSubPath (x + 10.5f, y + 5.5f); p.lineTo (x + 15.0f, y + 10.5f);
+                p.startNewSubPath (x + 15.0f, y + 5.5f); p.lineTo (x + 10.5f, y + 10.5f);
+                g.strokePath (p, st);
+                break;
+            case FadeIn:
+                p.addTriangle (x + 1.0f, y + 14.0f, x + 15.0f, y + 14.0f, x + 15.0f, y + 2.0f);
+                g.setColour (col.withAlpha (0.35f)); g.fillPath (p);
+                g.setColour (col);
+                g.drawLine (x + 1.0f, y + 14.0f, x + 15.0f, y + 2.0f, 1.6f);
+                break;
+            case FadeOut:
+                p.addTriangle (x + 1.0f, y + 14.0f, x + 15.0f, y + 14.0f, x + 1.0f, y + 2.0f);
+                g.setColour (col.withAlpha (0.35f)); g.fillPath (p);
+                g.setColour (col);
+                g.drawLine (x + 1.0f, y + 2.0f, x + 15.0f, y + 14.0f, 1.6f);
+                break;
+            case Duplicate:
+                g.drawRoundedRectangle (x + 1.5f, y + 2.0f, 13.0f, 5.0f, 1.5f, 1.5f);
+                g.setColour (col.withAlpha (0.45f));
+                g.fillRoundedRectangle (x + 1.5f, y + 9.0f, 13.0f, 5.0f, 1.5f);
+                break;
+            case Undo: case Redo:
+                p.startNewSubPath (x + 4.5f, y + 7.0f);
+                p.cubicTo (x + 7.5f, y + 3.0f, x + 14.0f, y + 4.5f, x + 13.5f, y + 11.0f);
+                g.strokePath (p, st);
+                p.clear();
+                p.addTriangle (x + 1.0f, y + 7.0f, x + 6.5f, y + 2.5f, x + 6.5f, y + 11.5f);
+                g.fillPath (p);
+                break;
+        }
+    }
+
+private:
+    Icon icon;
+};
+
 // Peak meter, dB scaled -60..+6 to match fader. Vertical or horizontal, 1 or 2 bars.
 class LevelMeter : public juce::Component
 {

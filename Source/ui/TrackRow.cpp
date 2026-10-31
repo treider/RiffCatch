@@ -357,9 +357,13 @@ void TrackRow::paint (juce::Graphics& g)
         {
         auto clip = w.withWidth (clipW).translated (dx, 0.0f);
         const auto col = live ? Theme::red : accent;
+        g.setColour (col.withMultipliedBrightness (0.92f));
+        g.fillRoundedRectangle (clip, 4.0f);                        // solid clip body
         auto strip = clip.removeFromTop ((float) clipStripH);
+        juce::Path sp;
+        sp.addRoundedRectangle (strip.getX(), strip.getY(), strip.getWidth(), strip.getHeight(), 4.0f, 4.0f, true, true, false, false);
         g.setColour (col);
-        g.fillRect (strip);
+        g.fillPath (sp);
         g.setColour (Theme::deep);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
         juce::String title = live ? juce::String ("Recording") : tr.name;
@@ -368,12 +372,10 @@ void TrackRow::paint (juce::Graphics& g)
             title << "   " << (tr.nudge.load() > 0 ? "+" : "") << juce::String (tr.nudge.load() * 1000.0 / juce::jmax (1.0, sr), 1) << " ms";
         g.drawText (title, strip.reduced (5.0f, 0.0f), juce::Justification::centredLeft);
 
-        g.setColour (col.withMultipliedBrightness (0.30f).withMultipliedSaturation (0.8f));
-        g.fillRect (clip);
 
         if (done > 0 && ! (live && tr.recToStage.load()))
         {
-            g.setColour (col.brighter (0.35f));
+            g.setColour (col.withMultipliedBrightness (0.30f).withAlpha (0.95f));
             const double spp = sr * viewSeconds / w.getWidth();     // samples per pixel
             // auto-zoom: scale the drawing so the loudest peak of the take fills the lane height
             float peak = 0.0f;
@@ -428,7 +430,7 @@ void TrackRow::paint (juce::Graphics& g)
     {
         const int nd = tr.nudge.load();
         const float x0 = sampleToX (selStart + nd), x1 = sampleToX (selEnd + nd);
-        g.setColour (Theme::text.withAlpha (0.16f));
+        g.setColour (juce::Colours::white.withAlpha (0.28f));
         g.fillRect (x0, w.getY(), x1 - x0, w.getHeight());
         g.setColour (Theme::text.withAlpha (0.75f));
         g.fillRect (x0, w.getY(), 1.0f, w.getHeight());
