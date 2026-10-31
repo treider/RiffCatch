@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(RiffCatch VERSION 0.23 LANGUAGES C CXX)   # bump the minor version every iteration
+project(RiffCatch VERSION 0.24 LANGUAGES C CXX)   # bump the minor version every iteration
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -44,7 +44,9 @@ endif()
 
 juce_add_gui_app(RiffCatch
   PRODUCT_NAME "RiffCatch"
-  COMPANY_NAME "RiffCatch")
+  COMPANY_NAME "RiffCatch"
+  ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png"
+  ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png")
 
 target_sources(RiffCatch PRIVATE
   Source/Main.cpp

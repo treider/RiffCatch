@@ -43,19 +43,17 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
         auto before = engine.drums.snapshot();
         auto after = before;
         after.bars = nb;
-        // growing: bar 1 is copied into every new bar that is still empty
+        // growing: bar 1 is copied into every new bar, lane by lane, where that lane is still empty in the new bar
         for (int bar = before.bars; bar < nb; ++bar)
-        {
-            bool empty = true;
             for (int v = 0; v < DrumMachine::numVoices; ++v)
+            {
+                bool empty = true;
                 for (int k = 0; k < DrumMachine::stepsPerBar; ++k)
                     empty &= after.steps[v][bar * DrumMachine::stepsPerBar + k] == 0;
-            if (empty)
-                for (int v = 0; v < DrumMachine::numVoices; ++v)
+                if (empty)
                     for (int k = 0; k < DrumMachine::stepsPerBar; ++k)
                         after.steps[v][bar * DrumMachine::stepsPerBar + k] = after.steps[v][k];
-        }
-        pushPattern ("Pattern length", before, after);
+            }        pushPattern ("Pattern length", before, after);
         if (onReleaseFocus) onReleaseFocus();
     };
     addAndMakeVisible (barsBox);
