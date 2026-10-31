@@ -13,6 +13,7 @@ namespace Theme
     inline const juce::Colour text   { 0xffc0caf5 };
     inline const juce::Colour dim    { 0xff565f89 };
     inline const juce::Colour blue   { 0xff7aa2f7 };
+inline const juce::Colour accent { 0xff7aa2f7 };   // the one UI colour (text/controls); yellow/orange stay for warnings and info
     inline const juce::Colour cyan   { 0xff7dcfff };
     inline const juce::Colour green  { 0xff9ece6a };
     inline const juce::Colour yellow { 0xffe0af68 };

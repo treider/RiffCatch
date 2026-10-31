@@ -2,8 +2,8 @@
 
 juce::Colour DrumPanel::voiceColour (int v)
 {
-    const juce::Colour c[] = { Theme::red, Theme::orange, Theme::yellow, Theme::teal, Theme::cyan, Theme::purple };
-    return c[v % 6];
+    juce::ignoreUnused (v);
+    return Theme::accent;     // one colour for all lanes; accents are brighter
 }
 
 DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
@@ -59,7 +59,7 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
     volume.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
     volume.setRange (0.0, 1.2, 0.0);
     volume.setDoubleClickReturnValue (true, 0.8);
-    volume.setColour (juce::Slider::trackColourId, Theme::orange);
+    volume.setColour (juce::Slider::trackColourId, Theme::accent);
     volume.setWantsKeyboardFocus (false);
     volume.setTooltip ("Drum volume");
     volume.onValueChange = [this] { engine.drums.volume = (float) volume.getValue(); };
@@ -75,12 +75,38 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
         b.getProperties().set ("outline", (int) on.withAlpha (0.55f).getARGB());
         b.setWantsKeyboardFocus (false);
     };
-    styleToggle (muteBtn, Theme::yellow);
-    styleToggle (soloBtn, Theme::green);
+    styleToggle (muteBtn, Theme::accent);
+    styleToggle (soloBtn, Theme::accent);
     muteBtn.onClick = [this] { engine.drums.mute = muteBtn.getToggleState(); if (onReleaseFocus) onReleaseFocus(); };
     soloBtn.onClick = [this] { engine.drums.solo = soloBtn.getToggleState(); if (onReleaseFocus) onReleaseFocus(); };
     addAndMakeVisible (muteBtn);
     addAndMakeVisible (soloBtn);
+
+    meter.setHorizontal (true);
+    addAndMakeVisible (meter);
+
+    auto styleLane = [] (juce::Slider& s, double lo, double hi, double def, const juce::String& tip)
+    {
+        s.setSliderStyle (juce::Slider::LinearHorizontal);
+        s.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        s.setRange (lo, hi, 0.0);
+        s.setDoubleClickReturnValue (true, def);
+        s.setColour (juce::Slider::trackColourId, Theme::accent);
+        s.setWantsKeyboardFocus (false);
+        s.setTooltip (tip);
+    };
+    for (int v = 0; v < DrumMachine::numVoices; ++v)
+    {
+        styleLane (laneVol[v], 0.0, 1.5, 1.0, "Lane volume");
+        styleLane (lanePan[v], -1.0, 1.0, 0.0, "Lane pan");
+        laneVol[v].onValueChange = [this, v] { engine.drums.level[v] = (float) laneVol[v].getValue(); };
+        lanePan[v].onValueChange = [this, v] { engine.drums.pan[v] = (float) lanePan[v].getValue(); };
+        addChildComponent (laneVol[v]);
+        addChildComponent (lanePan[v]);
+    }
+    styleLane (cymPitch, -12.0, 12.0, 0.0, "Cymbal pitch (semitones)");
+    cymPitch.onValueChange = [this] { engine.drums.cymbalPitch = (float) cymPitch.getValue(); };
+    addChildComponent (cymPitch);
 
     refreshFromEngine();
 }
@@ -106,6 +132,12 @@ void DrumPanel::refreshFromEngine()
     volume.setValue (engine.drums.volume.load(), juce::dontSendNotification);
     muteBtn.setToggleState (engine.drums.mute.load(), juce::dontSendNotification);
     soloBtn.setToggleState (engine.drums.solo.load(), juce::dontSendNotification);
+    for (int v = 0; v < DrumMachine::numVoices; ++v)
+    {
+        laneVol[v].setValue (engine.drums.level[v].load(), juce::dontSendNotification);
+        lanePan[v].setValue (engine.drums.pan[v].load(), juce::dontSendNotification);
+    }
+    cymPitch.setValue (engine.drums.cymbalPitch.load(), juce::dontSendNotification);
     updateControls();
     repaint();
 }
@@ -121,6 +153,8 @@ void DrumPanel::updateControls()
     const int pages = juce::jmax (1, (ps + vs - 1) / vs);
     page = juce::jlimit (0, pages - 1, page);
     const bool paged = expanded && pages > 1;
+    for (int v = 0; v < DrumMachine::numVoices; ++v) { laneVol[v].setVisible (expanded); lanePan[v].setVisible (expanded); }
+    cymPitch.setVisible (expanded);
     prevPage.setVisible (paged); nextPage.setVisible (paged); pageLabel.setVisible (paged);
     prevPage.setEnabled (page > 0); nextPage.setEnabled (page < pages - 1);
     if (paged)
@@ -183,12 +217,21 @@ void DrumPanel::resized()
     clearBtn.setBounds (r.removeFromRight (56)); r.removeFromRight (12);
     soloBtn.setBounds (r.removeFromRight (30)); r.removeFromRight (4);
     muteBtn.setBounds (r.removeFromRight (30)); r.removeFromRight (12);
-    volume.setBounds (r.removeFromRight (150));
+    volume.setBounds (r.removeFromRight (150)); r.removeFromRight (16);
+    meter.setBounds (r.removeFromRight (190).withSizeKeepingCentre (190, 14));
+
+    for (int v = 0; v < DrumMachine::numVoices; ++v)
+    {
+        const int y = headerH + v * laneH + 3;
+        laneVol[v].setBounds (116, y, 100, laneH - 6);
+        lanePan[v].setBounds (224, y, 76, laneH - 6);
+    }
+    cymPitch.setBounds (308, headerH + DrumMachine::Cymbal * laneH + 3, 66, laneH - 6);
 }
 
 void DrumPanel::paint (juce::Graphics& g)
 {
-    const auto accent = Theme::orange;
+    const auto accent = Theme::accent;
     const auto b = getLocalBounds().toFloat();
     {
         juce::Graphics::ScopedSaveState ss (g);
@@ -221,7 +264,7 @@ void DrumPanel::paint (juce::Graphics& g)
         if (vm) g.drawRoundedRectangle (dot, Theme::radius, 1.4f); else g.fillRoundedRectangle (dot, Theme::radius);
         g.setColour (vm ? Theme::dim : Theme::text);
         g.setFont (juce::Font (juce::FontOptions (12.5f)));
-        g.drawText (DrumMachine::voiceName (v), 40, (int) lr.getY(), 200, (int) lr.getHeight(), juce::Justification::centredLeft);
+        g.drawText (DrumMachine::voiceName (v), 40, (int) lr.getY(), 74, (int) lr.getHeight(), juce::Justification::centredLeft);
 
         g.setColour (Theme::deep);
         g.fillRoundedRectangle (lr, Theme::radius);
@@ -272,6 +315,7 @@ void DrumPanel::paint (juce::Graphics& g)
 
 void DrumPanel::tick()
 {
+    meter.setLevels (engine.drums.peakL.exchange (0.0f), engine.drums.peakR.exchange (0.0f));
     if (! expanded) return;
     const auto la = lanesArea();
     const float px = (float) la.getX() + (float) (engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) / viewSeconds * (double) la.getWidth());
@@ -291,6 +335,7 @@ void DrumPanel::mouseDown (const juce::MouseEvent& e)
 
     if (e.x < lanesArea().getX() - 6)    // lane header
     {
+        if (e.x >= 114) return;
         if (e.x < 36) engine.drums.voiceMute[voice] = ! engine.drums.voiceMute[voice].load();
         else          engine.drums.audition[voice] = true;
         repaint();

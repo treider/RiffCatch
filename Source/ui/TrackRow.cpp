@@ -67,8 +67,8 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     addAndMakeVisible (inMeter);
 
     styleToggle (arm, Theme::red);
-    styleToggle (mute, Theme::yellow);
-    styleToggle (solo, Theme::green);
+    styleToggle (mute, Theme::accent);
+    styleToggle (solo, Theme::accent);
     arm.onClick  = [this] { track().armed = arm.getToggleState(); repaint(); if (onArmChanged) onArmChanged(); };
     mute.onClick = [this]
     {
@@ -134,7 +134,7 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     }
     hitsBtn.setWantsKeyboardFocus (false);
     hitsBtn.setColour (juce::TextButton::buttonColourId, Theme::deep.withAlpha (0.7f));
-    hitsBtn.setColour (juce::TextButton::buttonOnColourId, Theme::yellow);
+    hitsBtn.setColour (juce::TextButton::buttonOnColourId, Theme::accent);
     hitsBtn.setColour (juce::TextButton::textColourOnId, Theme::deep);
     hitsBtn.setTooltip ("Edit individual hits: drag markers, quantize");
     hitsBtn.onClick = [this] { showHitsMenu(); };
@@ -887,7 +887,7 @@ MasterStrip::MasterStrip (AudioEngine& e) : engine (e)
     title.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
     addAndMakeVisible (title);
 
-    styleFader (fader, Theme::purple, true);
+    styleFader (fader, Theme::accent, true);
     fader.onDragStart = [this] { dragging = true; };
     fader.onDragEnd = [this] { dragging = false; commitMaster(); };
     fader.onValueChange = [this]
@@ -940,7 +940,7 @@ void MasterStrip::paint (juce::Graphics& g)
         g.reduceClipRegion (card);
         g.setColour (Theme::panel);
         g.fillRect (b);
-        g.setColour (Theme::purple);
+        g.setColour (Theme::accent);
         g.fillRect (b.withWidth (4.0f));
     }
     g.setColour (Theme::border.withAlpha (0.55f));
@@ -1068,7 +1068,7 @@ void Ruler::paint (juce::Graphics& g)
         }
         if (engine.loopEnabled.load())   // loop region as a thin rounded pill along the bottom
         {
-            g.setColour (Theme::teal.withAlpha (0.9f));
+            g.setColour (Theme::accent.withAlpha (0.9f));
             g.fillRoundedRectangle (pill.getX() + 4.0f, pill.getBottom() - 4.0f, pill.getWidth() - 8.0f, 2.0f, 1.0f);
         }
     }

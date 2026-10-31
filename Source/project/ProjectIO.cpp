@@ -78,6 +78,7 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
         d->setProperty ("volume", (double) dm.volume.load());
         d->setProperty ("mute", dm.mute.load());
         d->setProperty ("solo", dm.solo.load());
+        d->setProperty ("cymbalPitch", (double) dm.cymbalPitch.load());
         juce::Array<juce::var> voices;
         for (int v = 0; v < DrumMachine::numVoices; ++v)
         {
@@ -86,6 +87,7 @@ bool save (AudioEngine& e, const juce::File& dir, juce::String& error)
             for (int k = 0; k < DrumMachine::maxSteps; ++k) pat << (char) ('0' + juce::jlimit (0, 2, (int) dm.steps[v][k].load()));
             vo->setProperty ("steps", pat);
             vo->setProperty ("level", (double) dm.level[v].load());
+            vo->setProperty ("pan", (double) dm.pan[v].load());
             vo->setProperty ("mute", dm.voiceMute[v].load());
             voices.add (juce::var (vo));
         }
@@ -172,6 +174,7 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
             dm.volume = (float) (double) d.getProperty ("volume", 0.8);
             dm.mute = (bool) d.getProperty ("mute", false);
             dm.solo = (bool) d.getProperty ("solo", false);
+            dm.cymbalPitch = (float) (double) d.getProperty ("cymbalPitch", 0.0);
             if (auto* vs = d["voices"].getArray())
                 for (int v = 0; v < juce::jmin (vs->size(), (int) DrumMachine::numVoices); ++v)
                 {
@@ -180,6 +183,7 @@ bool load (AudioEngine& e, const juce::File& dir, juce::String& error)
                     for (int k = 0; k < juce::jmin (pat.length(), (int) DrumMachine::maxSteps); ++k)
                         dm.steps[v][k] = (uint8_t) juce::jlimit (0, 2, (int) (pat[k] - '0'));
                     dm.level[v] = (float) (double) vo.getProperty ("level", 1.0);
+                    dm.pan[v] = (float) (double) vo.getProperty ("pan", 0.0);
                     dm.voiceMute[v] = (bool) vo.getProperty ("mute", false);
                 }
         }

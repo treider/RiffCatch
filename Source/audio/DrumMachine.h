@@ -36,13 +36,16 @@ public:
     std::atomic<float> volume { 0.8f };
     std::atomic<bool> mute { false }, solo { false };
     std::atomic<float> level[numVoices];
+    std::atomic<float> pan[numVoices];                 // -1..1 per voice
+    std::atomic<float> cymbalPitch { 0.0f };           // semitones, -12..12
+    std::atomic<float> peakL { 0.0f }, peakR { 0.0f }; // output peak since last read (VU)
     std::atomic<bool> voiceMute[numVoices];
     std::atomic<bool> audition[numVoices];             // one-shot preview request
 
     DrumMachine()
     {
         for (auto& row : steps) for (auto& s : row) s.store (0);
-        for (int v = 0; v < numVoices; ++v) { level[v] = 1.0f; voiceMute[v] = false; audition[v] = false; }
+        for (int v = 0; v < numVoices; ++v) { level[v] = 1.0f; pan[v] = 0.0f; voiceMute[v] = false; audition[v] = false; }
     }
 
     int patternSteps() const noexcept { return juce::jlimit (1, maxBars, bars.load()) * stepsPerBar; }
@@ -79,14 +82,16 @@ public:
         Snapshot s;
         apply (s);
         volume = 0.8f; mute = false; solo = false;
-        for (int v = 0; v < numVoices; ++v) { level[v] = 1.0f; voiceMute[v] = false; }
+        cymbalPitch = 0.0f;
+        for (int v = 0; v < numVoices; ++v) { level[v] = 1.0f; pan[v] = 0.0f; voiceMute[v] = false; }
     }
 
     void copyFrom (const DrumMachine& o)
     {
         apply (o.snapshot());
         volume = o.volume.load(); mute = o.mute.load(); solo = o.solo.load();
-        for (int v = 0; v < numVoices; ++v) { level[v] = o.level[v].load(); voiceMute[v] = o.voiceMute[v].load(); }
+        cymbalPitch = o.cymbalPitch.load();
+        for (int v = 0; v < numVoices; ++v) { level[v] = o.level[v].load(); pan[v] = o.pan[v].load(); voiceMute[v] = o.voiceMute[v].load(); }
     }
 
     // ---- audio thread
@@ -134,6 +139,15 @@ public:
         for (auto& v : voices) anyActive |= v.active;
         if (nTrig == 0 && ! anyActive) { curGain = gain; return; }
 
+        cymAmt = std::pow (2.0f, juce::jlimit (-12.0f, 12.0f, cymbalPitch.load()) / 12.0f) - 1.0f;
+        float vl[numVoices], vr[numVoices];            // equal-power pan, unity at the centre
+        for (int v = 0; v < numVoices; ++v)
+        {
+            const float th = (juce::jlimit (-1.0f, 1.0f, pan[v].load()) + 1.0f) * 0.7853982f;
+            vl[v] = std::cos (th) * 1.41421356f * level[v].load();
+            vr[v] = std::sin (th) * 1.41421356f * level[v].load();
+        }
+        float pkL = 0.0f, pkR = 0.0f;
         float g = curGain;
         const float gs = (gain - g) / (float) n;
         for (int i = 0; i < n; ++i)
@@ -141,12 +155,15 @@ public:
             g += gs;
             for (int ti = 0; ti < nTrig; ++ti)
                 if (trig[ti].off == i) fire (trig[ti].voice, trig[ti].vel);
-            float sum = 0.0f;
+            float sl = 0.0f, sr2 = 0.0f;
             for (int v = 0; v < numVoices; ++v)
-                if (voices[v].active) sum += tick (v) * level[v].load();
-            L[i] += sum * g;
-            R[i] += sum * g;
+                if (voices[v].active) { const float x = tick (v); sl += x * vl[v]; sr2 += x * vr[v]; }
+            sl *= g; sr2 *= g;
+            L[i] += sl; R[i] += sr2;
+            pkL = juce::jmax (pkL, std::abs (sl)); pkR = juce::jmax (pkR, std::abs (sr2));
         }
+        if (pkL > peakL.load()) peakL = pkL;
+        if (pkR > peakR.load()) peakR = pkR;
         curGain = gain;
     }
 
@@ -165,7 +182,7 @@ private:
     double sr = 44100.0;
     float dt = 1.0f / 44100.0f;
     float hpSnare = 0.8f, hpClap = 0.8f, hpHat = 0.8f, hpCym = 0.8f;
-    float curGain = 0.0f;
+    float curGain = 0.0f, cymAmt = 0.0f;
     VoiceState voices[numVoices];
 
     void fire (int v, int vel)
@@ -256,7 +273,7 @@ private:
                 break;
             }
             case Cymbal:
-                x = highpass (s, metal (s, 0.05f) + noise (s) * 0.25f, hpCym) * std::exp (-t * 2.4f) * 0.9f;
+                x = highpass (s, metal (s, cymAmt) + noise (s) * 0.25f, hpCym) * std::exp (-t * 2.4f) * 0.9f;
                 life = 2.2f;
                 break;
         }

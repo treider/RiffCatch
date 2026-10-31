@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "audio/AudioEngine.h"
 #include "Theme.h"
@@ -68,7 +68,8 @@ private:
     juce::ComboBox barsBox;
     juce::TextButton clearBtn { "Clear" }, prevPage { "<" }, nextPage { ">" }, muteBtn { "M" }, soloBtn { "S" };
     juce::Label pageLabel;
-    juce::Slider volume;
+    juce::Slider volume, laneVol[DrumMachine::numVoices], lanePan[DrumMachine::numVoices], cymPitch;
+    LevelMeter meter;
 
     bool painting = false;
     int paintVoice = 0, paintValue = 0;

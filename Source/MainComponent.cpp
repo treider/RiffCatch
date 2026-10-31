@@ -117,7 +117,7 @@ MainComponent::MainComponent()
     bpmLabel.setJustificationType (juce::Justification::centred);
     bpmLabel.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 20.0f, juce::Font::bold)));
     bpmLabel.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    bpmLabel.setColour (juce::Label::textColourId, Theme::cyan);
+    bpmLabel.setColour (juce::Label::textColourId, Theme::accent);
     bpmLabel.setTooltip ("Tempo (double-click to type, 30-300)");
     bpmLabel.onTextChange = [this] { setBpm (bpmLabel.getText().getDoubleValue()); grabKeyboardFocus(); };
     addAndMakeVisible (bpmLabel);
@@ -152,7 +152,7 @@ MainComponent::MainComponent()
     {
         b->setClickingTogglesState (true);
         b->setWantsKeyboardFocus (false);
-        b->setColour (juce::TextButton::buttonOnColourId, Theme::teal);
+        b->setColour (juce::TextButton::buttonOnColourId, Theme::accent);
         addAndMakeVisible (b);
     }
     loopBtn.setTooltip ("Loop the project region while playing/recording (L)");
@@ -169,7 +169,7 @@ MainComponent::MainComponent()
     clickVol.setSliderStyle (juce::Slider::LinearHorizontal);
     clickVol.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
     clickVol.setRange (0.0, 1.0, 0.01);
-    clickVol.setColour (juce::Slider::trackColourId, Theme::teal);
+    clickVol.setColour (juce::Slider::trackColourId, Theme::accent);
     clickVol.setWantsKeyboardFocus (false);
     clickVol.setTooltip ("Click volume");
     clickVol.onValueChange = [this] { engine.clickVolume = (float) clickVol.getValue(); };
@@ -196,7 +196,7 @@ MainComponent::MainComponent()
     latAdjust.setNumDecimalPlacesToDisplay (1);
     latAdjust.setTextValueSuffix (" ms");
     latAdjust.setDoubleClickReturnValue (true, 0.0);
-    latAdjust.setColour (juce::Slider::trackColourId, Theme::teal.withAlpha (0.35f));
+    latAdjust.setColour (juce::Slider::trackColourId, Theme::accent.withAlpha (0.35f));
     latAdjust.setColour (juce::Slider::textBoxTextColourId, Theme::text);
     latAdjust.setColour (juce::Slider::textBoxOutlineColourId, Theme::border);
     latAdjust.setWantsKeyboardFocus (false);
@@ -206,7 +206,7 @@ MainComponent::MainComponent()
 
     barLabel.setJustificationType (juce::Justification::centredLeft);
     barLabel.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 16.0f, juce::Font::plain)));
-    barLabel.setColour (juce::Label::textColourId, Theme::cyan);
+    barLabel.setColour (juce::Label::textColourId, Theme::accent);
     addAndMakeVisible (barLabel);
 
     engine.addTrack();
