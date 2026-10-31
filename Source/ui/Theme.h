@@ -397,7 +397,7 @@ private:
 class ToolButton : public juce::Button
 {
 public:
-    enum Icon { Cut, Copy, Paste, Silence, FadeIn, FadeOut, Duplicate, Undo, Redo, Menu, ZoomIn, ZoomOut, ZoomFit, SelectAll, Reverse };
+    enum Icon { Cut, Copy, Paste, Silence, FadeIn, FadeOut, Duplicate, Undo, Redo, Menu, ZoomIn, ZoomOut, ZoomFit, SelectAll, Reverse, Crop };
     explicit ToolButton (Icon i) : juce::Button ({}), icon (i) { setWantsKeyboardFocus (false); }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
@@ -487,6 +487,12 @@ public:
                     g.drawLine (x + 3.0f, y + 4.0f, x + 3.0f, y + 8.0f, 1.4f);
                     g.drawLine (x + 9.0f, y + 4.0f, x + 9.0f, y + 8.0f, 1.4f);
                 }
+                break;
+            case Crop:   // two crop marks
+                g.drawLine (x + 4.5f, y + 1.0f, x + 4.5f, y + 11.5f, 1.8f);
+                g.drawLine (x + 4.5f, y + 11.5f, x + 15.0f, y + 11.5f, 1.8f);
+                g.drawLine (x + 1.0f, y + 4.5f, x + 11.5f, y + 4.5f, 1.8f);
+                g.drawLine (x + 11.5f, y + 4.5f, x + 11.5f, y + 15.0f, 1.8f);
                 break;
             case Menu:
                 for (int i = 0; i < 3; ++i) g.fillRoundedRectangle (x + 1.0f, y + 2.5f + 5.0f * (float) i, 14.0f, 2.0f, 1.0f);

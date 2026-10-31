@@ -2,6 +2,7 @@
 #include "project/ProjectIO.h"
 #include "project/Exporter.h"
 #include "WinTitleBar.h"
+#include "project/AudioImport.h"
 
 MainComponent::MainComponent()
 {
@@ -26,6 +27,17 @@ MainComponent::MainComponent()
         r->onDelete    = [this] (TrackRow* row) { deleteTrack (row); };
         r->onDuplicate = [this] (TrackRow* row) { duplicateTrack (row->slot()); };
         r->onStatus    = [this] (const juce::String& s) { setStatus (s); };
+        r->onCropped   = [this] (juce::int64 len)
+        {   // the cropped part becomes the loop: set the loop length to its number of bars
+            const int bars = (int) std::lround ((double) len / (double) juce::jmax<juce::int64> (1, engine.getBarLength()));
+            if (bars >= 1 && bars <= 64)
+            {
+                engine.loopBars = bars;
+                barsBox.setSelectedId (bars, juce::dontSendNotification);
+                setStatus ("Cropped to " + juce::String (bars) + (bars == 1 ? " bar" : " bars") + " and looping from bar 1");
+            }
+            zoom = 1.0; zoomStart = 0.0;
+        };
         r->onSelectionStarted = [this] (TrackRow* row)
         {
             selSlot = row->slot();
@@ -134,7 +146,7 @@ MainComponent::MainComponent()
     bpmLabel.onTextChange = [this] { setBpm (bpmLabel.getText().getDoubleValue()); grabKeyboardFocus(); };
     addAndMakeVisible (bpmLabel);
 
-    for (auto* b : { &undoBtn, &redoBtn, &cutBtn, &copyBtn, &pasteBtn, &silenceBtn, &fadeInBtn, &fadeOutBtn, &dupBtn, &reverseBtn, &selectAllBtn })
+    for (auto* b : { &undoBtn, &redoBtn, &cutBtn, &copyBtn, &pasteBtn, &silenceBtn, &fadeInBtn, &fadeOutBtn, &dupBtn, &reverseBtn, &selectAllBtn, &cropBtn })
     {
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (b);
@@ -153,6 +165,12 @@ MainComponent::MainComponent()
     fadeOutBtn.setTooltip ("Fade out over selection");
     reverseBtn.setTooltip ("Reverse selection (whole clip if nothing is selected)");
     reverseBtn.onClick = [selCmd] { selCmd (TrackRow::SelReverse); };
+    cropBtn.setTooltip ("Crop: keep only the selection and move it to bar 1 (Alt+drag selects whole bars)");
+    cropBtn.onClick = [this]
+    {
+        if (auto* r = selectionRow()) r->cropToSelection(); else setStatus ("Select the part to keep first: drag in a waveform");
+        grabKeyboardFocus();
+    };
     selectAllBtn.setTooltip ("Select the whole clip (Ctrl+A)");
     selectAllBtn.onClick = [this]
     {
@@ -226,7 +244,7 @@ MainComponent::MainComponent()
     };
     addAndMakeVisible (punchBtn);
 
-    for (int b : { 1, 2, 4, 8, 16 }) barsBox.addItem (juce::String (b) + (b == 1 ? " bar" : " bars"), b);
+    for (int b : { 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 24, 32, 48, 64 }) barsBox.addItem (juce::String (b) + (b == 1 ? " bar" : " bars"), b);
     barsBox.setWantsKeyboardFocus (false);
     barsBox.setTooltip ("Loop length in bars (4/4)");
     barsBox.onChange = [this] { engine.loopBars = barsBox.getSelectedId(); grabKeyboardFocus(); };
@@ -377,6 +395,7 @@ void MainComponent::fileMenu()
     m.addSeparator();
     m.addItem (5, "Export...");
     m.addSeparator();
+    m.addItem (7, "Import audio...");
     m.addItem (6, "Audio settings...");
     m.addSeparator();
     juce::PopupMenu themes;
@@ -392,6 +411,7 @@ void MainComponent::fileMenu()
             case 4: saveProject (true); break;
             case 5: exportMenu(); break;
             case 6: showAudioSettings(); break;
+            case 7: importAudio(); break;
             default: if (id >= 300 && id < 300 + Theme::numPresets) applyTheme (id - 300); break;
         }
         grabKeyboardFocus();
@@ -822,7 +842,7 @@ void MainComponent::timerCallback()
         for (auto* r : rows) anySel = anySel || r->hasSelection();
         const bool idle = engine.getState() != AudioEngine::Recording && engine.getState() != AudioEngine::CountIn;
         for (auto* b : { &cutBtn, &copyBtn, &silenceBtn, &fadeInBtn, &fadeOutBtn }) b->setEnabled (anySel && idle);
-    for (auto* b : { &reverseBtn, &selectAllBtn }) b->setEnabled (idle && selectionRow() != nullptr);
+    for (auto* b : { &reverseBtn, &selectAllBtn, &cropBtn }) b->setEnabled (idle && selectionRow() != nullptr);
         pasteBtn.setEnabled (TrackRow::hasClipboard() && selectionRow() != nullptr && idle);
         dupBtn.setEnabled (selectionRow() != nullptr);
     }
@@ -871,7 +891,11 @@ void MainComponent::timerCallback()
     double view, barSecs = 0.0;
     if (engine.loopEnabled.load())
     {
-        view = engine.getLoopLength() / sr;
+        // the whole project is visible, also a clip that is longer than the loop (e.g. a freshly imported file)
+        juce::int64 clipEnd = 0;
+        for (int slot : engine.order) clipEnd = juce::jmax (clipEnd, engine.tracks[slot].length.load() + juce::jmax (0, engine.tracks[slot].offset.load()));
+        const auto barLen = juce::jmax<juce::int64> (1, engine.getBarLength());
+        view = (double) juce::jmax (engine.getLoopLength(), ((clipEnd + barLen - 1) / barLen) * barLen) / sr;
         barSecs = 4.0 * spb / sr;
     }
     else
@@ -944,7 +968,7 @@ void MainComponent::resized()
     for (auto* b : { &redoBtn, &undoBtn })
         { b->setBounds (bar.removeFromRight (32).withSizeKeepingCentre (32, 28)); bar.removeFromRight (4); }
     bar.removeFromRight (12);
-    for (auto* b : { &dupBtn, &fadeOutBtn, &fadeInBtn, &reverseBtn, &silenceBtn, &pasteBtn, &copyBtn, &cutBtn, &selectAllBtn })
+    for (auto* b : { &dupBtn, &fadeOutBtn, &fadeInBtn, &reverseBtn, &silenceBtn, &pasteBtn, &copyBtn, &cutBtn, &selectAllBtn, &cropBtn })
         { b->setBounds (bar.removeFromRight (32).withSizeKeepingCentre (32, 28)); bar.removeFromRight (4); }
     bar.removeFromRight (12);
     projectLabel.setBounds (bar);   // whatever is left of the top row
@@ -1068,6 +1092,76 @@ void MainComponent::doSave (const juce::File& dir)
     }
     else
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Save failed", err);
+}
+
+// ---- import an audio file as a new track (File > Import audio..., or drop a file on the window)
+void MainComponent::importAudio()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Import audio",
+                                                   juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                   "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [this] (const juce::FileChooser& fc)
+                          {
+                              auto f = fc.getResult();
+                              if (f != juce::File()) doImport (f);
+                          });
+}
+
+bool MainComponent::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    return files.size() > 0 && AudioImport::isAudioFile (juce::File (files[0]));
+}
+
+void MainComponent::filesDropped (const juce::StringArray& files, int, int)
+{
+    if (files.size() > 0) doImport (juce::File (files[0]));
+}
+
+void MainComponent::doImport (const juce::File& file)
+{
+    if (engine.getState() == AudioEngine::Recording || engine.getState() == AudioEngine::CountIn) { setStatus ("Stop recording first"); return; }
+    if (engine.getNumTracks() >= AudioEngine::maxTracks) { setStatus ("All tracks are in use"); return; }
+    auto buf = std::make_shared<juce::AudioBuffer<float>>();
+    double fileRate = 0.0;
+    juce::String err;
+    if (! AudioImport::readFile (file, engine.getSampleRate(), *buf, fileRate, err))
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import failed", err);
+        return;
+    }
+    const double secs = buf->getNumSamples() / juce::jmax (1.0, engine.getSampleRate());
+    const juce::String len = juce::String ((int) (secs / 60.0)) + ":" + juce::String ((int) std::fmod (secs, 60.0)).paddedLeft ('0', 2);
+
+    auto* aw = new juce::AlertWindow ("Import " + file.getFileName(),
+                                      "Length " + len + ". What is the tempo of this file (BPM)? The project is at "
+                                          + juce::String (engine.bpm.load(), 1) + " BPM. The audio is not stretched, it plays at its own tempo.",
+                                      juce::MessageBoxIconType::QuestionIcon);
+    aw->addTextEditor ("bpm", juce::String (engine.bpm.load(), 1), "Tempo of the file (BPM)");
+    aw->addButton ("Import", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    aw->addButton ("Import and set project BPM", 2);
+    aw->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<juce::AlertWindow> safeAw (aw);
+    aw->enterModalState (true, juce::ModalCallbackFunction::create ([this, buf, file, safeAw] (int result)
+    {
+        if (result == 0) return;
+        double fileBpm = engine.bpm.load();
+        if (safeAw != nullptr) { const double v = safeAw->getTextEditorContents ("bpm").getDoubleValue(); if (v >= 30.0 && v <= 300.0) fileBpm = v; }
+        if (result == 2 && std::abs (fileBpm - engine.bpm.load()) > 0.01) setBpm (fileBpm);
+
+        auto slot = std::make_shared<int> (-1);
+        auto snap = std::make_shared<TrackSnap>();
+        snap->valid = true; snap->slot = -1; snap->orderPos = 1000;
+        snap->name = file.getFileNameWithoutExtension();
+        snap->echoDiv = (int) TrackFx::Quarter;
+        snap->audio = std::move (*buf);
+        record ("Import audio",
+                [this, slot, snap] { snap->slot = *slot; *slot = restoreTrack (*snap); syncRows(); },
+                [this, slot, snap] { *snap = captureTrack (*slot); engine.removeTrack (*slot); syncRows(); });
+        zoom = 1.0; zoomStart = 0.0;
+        viewport.setViewPosition (0, list.contentHeight());
+        setStatus ("Imported " + file.getFileName() + ". Select the part you want (Alt+drag = whole bars), then Crop to loop it");
+    }), true);
 }
 
 void MainComponent::openProject()

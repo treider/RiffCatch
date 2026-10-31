@@ -378,9 +378,13 @@ void TrackRow::paint (juce::Graphics& g)
     if (barSeconds > 0.0)
     {
         const double beat = barSeconds / 4.0;
+        int stride = 1;                                   // zoomed far out: label only every Nth bar
+        for (int s : { 1, 2, 4, 5, 8, 10, 16, 20, 32, 50, 100 }) { stride = s; if (s * barSeconds * pxPerSec >= 30.0) break; }
+        const bool dense = beat * pxPerSec < 5.0;          // skip beat ticks when they would blur together
         for (int k = juce::jmax (0, (int) std::floor (viewStart / beat)); k * beat < viewStart + viewSeconds - 0.001; ++k)
         {
             const bool bar = (k % 4 == 0);
+            if ((dense && ! bar) || (bar && (k / 4) % stride != 0)) continue;
             g.setColour (bar ? Theme::border.withAlpha (0.8f) : Theme::border.withAlpha (0.25f));
             g.fillRect ((float) (w.getX() + (k * beat - viewStart) * pxPerSec), w.getY(), 1.0f, w.getHeight());
         }
@@ -669,7 +673,7 @@ void TrackRow::mouseDown (const juce::MouseEvent& e)
     else if (e.mods.isLeftButtonDown())   // left button: select a region (Shift = snap to 1/16)
     {
         selecting = true;
-        selAnchor = xToTake ((float) e.x, e.mods.isShiftDown());
+        selAnchor = xToTake ((float) e.x, e.mods.isShiftDown(), e.mods.isAltDown());
         selStart = selEnd = selAnchor;
         if (onSelectionStarted) onSelectionStarted (this);
         repaint (wave);
@@ -680,7 +684,7 @@ void TrackRow::mouseDrag (const juce::MouseEvent& e)
     auto& t = track();
     if (selecting)
     {
-        const auto cur = xToTake ((float) e.x, e.mods.isShiftDown());
+        const auto cur = xToTake ((float) e.x, e.mods.isShiftDown(), e.mods.isAltDown());
         selStart = juce::jmin (selAnchor, cur);
         selEnd = juce::jmax (selAnchor, cur);
         repaint();
@@ -785,12 +789,12 @@ void TrackRow::mouseDoubleClick (const juce::MouseEvent& e)
 
 // ---------------------------------------------------------------- selection editing
 
-juce::int64 TrackRow::xToTake (float x, bool snap) const
+juce::int64 TrackRow::xToTake (float x, bool snap, bool snapBar) const
 {
     double t = (double) xToSample (x);
-    if (snap)
+    if (snap || snapBar)
     {
-        const double step = engine.getSamplesPerBeat() / 4.0;     // 1/16 notes
+        const double step = engine.getSamplesPerBeat() * (snapBar ? 4.0 : 0.25);     // whole bars (Alt) or 1/16 notes (Shift)
         t = std::round (t / step) * step;
     }
     const auto& tr = engine.tracks[index];
@@ -872,6 +876,30 @@ void TrackRow::selectionCommand (SelCmd cmd)
           [this, s0, before] { track().writeRegion (s0, *before); repaint(); });
 }
 
+// Keeps only the selection and moves it to bar 1, so it loops from the start. Undoable (the whole original clip is kept in the undo step).
+void TrackRow::cropToSelection()
+{
+    auto& t = track();
+    const auto st = engine.getState();
+    auto say = [this] (const juce::String& s) { if (onStatus) onStatus (s); };
+    if (st == AudioEngine::Recording || st == AudioEngine::CountIn) { say ("Stop recording first"); return; }
+    if (t.editing) { say ("Leave hit editing first"); return; }
+    const juce::int64 len = t.length.load();
+    const juce::int64 s0 = selStart, s1 = juce::jmin (selEnd, len);
+    if (len <= 0 || ! hasSelection() || s1 <= s0) { say ("Select the part to keep first: drag in the waveform (Alt = whole bars)"); return; }
+
+    auto whole = std::make_shared<juce::AudioBuffer<float>> (t.copyRegion (0, len));
+    auto part  = std::make_shared<juce::AudioBuffer<float>> (t.copyRegion (s0, s1));
+    const int oldOffset = t.offset.load();
+    const juce::int64 newLen = s1 - s0;
+    t.resetEdit();
+    selStart = selEnd = 0;
+    push ("Crop",
+          [this, part] { auto c = *part; track().setAudio (std::move (c)); track().offset = 0; selStart = selEnd = 0; repaint(); },
+          [this, whole, oldOffset] { auto c = *whole; track().setAudio (std::move (c)); track().offset = oldOffset; selStart = selEnd = 0; repaint(); });
+    if (onCropped) onCropped (newLen);
+}
+
 void TrackRow::selectAll()
 {
     const auto len = track().length.load();
@@ -897,6 +925,7 @@ void TrackRow::showClipMenu()
     m.addSeparator();
     m.addItem (8, "Reverse");
     m.addItem (9, "Select all\tCtrl+A");
+    m.addItem (10, "Crop to selection (move to bar 1)", sel);
     m.addSeparator();
     m.addItem (7, "Duplicate track\tCtrl+D");
     m.showMenuAsync (juce::PopupMenu::Options(), [this] (int id)
@@ -911,6 +940,7 @@ void TrackRow::showClipMenu()
             case 6: selectionCommand (SelFadeOut); break;
             case 7: if (onDuplicate) onDuplicate (this); break;
             case 8: selectionCommand (SelReverse); break;
+            case 10: cropToSelection(); break;
             case 9: selectAll(); break;
             default: break;
         }
@@ -1156,7 +1186,10 @@ void Ruler::paint (juce::Graphics& g)
         if (engine.loopEnabled.load())   // loop region as a thin rounded pill along the bottom
         {
             g.setColour (Theme::accent.withAlpha (0.9f));
-            g.fillRoundedRectangle (pill.getX() + 4.0f, pill.getBottom() - 4.0f, pill.getWidth() - 8.0f, 2.0f, 1.0f);
+            const float loopX0 = x0 + (float) ((0.0 - viewStart) * pxPerSec);
+            const float loopX1 = x0 + (float) (((double) engine.getLoopLength() / juce::jmax (1.0, engine.getSampleRate()) - viewStart) * pxPerSec);
+            const float a = juce::jmax (pill.getX() + 4.0f, loopX0 + 4.0f), b2 = juce::jmin (pill.getRight() - 4.0f, loopX1 - 4.0f);
+            if (b2 > a) g.fillRoundedRectangle (a, pill.getBottom() - 4.0f, b2 - a, 2.0f, 1.0f);
         }
     }
     else

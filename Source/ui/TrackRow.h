@@ -51,6 +51,8 @@ public:
     // --- selection editing (drag in the waveform to select) ---
     enum SelCmd { SelSilence, SelCut, SelCopy, SelPaste, SelFadeIn, SelFadeOut, SelReverse };
     void selectAll();
+    void cropToSelection();
+    std::function<void (juce::int64)> onCropped;   // length of the cropped clip in samples
     void restyle();
     static bool hasClipboard() { return clipboard.getNumSamples() > 0; }
     bool hasSelection() const noexcept { return selEnd > selStart; }
@@ -104,7 +106,7 @@ private:
     int lastGlowState = -1;
     bool nudging = false, selecting = false, moveByRight = false;
     juce::int64 selStart = 0, selEnd = 0, selAnchor = 0;      // selection in take samples
-    juce::int64 xToTake (float x, bool snap) const;
+    juce::int64 xToTake (float x, bool snap, bool snapBar = false) const;
     void showClipMenu();
     static inline juce::AudioBuffer<float> clipboard;
     int nudgeStartX = 0, nudgeStartVal = 0;

@@ -9,7 +9,8 @@
 
 class MainComponent : public juce::Component,
                       private juce::Timer,
-                      private juce::ChangeListener
+                      private juce::ChangeListener,
+                      public juce::FileDragAndDropTarget
 {
 public:
     MainComponent();
@@ -17,6 +18,8 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress&) override;
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int, int) override;
     void mouseDown (const juce::MouseEvent&) override { grabKeyboardFocus(); }
 
 private:
@@ -28,6 +31,8 @@ private:
     void openProject();
     void saveProject (bool saveAs);
     void doSave (const juce::File& dir);
+    void importAudio();
+    void doImport (const juce::File& file);
     static juce::File autosaveDir();
     void autosaveTick();
     void offerRestore();
@@ -109,7 +114,7 @@ private:
     ToolButton undoBtn { ToolButton::Undo }, redoBtn { ToolButton::Redo };
     ToolButton cutBtn { ToolButton::Cut }, copyBtn { ToolButton::Copy }, pasteBtn { ToolButton::Paste }, silenceBtn { ToolButton::Silence },
                fadeInBtn { ToolButton::FadeIn }, fadeOutBtn { ToolButton::FadeOut }, dupBtn { ToolButton::Duplicate },
-        selectAllBtn { ToolButton::SelectAll }, reverseBtn { ToolButton::Reverse };
+        selectAllBtn { ToolButton::SelectAll }, reverseBtn { ToolButton::Reverse }, cropBtn { ToolButton::Crop };
     ToolButton fileBtn { ToolButton::Menu };
     AddTrackButton addTrackBtn;
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;

@@ -3,6 +3,7 @@
 #include "project/Exporter.h"
 #include "ui/Undo.h"
 #include "audio/DrumTemplates.h"
+#include "project/AudioImport.h"
 
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
@@ -373,6 +374,25 @@ inline juce::String runEngineSelfTest()
         check (tr.length.load() == 1000, "punch keeps the clip length");
         check (std::abs (d.getSample (0, 100) - 0.25f) < 1.0e-5f && std::abs (d.getSample (0, 800) - 0.25f) < 1.0e-5f, "punch: old audio kept outside the window");
         check (std::abs (d.getSample (0, 500) - 0.75f) < 1.0e-3f, "punch: new audio inside the window");
+    }
+
+    {   // audio import: a mono 44.1 kHz WAV becomes stereo at the device rate
+        auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("riffcatch_import_test.wav");
+        f.deleteFile();
+        {
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (f), 44100.0, 1, 16, {}, 0));
+            juce::AudioBuffer<float> b (1, 44100);
+            for (int i = 0; i < 44100; ++i) b.setSample (0, i, 0.5f * std::sin (i * 0.05f));
+            if (w) w->writeFromAudioSampleBuffer (b, 0, 44100);
+        }
+        juce::AudioBuffer<float> out; double fr = 0; juce::String err;
+        const bool okRead = AudioImport::readFile (f, 48000.0, out, fr, err);
+        check (okRead, "import reads the WAV");
+        check (out.getNumChannels() == 2 && std::abs (out.getNumSamples() - 48000) <= 2, "import: stereo, resampled to 48 kHz (" + juce::String (out.getNumSamples()) + " samples)");
+        check (out.getNumSamples() > 100 && std::abs (out.getSample (0, 5000) - out.getSample (1, 5000)) < 1.0e-6f && std::abs (out.getSample (0, 5000)) > 0.01f, "import: mono copied to both channels");
+        check (! AudioImport::readFile (juce::File ("Z:/does/not/exist.wav"), 48000.0, out, fr, err), "import: missing file is refused");
+        f.deleteFile();
     }
 
     {   // drum templates
