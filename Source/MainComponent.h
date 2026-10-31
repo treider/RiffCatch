@@ -77,7 +77,8 @@ private:
     ToolButton undoBtn { ToolButton::Undo }, redoBtn { ToolButton::Redo };
     ToolButton cutBtn { ToolButton::Cut }, copyBtn { ToolButton::Copy }, pasteBtn { ToolButton::Paste }, silenceBtn { ToolButton::Silence },
                fadeInBtn { ToolButton::FadeIn }, fadeOutBtn { ToolButton::FadeOut }, dupBtn { ToolButton::Duplicate };
-    juce::TextButton fileBtn { "File" };
+    ToolButton fileBtn { ToolButton::Menu };
+    AddTrackButton addTrackBtn;
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
     juce::Label bpmLabel;
     juce::TextButton tapBtn { "Tap" }, loopBtn { "Loop" }, clickBtn { "Click" };

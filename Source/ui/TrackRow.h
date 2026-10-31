@@ -129,12 +129,8 @@ private:
 class TrackList : public juce::Component
 {
 public:
-    static constexpr int rowHeight = 96, gap = 0, addHeight = 64;   // each row has a small margin around its card
-    TrackList (AudioEngine& e, juce::OwnedArray<TrackRow>& r) : engine (e), rows (r)
-    {
-        addButton.onClick = [this] { if (onAdd) onAdd(); };
-        addChildComponent (addButton);
-    }
+    static constexpr int rowHeight = 96, gap = 0, addHeight = 0;   // each row has a small margin around its card
+    TrackList (AudioEngine& e, juce::OwnedArray<TrackRow>& r) : engine (e), rows (r) {}
 
     int rowsHeight() const { return engine.getNumTracks() * (rowHeight + gap); }
     int contentHeight() const { return rowsHeight() + (engine.getNumTracks() < AudioEngine::maxTracks ? addHeight : 0); }
@@ -150,7 +146,6 @@ private:
     int targetSlot (int y) const;
     AudioEngine& engine;
     juce::OwnedArray<TrackRow>& rows;
-    AddTrackButton addButton;
     TrackRow* dragging = nullptr;
     int dragStartY = 0, dragY = 0;
 };

@@ -76,11 +76,12 @@ MainComponent::MainComponent()
     ruler.onSeek = [this] (juce::int64 p) { engine.seek (p); };
     ruler.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     ruler.setTooltip ("Click or drag to move the playhead (snaps to beats, Shift = bars, Alt = free)");
-    list.onAdd = [this] { addTrack(); };
+    addTrackBtn.onClick = [this] { addTrack(); };
+    addAndMakeVisible (addTrackBtn);
 
     fileBtn.setWantsKeyboardFocus (false);
-    fileBtn.setColour (juce::TextButton::buttonColourId, Theme::raised);
-    fileBtn.setTooltip ("New, open, save, export and audio settings");
+
+    fileBtn.setTooltip ("Menu: new, open, save, export, audio settings");
     fileBtn.onClick = [this] { fileMenu(); };
     addAndMakeVisible (fileBtn);
 
@@ -617,6 +618,7 @@ void MainComponent::timerCallback()
         pasteBtn.setEnabled (TrackRow::hasClipboard() && selectionRow() != nullptr && idle);
         dupBtn.setEnabled (selectionRow() != nullptr);
     }
+    addTrackBtn.setEnabled (engine.getNumTracks() < AudioEngine::maxTracks);
     undoBtn.setEnabled (undoManager.canUndo());
     redoBtn.setEnabled (undoManager.canRedo());
     undoBtn.setTooltip (undoManager.canUndo() ? "Undo " + undoManager.getUndoDescription() + " (Ctrl+Z)" : "Nothing to undo");
@@ -692,6 +694,8 @@ void MainComponent::paint (juce::Graphics& g)
     }
     g.setColour (Theme::raised);
     g.fillRoundedRectangle (bpmLabel.getBounds().toFloat(), 6.0f);
+    g.setColour (Theme::deep);                                            // clock in a dark display box
+    g.fillRoundedRectangle (timeLabel.getBounds().toFloat(), 7.0f);
 }
 
 void MainComponent::resized()
@@ -700,14 +704,15 @@ void MainComponent::resized()
     barArea = r.removeFromTop (56);
     auto bar = barArea.reduced (12, 8);
     titleLabel.setBounds (bar.removeFromLeft (110));
-    fileBtn.setBounds (bar.removeFromLeft (60).withSizeKeepingCentre (60, 30));
-    bar.removeFromLeft (14);
+    bar.removeFromLeft (4);
     recBtn.setBounds (bar.removeFromLeft (44));  bar.removeFromLeft (8);
     playBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
     stopBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (14);
-    timeLabel.setBounds (bar.removeFromLeft (150));
+    timeLabel.setBounds (bar.removeFromLeft (160).reduced (0, 2));
     barLabel.setBounds (bar.removeFromLeft (140));
 
+    fileBtn.setBounds (bar.removeFromRight (34).withSizeKeepingCentre (34, 30));
+    bar.removeFromRight (14);
     for (auto* b : { &redoBtn, &undoBtn })
         { b->setBounds (bar.removeFromRight (32).withSizeKeepingCentre (32, 28)); bar.removeFromRight (4); }
     bar.removeFromRight (12);
@@ -736,6 +741,7 @@ void MainComponent::resized()
     viewport.setBounds (r);
     const int w = viewport.getMaximumVisibleWidth();
     ruler.setBounds (rulerRow.withWidth (w));
+    addTrackBtn.setBounds (rulerRow.withWidth (8 + 4 + 16 + 6 + 336 + 12).withTrimmedLeft (4));   // sits above the track headers
     list.setSize (w, juce::jmax (list.contentHeight(), viewport.getHeight()));
 }
 // ------------------------------------------------------------- dialogs/projects

@@ -20,6 +20,8 @@ static void styleToggle (juce::TextButton& b, juce::Colour on)
 {
     b.setClickingTogglesState (true);
     b.setColour (juce::TextButton::buttonOnColourId, on);
+    b.setColour (juce::TextButton::buttonColourId, Theme::raised.brighter (0.45f));   // clearly lighter than the card when off
+    b.setColour (juce::TextButton::textColourOffId, Theme::text);
     b.setColour (juce::TextButton::textColourOnId, Theme::deep);
     b.setWantsKeyboardFocus (false);
 }
@@ -968,9 +970,7 @@ void TrackList::layoutRows()
         r->setVisible (true);
         ++p;
     }
-    const bool canAdd = n < AudioEngine::maxTracks && dragging == nullptr;
-    addButton.setVisible (canAdd);
-    addButton.setBounds ((getWidth() - 150) / 2, n * (rowHeight + gap) + 8, 150, 44);
+
     if (dragging != nullptr)
     {
         dragging->setBounds (0, dragY, getWidth(), rowHeight);

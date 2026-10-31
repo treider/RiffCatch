@@ -228,7 +228,7 @@ private:
 class ToolButton : public juce::Button
 {
 public:
-    enum Icon { Cut, Copy, Paste, Silence, FadeIn, FadeOut, Duplicate, Undo, Redo };
+    enum Icon { Cut, Copy, Paste, Silence, FadeIn, FadeOut, Duplicate, Undo, Redo, Menu };
     explicit ToolButton (Icon i) : juce::Button ({}), icon (i) { setWantsKeyboardFocus (false); }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
@@ -291,6 +291,9 @@ public:
                 g.drawRoundedRectangle (x + 1.5f, y + 2.0f, 13.0f, 5.0f, 1.5f, 1.5f);
                 g.setColour (col.withAlpha (0.45f));
                 g.fillRoundedRectangle (x + 1.5f, y + 9.0f, 13.0f, 5.0f, 1.5f);
+                break;
+            case Menu:
+                for (int i = 0; i < 3; ++i) g.fillRoundedRectangle (x + 1.0f, y + 2.5f + 5.0f * (float) i, 14.0f, 2.0f, 1.0f);
                 break;
             case Undo: case Redo:
                 p.startNewSubPath (x + 4.5f, y + 7.0f);
@@ -396,23 +399,23 @@ public:
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
-        auto b = getLocalBounds().toFloat().reduced (2.0f);
-        const auto col = over || down ? Theme::blue : Theme::dim;
-        if (over || down)
+        auto b = getLocalBounds().toFloat().reduced (2.0f, 1.0f);
+        const bool en = isEnabled();
+        if (en && (over || down))
         {
-            g.setColour (Theme::blue.withAlpha (down ? 0.16f : 0.08f));
-            g.fillRoundedRectangle (b, 8.0f);
+            g.setColour (Theme::raised.withAlpha (down ? 0.9f : 0.55f));
+            g.fillRoundedRectangle (b, 6.0f);
         }
-        juce::Path outline, dashed;
-        outline.addRoundedRectangle (b, 8.0f);
-        const float dashes[] = { 4.0f, 4.0f };
-        juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
-        g.setColour (col.withAlpha (over ? 0.9f : 0.55f));
-        g.fillPath (dashed);
-
-        const auto c = b.getCentre();
+        const auto col = ! en ? Theme::dim.withAlpha (0.4f) : (over || down) ? Theme::text : Theme::dim.brighter (0.25f);
         g.setColour (col);
-        g.fillRoundedRectangle (c.x - 9.0f, c.y - 1.0f, 18.0f, 2.0f, 1.0f);
-        g.fillRoundedRectangle (c.x - 1.0f, c.y - 9.0f, 2.0f, 18.0f, 1.0f);
+        const juce::String label ("Add new track");
+        const juce::Font f (juce::FontOptions (13.0f));
+        g.setFont (f);
+        const float tw = juce::GlyphArrangement::getStringWidth (f, label);
+        const float total = 12.0f + 10.0f + tw;
+        const float x0 = b.getCentreX() - total * 0.5f, cy = b.getCentreY();
+        g.fillRoundedRectangle (x0, cy - 0.75f, 12.0f, 1.5f, 0.75f);
+        g.fillRoundedRectangle (x0 + 5.25f, cy - 6.0f, 1.5f, 12.0f, 0.75f);
+        g.drawText (label, juce::Rectangle<float> (x0 + 22.0f, b.getY(), tw + 4.0f, b.getHeight()), juce::Justification::centredLeft);
     }
 };
