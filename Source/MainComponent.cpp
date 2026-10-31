@@ -702,8 +702,11 @@ void MainComponent::togglePlay()
 bool MainComponent::keyPressed (const juce::KeyPress& k)
 {
     const auto mods = k.getModifiers();
-    const int code = k.getKeyCode();
+    const int rawCode = k.getKeyCode();
+    // JUCE reports letters in either case depending on modifiers/path; normalise to upper case.
+    int code = (rawCode >= 'a' && rawCode <= 'z') ? rawCode - 32 : rawCode;
     const bool ctrl = mods.isCtrlDown() || mods.isCommandDown();
+    if (ctrl && code >= 1 && code <= 26) code += 64;   // Windows delivers Ctrl+letter as a control character (Ctrl+T = 20)
 
     if (ctrl)
     {
