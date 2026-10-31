@@ -43,7 +43,7 @@ namespace Theme
         { "Mint",        0xff14b8a6, 0xff2dd4bf, 0xff5eead4, 0xff134e4a, 0xff0f766e, 0xffccfbf1 },
     };
     inline constexpr int numPresets = (int) (sizeof (presets) / sizeof (presets[0]));
-    inline int current = 0;
+    inline int current = 3;   // Sunset
 
     inline void apply (int index)
     {

@@ -190,9 +190,9 @@ void ChannelStrip::paint (juce::Graphics& g)
         g.setColour (Theme::panel);
         g.fillRect (b);
         g.setColour (accent);
-        g.fillRect (b.withHeight (3.0f));
+        g.fillRect (isMaster() ? b.withWidth (4.0f) : b.withHeight (3.0f));   // master: side stripe like Drums
     }
-    g.setColour (Theme::border.withAlpha (0.55f));
+    g.setColour (isMaster() ? accent.withAlpha (0.35f) : Theme::border.withAlpha (0.55f));
     g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
 
     {   // dark well around VU + fader, with a lighter ring

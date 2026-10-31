@@ -28,7 +28,7 @@ public:
             juce::PropertiesFile::Options opts;
             opts.applicationName = "RiffCatch"; opts.filenameSuffix = ".settings"; opts.osxLibrarySubFolder = "Application Support";
             tmp.setStorageParameters (opts);
-            if (auto* f = tmp.getUserSettings()) Theme::apply (f->getIntValue ("theme", 0));
+            if (auto* f = tmp.getUserSettings()) Theme::apply (f->getIntValue ("theme", 3));
             laf.applyColours();
         }
         juce::LookAndFeel::setDefaultLookAndFeel (&laf); window = std::make_unique<MainWindow> (getApplicationName() + " v" + getApplicationVersion()); }
