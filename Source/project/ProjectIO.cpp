@@ -11,6 +11,160 @@ bool isSafeTrackFile (const juce::File& dir, const juce::String& name)
     return dir.getChildFile (name).getParentDirectory() == dir;
 }
 
+namespace
+{
+bool writeWavFile (const juce::File& f, const juce::AudioBuffer<float>& buf, int len, double rate, juce::String& error)
+{
+    juce::WavAudioFormat wav;
+    f.deleteFile();
+    std::unique_ptr<juce::FileOutputStream> os (f.createOutputStream());
+    if (os == nullptr) { error = "Could not write " + f.getFullPathName(); return false; }
+    std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (os.get(), rate, 2, 24, {}, 0));
+    if (w == nullptr) { error = "WAV writer failed"; return false; }
+    os.release();
+    w->writeFromAudioSampleBuffer (buf, 0, len);
+    return true;
+}
+
+bool readWavFile (const juce::File& file, double devRate, juce::AudioBuffer<float>& out)
+{
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (file));
+    if (r == nullptr) return false;
+    if (r->sampleRate < 8000.0 || r->sampleRate > 384000.0 || r->lengthInSamples <= 0
+        || (double) r->lengthInSamples > 20.0 * 60.0 * r->sampleRate) return false;
+    const int len = (int) r->lengthInSamples;
+    juce::AudioBuffer<float> buf (2, len);
+    r->read (&buf, 0, len, 0, true, true);
+    if (std::abs (r->sampleRate - devRate) > 0.5 && devRate > 0)
+    {
+        const double ratio = r->sampleRate / devRate;
+        const int newLen = (int) std::ceil (len / ratio);
+        juce::AudioBuffer<float> rs (2, newLen);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            juce::LagrangeInterpolator li;
+            li.process (ratio, buf.getReadPointer (ch), rs.getWritePointer (ch), newLen);
+        }
+        buf = std::move (rs);
+    }
+    out = std::move (buf);
+    return true;
+}
+
+juce::var drumSnapToVar (const DrumMachine::Snapshot& s)
+{
+    auto* d = new juce::DynamicObject();
+    d->setProperty ("bars", s.bars);
+    d->setProperty ("barSteps", s.barSteps);
+    juce::Array<juce::var> voices;
+    for (int v = 0; v < DrumMachine::numVoices; ++v)
+    {
+        juce::String pat;
+        for (int k = 0; k < DrumMachine::maxSteps; ++k) pat << (char) ('0' + juce::jlimit (0, 2, (int) s.steps[v][k]));
+        voices.add (pat);
+    }
+    d->setProperty ("voices", voices);
+    return juce::var (d);
+}
+
+DrumMachine::Snapshot drumSnapFromVar (const juce::var& d, int defaultBarSteps)
+{
+    DrumMachine::Snapshot s;
+    s.bars = juce::jlimit (1, DrumMachine::maxBars, (int) d.getProperty ("bars", 1));
+    s.barSteps = juce::jlimit (4, DrumMachine::maxStepsPerBar, (int) d.getProperty ("barSteps", defaultBarSteps));
+    if (auto* vs = d["voices"].getArray())
+        for (int v = 0; v < juce::jmin (vs->size(), (int) DrumMachine::numVoices); ++v)
+        {
+            const auto pat = vs->getReference (v).toString();
+            for (int k = 0; k < juce::jmin (pat.length(), (int) DrumMachine::maxSteps); ++k)
+                s.steps[v][k] = (uint8_t) juce::jlimit (0, 2, (int) (pat[k] - '0'));
+        }
+    return s;
+}
+
+juce::var bassSnapToVar (const BassMachine::Snapshot& s)
+{
+    auto* b = new juce::DynamicObject();
+    b->setProperty ("bars", s.bars);
+    b->setProperty ("barSteps", s.barSteps);
+    b->setProperty ("root", s.root);
+    b->setProperty ("scale", s.scale);
+    juce::StringArray cells, shifts;
+    for (int k = 0; k < BassMachine::maxSteps; ++k) cells.add (juce::String ((juce::int64) s.steps[k]));
+    for (int k = 0; k < BassMachine::maxBars; ++k) shifts.add (juce::String (s.shift[k]));
+    b->setProperty ("steps", cells.joinIntoString (","));
+    b->setProperty ("shift", shifts.joinIntoString (","));
+    return juce::var (b);
+}
+
+BassMachine::Snapshot bassSnapFromVar (const juce::var& b, int defaultBarSteps)
+{
+    BassMachine::Snapshot s;
+    s.bars = juce::jlimit (1, BassMachine::maxBars, (int) b.getProperty ("bars", 1));
+    s.barSteps = juce::jlimit (4, BassMachine::maxStepsPerBar, (int) b.getProperty ("barSteps", defaultBarSteps));
+    s.root = juce::jlimit (BassMachine::rootMin, BassMachine::rootMax, (int) b.getProperty ("root", 33));
+    s.scale = juce::jlimit (0, BassMachine::numScales - 1, (int) b.getProperty ("scale", 0));
+    const auto cells = juce::StringArray::fromTokens (b["steps"].toString(), ",", "");
+    for (int k = 0; k < juce::jmin (cells.size(), (int) BassMachine::maxSteps); ++k)
+    {
+        const auto c = (juce::uint32) juce::jlimit<juce::int64> (0, 0x3ffff, cells[k].getLargeIntValue());
+        s.steps[k] = BassMachine::isNote (c) ? BassMachine::pack (BassMachine::degreeOf (c), BassMachine::lenOf (c), BassMachine::slideOf (c), BassMachine::accentOf (c)) : 0u;
+    }
+    const auto sh = juce::StringArray::fromTokens (b["shift"].toString(), ",", "");
+    for (int k = 0; k < juce::jmin (sh.size(), (int) BassMachine::maxBars); ++k) s.shift[k] = juce::jlimit (-24, 24, sh[k].getIntValue());
+    return s;
+}
+
+juce::var drumMixToVar (const PatternBank::DrumMix& m)
+{
+    auto* o = new juce::DynamicObject();
+    o->setProperty ("volume", (double) m.volume); o->setProperty ("mute", m.mute); o->setProperty ("solo", m.solo);
+    juce::Array<juce::var> vs;
+    for (int v = 0; v < DrumMachine::numVoices; ++v)
+    {
+        auto* vo = new juce::DynamicObject();
+        vo->setProperty ("level", (double) m.level[v]); vo->setProperty ("pan", (double) m.pan[v]); vo->setProperty ("mute", m.voiceMute[v]);
+        vs.add (juce::var (vo));
+    }
+    o->setProperty ("voices", vs);
+    return juce::var (o);
+}
+
+PatternBank::DrumMix drumMixFromVar (const juce::var& o)
+{
+    PatternBank::DrumMix m;
+    if (! o.isObject()) return m;
+    m.volume = (float) (double) o.getProperty ("volume", 0.8); m.mute = (bool) o.getProperty ("mute", false); m.solo = (bool) o.getProperty ("solo", false);
+    if (auto* vs = o["voices"].getArray())
+        for (int v = 0; v < juce::jmin (vs->size(), (int) DrumMachine::numVoices); ++v)
+        {
+            const auto vo = vs->getReference (v);
+            m.level[v] = (float) (double) vo.getProperty ("level", 1.0); m.pan[v] = juce::jlimit (-1.0f, 1.0f, (float) (double) vo.getProperty ("pan", 0.0));
+            m.voiceMute[v] = (bool) vo.getProperty ("mute", false);
+        }
+    return m;
+}
+
+juce::var bassMixToVar (const PatternBank::BassMix& m)
+{
+    auto* o = new juce::DynamicObject();
+    o->setProperty ("volume", (double) m.volume); o->setProperty ("mute", m.mute); o->setProperty ("solo", m.solo);
+    o->setProperty ("echoOn", m.echoOn); o->setProperty ("reverbOn", m.reverbOn); o->setProperty ("echoDiv", m.echoDiv);
+    return juce::var (o);
+}
+
+PatternBank::BassMix bassMixFromVar (const juce::var& o)
+{
+    PatternBank::BassMix m;
+    if (! o.isObject()) return m;
+    m.volume = juce::jlimit (0.0f, 1.5f, (float) (double) o.getProperty ("volume", 0.8)); m.mute = (bool) o.getProperty ("mute", false); m.solo = (bool) o.getProperty ("solo", false);
+    m.echoOn = (bool) o.getProperty ("echoOn", false); m.reverbOn = (bool) o.getProperty ("reverbOn", false);
+    m.echoDiv = juce::jlimit (0, (int) TrackFx::numDivs - 1, (int) o.getProperty ("echoDiv", (int) TrackFx::Quarter));
+    return m;
+}
+}
 bool save (AudioEngine& e, const juce::File& projectFile, juce::String& error)
 {
     const auto dir = projectFile.getParentDirectory();
@@ -36,6 +190,11 @@ bool save (AudioEngine& e, const juce::File& projectFile, juce::String& error)
     if (auto* oldTracks = oldJson["tracks"].getArray())
         for (auto& t : *oldTracks)
             if (isSafeTrackFile (dir, t["file"].toString())) ownedBefore.add (t["file"].toString());
+    if (auto* oldPats = oldJson["patterns"].getArray())
+        for (auto& p : *oldPats)
+            if (auto* cl = p["tracks"].getArray())
+                for (auto& c : *cl)
+                    if (isSafeTrackFile (dir, c["file"].toString())) ownedBefore.add (c["file"].toString());
 
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
@@ -77,11 +236,56 @@ bool save (AudioEngine& e, const juce::File& projectFile, juce::String& error)
         o->setProperty ("offsetMs", tr.offset.load() * 1000.0 / juce::jmax (1.0, e.getSampleRate()));
         tracks.add (juce::var (o));
     }
+    // the other patterns (the open one is written as the tracks / drums / bass above)
+    juce::StringArray patternFiles;
+    juce::Array<juce::var> patterns;
+    for (int pi = 0; pi < PatternBank::maxPatterns; ++pi)
+    {
+        if (! e.patterns.isUsed (pi)) continue;
+        const auto& p = e.patterns.pats[(size_t) pi];
+        auto* po = new juce::DynamicObject();
+        po->setProperty ("index", pi);
+        po->setProperty ("name", p.name.substring (0, 24));
+        po->setProperty ("colour", p.colour);
+        if (pi == e.patterns.current) po->setProperty ("loopBars", e.loopBars.load());
+        else
+        {
+            po->setProperty ("loopBars", p.loopBars);
+            po->setProperty ("drums", drumSnapToVar (p.drums));
+            po->setProperty ("bass", bassSnapToVar (p.bass));
+            po->setProperty ("drumMix", drumMixToVar (p.drumMix));
+            po->setProperty ("bassMix", bassMixToVar (p.bassMix));
+            juce::Array<juce::var> pts;
+            int pos = 0;
+            for (auto& pt : p.tracks)
+            {
+                const int ti = pos++;
+                auto* to = new juce::DynamicObject();
+                to->setProperty ("name", pt.name);
+                to->setProperty ("volume", (double) pt.volume); to->setProperty ("pan", (double) pt.pan);
+                to->setProperty ("mute", pt.mute); to->setProperty ("solo", pt.solo); to->setProperty ("armed", pt.armed);
+                to->setProperty ("input", pt.input); to->setProperty ("echo", pt.echoOn); to->setProperty ("echoDiv", pt.echoDiv); to->setProperty ("reverb", pt.reverbOn);
+                to->setProperty ("offsetMs", pt.offset * 1000.0 / juce::jmax (1.0, e.getSampleRate()));
+                juce::String fname;
+                if (pt.has())
+                {
+                    fname = "pat" + juce::String (pi + 1) + "_track" + juce::String (ti + 1) + ".wav";
+                    if (! writeWavFile (dir.getChildFile (fname), pt.audio, pt.audio.getNumSamples(), e.getSampleRate(), error)) return false;
+                    patternFiles.add (fname);
+                }
+                to->setProperty ("file", fname);
+                pts.add (juce::var (to));
+            }
+            po->setProperty ("tracks", pts);
+        }
+        patterns.add (juce::var (po));
+    }
     // remove stale wav files from removed/cleared tracks (only files this project wrote earlier)
     for (auto& name : ownedBefore)
     {
         bool used = false;
         for (auto& t : tracks) used |= (t["file"].toString() == name);
+        used |= patternFiles.contains (name);
         if (! used) dir.getChildFile (name).deleteFile();
     }
 
@@ -104,6 +308,8 @@ bool save (AudioEngine& e, const juce::File& projectFile, juce::String& error)
     root->setProperty ("masterVolume", (double) e.masterVolume.load());
     root->setProperty ("loop", juce::var (loop));
     root->setProperty ("tracks", tracks);
+    root->setProperty ("patterns", patterns);
+    root->setProperty ("currentPattern", e.patterns.current);
 
     {   // drum machine: pattern as one string per voice ('0' off, '1' hit, '2' accent)
         auto& dm = e.drums;
@@ -175,6 +381,7 @@ bool load (AudioEngine& e, const juce::File& projectFile, juce::String& error)
     if (! json.isObject() || arr == nullptr) { error = "Not a RiffCatch project: " + projectFile.getFullPathName(); return false; }
 
     e.removeAllTracks();
+    e.patterns.reset();
 
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
@@ -306,6 +513,57 @@ bool load (AudioEngine& e, const juce::File& projectFile, juce::String& error)
             const auto sh = juce::StringArray::fromTokens (b["shift"].toString(), ",", "");
             for (int k = 0; k < juce::jmin (sh.size(), (int) BassMachine::maxBars); ++k) bm.shift[k] = juce::jlimit (-24, 24, sh[k].getIntValue());
         }
+    }
+    {   // patterns: the open one is the tracks / drums / bass loaded above, the others come from the "patterns" array
+        auto& bank = e.patterns;
+        bank.current = juce::jlimit (0, PatternBank::maxPatterns - 1, (int) json.getProperty ("currentPattern", 0));
+        if (auto* pa = json["patterns"].getArray())
+        {
+            bank.pats[0].used = false;
+            for (auto& pv : *pa)
+            {
+                const int pi = (int) pv.getProperty ("index", -1);
+                if (pi < 0 || pi >= PatternBank::maxPatterns || bank.pats[(size_t) pi].used) continue;
+                auto& p = bank.pats[(size_t) pi];
+                p.used = true;
+                p.name = pv["name"].toString().substring (0, 24);
+                if (p.name.isEmpty()) p.name = PatternBank::defaultName (pi);
+                p.colour = juce::jlimit (0, 15, (int) pv.getProperty ("colour", pi));
+                p.loopBars = juce::jlimit (1, 64, (int) pv.getProperty ("loopBars", e.loopBars.load()));
+                if (pi == bank.current) continue;
+                p.drums = drumSnapFromVar (pv["drums"], e.drums.barSteps.load());
+                p.bass = bassSnapFromVar (pv["bass"], e.bass.barSteps.load());
+                p.drumMix = drumMixFromVar (pv["drumMix"]);
+                p.bassMix = bassMixFromVar (pv["bassMix"]);
+                if (auto* ta = pv["tracks"].getArray())
+                    for (int ti = 0; ti < juce::jmin (ta->size(), (int) AudioEngine::maxTracks); ++ti)
+                    {
+                        const auto tv = ta->getReference (ti);
+                        PatternTrack pt;
+                        pt.name = tv["name"].toString().substring (0, maxNameLength);
+                        pt.volume = juce::jlimit (0.0f, 4.0f, (float) (double) tv.getProperty ("volume", 1.0));
+                        pt.pan = juce::jlimit (-1.0f, 1.0f, (float) (double) tv.getProperty ("pan", 0.0));
+                        pt.mute = (bool) tv.getProperty ("mute", false); pt.solo = (bool) tv.getProperty ("solo", false); pt.armed = (bool) tv.getProperty ("armed", false);
+                        const int in = (int) tv.getProperty ("input", 0);
+                        pt.input = (in >= 100 && in <= 115) ? in : juce::jlimit (0, 15, in);
+                        pt.echoOn = (bool) tv.getProperty ("echo", false); pt.reverbOn = (bool) tv.getProperty ("reverb", false);
+                        pt.echoDiv = juce::jlimit (0, (int) TrackFx::numDivs - 1, (int) tv.getProperty ("echoDiv", (int) TrackFx::Quarter));
+                        const double ms = juce::jlimit (-20.0 * 60000.0, 20.0 * 60000.0, (double) tv.getProperty ("offsetMs", 0.0));
+                        pt.offset = (int) std::lround (ms * devRate / 1000.0);
+                        const auto fname = tv["file"].toString();
+                        if (fname.isNotEmpty() && isSafeTrackFile (dir, fname) && dir.getChildFile (fname).existsAsFile())
+                            if (! readWavFile (dir.getChildFile (fname), devRate, pt.audio)) pt.audio.setSize (0, 0);
+                        p.tracks.push_back (std::move (pt));
+                    }
+                if (p.tracks.empty()) p.tracks.emplace_back();
+            }
+        }
+        if (! bank.pats[(size_t) bank.current].used)
+        {
+            auto& p = bank.pats[(size_t) bank.current];
+            p.used = true; p.name = PatternBank::defaultName (bank.current); p.colour = bank.current; p.loopBars = e.loopBars.load();
+        }
+        if (bank.numUsed() == 0) bank.reset();
     }
     if (count == 0) e.addTrack();
     return true;

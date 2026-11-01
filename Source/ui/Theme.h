@@ -344,21 +344,23 @@ public:
         const float mid = 0.5f * (startA + endA);
         const auto accent = s.findColour (juce::Slider::rotarySliderFillColourId);
 
-        g.setColour (Theme::deep);
-        g.fillEllipse (c.x - r + 4, c.y - r + 4, 2 * r - 8, 2 * r - 8);
+        g.setColour (Theme::frame);                               // dark ring around every knob, like the buttons
+        g.fillEllipse (c.x - r, c.y - r, 2 * r, 2 * r);
+        g.setColour (Theme::raised);                              // lighter face so the knob stands out from the panel
+        g.fillEllipse (c.x - r + 5.5f, c.y - r + 5.5f, 2 * r - 11.0f, 2 * r - 11.0f);
 
         juce::Path bgArc, valArc;
-        const float ar = r - 2.0f;
+        const float ar = r - 2.6f;
         bgArc.addCentredArc (c.x, c.y, ar, ar, 0.0f, startA, endA, true);
-        g.setColour (Theme::raised);
-        g.strokePath (bgArc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (Theme::border.brighter (0.25f));
+        g.strokePath (bgArc, juce::PathStrokeType (2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         valArc.addCentredArc (c.x, c.y, ar, ar, 0.0f, (bool) s.getProperties().getWithDefault ("uni", false) ? startA : mid, ang, true);
         g.setColour (accent);
-        g.strokePath (valArc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath (valArc, juce::PathStrokeType (2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         juce::Path tick;
-        tick.addRoundedRectangle (-1.25f, -(r - 8.0f), 2.5f, r * 0.42f, 1.0f);
+        tick.addRoundedRectangle (-1.25f, -(r - 7.0f), 2.5f, r * 0.36f, 1.0f);
         g.setColour (Theme::text);
         g.fillPath (tick, juce::AffineTransform::rotation (ang).translated (c.x, c.y));
     }

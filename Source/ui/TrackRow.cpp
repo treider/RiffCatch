@@ -122,7 +122,17 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     pan.onValueChange = [this] { track().pan = (float) pan.getValue(); if (! draggingPan) commitPan(); };
     addAndMakeVisible (pan);
 
-    styleFader (fader, accent, true);
+    // volume is a knob like pan (the position runs 0..1 over -60..+6 dB; the arc fills from the left)
+    fader.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    fader.setRotaryParameters (juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
+    fader.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+    fader.setRange (0.0, 1.0, 0.0);
+    fader.setDoubleClickReturnValue (true, gainToFader (1.0f));
+    fader.getProperties().set ("uni", true);
+    fader.textFromValueFunction = [] (double v) { return "Vol " + dbText ((float) v); };
+    fader.setPopupDisplayEnabled (true, true, nullptr);
+    fader.setColour (juce::Slider::rotarySliderFillColourId, accent);
+    fader.setWantsKeyboardFocus (false);
     fader.onDragStart = [this] { draggingFader = true; };
     fader.onDragEnd = [this] { draggingFader = false; commitVol(); };
     fader.onValueChange = [this] { track().volume = faderToGain ((float) fader.getValue()); updateDb(); if (! draggingFader) commitVol(); };
@@ -131,7 +141,7 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
 
 
 
-    dbLabel.setJustificationType (juce::Justification::centredRight);
+    dbLabel.setJustificationType (juce::Justification::centredLeft);
     dbLabel.setColour (juce::Label::textColourId, Theme::dim);
     dbLabel.setFont (juce::Font (juce::FontOptions (12.0f)));
     addAndMakeVisible (dbLabel);
@@ -1086,8 +1096,9 @@ void TrackRow::resized()
     solo.setBounds (l2.removeFromLeft (bw).withSizeKeepingCentre (bw, 30)); l2.removeFromLeft (8);
     pan.setBounds (l2.removeFromLeft (44));
     l2.removeFromLeft (6);
-    dbLabel.setBounds (l2.removeFromRight (56));
-    fader.setBounds (l2);
+    fader.setBounds (l2.removeFromLeft (44));
+    l2.removeFromLeft (8);
+    dbLabel.setBounds (l2);
 }
 
 // ---------------------------------------------------------------- master

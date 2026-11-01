@@ -8,6 +8,7 @@
 #include "ui/TrackRow.h"
 #include "ui/DrumPanel.h"
 #include "ui/BassPanel.h"
+#include "ui/PatternTabs.h"
 #include "ui/AnalysisCard.h"
 #include "ui/MixerPanel.h"
 #include "ui/Undo.h"
@@ -125,6 +126,10 @@ private:
     void addBassTrack (std::shared_ptr<TrackSnap> snap, const juce::String& undoName);
     int lastCapState = 0;
     int seqTab = 0;
+    PatternTabs patternTabs { engine };
+    juce::Rectangle<int> seqTabsRect;
+    void setupPatternTabs();
+    void switchPattern (int i);
     Ruler ruler { engine };
 
     IconButton recBtn  { IconButton::Record, Theme::red };

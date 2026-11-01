@@ -82,18 +82,13 @@ MainComponent::MainComponent()
     bassPanel.onBake = [this] { bakeBass(); };
     bassPanel.onBakeLive = [this] { bakeBassLive(); };
     addChildComponent (bassPanel);
+    addChildComponent (drumPanel.seqTabs());
+    addChildComponent (bassPanel.seqTabs());
     addMouseListener (this, true);     // hover hints go to the info bar
     if (auto* f = props.getUserSettings()) drumPanel.setExpanded (f->getBoolValue ("drumsExpanded", true));
     if (auto* f = props.getUserSettings()) showSeqTab (f->getIntValue ("seqTab", 0));
     mixer.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { record (n, std::move (a), std::move (b)); };
-    mixer.onTrackChanged = [this] (int slot) { if (slot >= 0 && slot < rows.size() && rows[slot] != nullptr) rows[slot]->syncMix(); };
-    mixer.onAddTrack = [this] { addTrack(); };
     mixer.onInfo = [this] (const juce::String& s) { setStatus (s, 45); };
-    mixer.onLayoutChanged = [this]
-    {
-        resized();
-        if (auto* f = props.getUserSettings()) { f->setValue ("mixerExpanded", mixer.isExpanded()); f->saveIfNeeded(); }
-    };
     list.onReordered = [this] (std::vector<int> before, std::vector<int> after)
     {
         record ("Reorder tracks",
@@ -123,8 +118,9 @@ MainComponent::MainComponent()
     viewport.setScrollBarsShown (false, false, true, false);   // wheel scrolling, no scrollbar that would narrow the rows
     addAndMakeVisible (viewport);
     addAndMakeVisible (mixer);
-    if (auto* f = props.getUserSettings()) mixer.setExpanded (f->getBoolValue ("mixerExpanded", true));
     addAndMakeVisible (ruler);
+    addAndMakeVisible (patternTabs);
+    setupPatternTabs();
 
     titleLabel.setText ("RiffCatch", juce::dontSendNotification);
     titleLabel.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));
@@ -442,6 +438,7 @@ void MainComponent::refreshStrips()
 {
     for (auto* r : rows)
         if (engine.tracks[r->slot()].active.load()) r->refreshFromTrack();
+    patternTabs.refresh();
     mixer.refreshFromEngine();
     drumPanel.refreshFromEngine();
     bassPanel.refreshFromEngine();
@@ -1091,7 +1088,6 @@ void MainComponent::timerCallback()
         dupBtn.setEnabled (selectionRow() != nullptr);
     }
     addTrackBtn.setEnabled (engine.getNumTracks() < AudioEngine::maxTracks);
-    mixer.setCanAdd (engine.getNumTracks() < AudioEngine::maxTracks);
     undoBtn.setEnabled (undoManager.canUndo());
     redoBtn.setEnabled (undoManager.canRedo());
     undoBtn.setTooltip (undoManager.canUndo() ? "Undo " + undoManager.getUndoDescription() + " (Ctrl+Z)" : "Nothing to undo");
@@ -1175,6 +1171,8 @@ void MainComponent::showSeqTab (int tab)
     seqTab = tab == 1 ? 1 : 0;
     drumPanel.setVisible (seqTab == 0);
     bassPanel.setVisible (seqTab == 1);
+    drumPanel.seqTabs().setVisible (seqTab == 0);
+    bassPanel.seqTabs().setVisible (seqTab == 1);
     if (auto* f = props.getUserSettings()) { f->setValue ("seqTab", seqTab); f->saveIfNeeded(); }
     repaint();
 }
@@ -1346,15 +1344,20 @@ void MainComponent::resized()
     statusLabel.setBounds (sb);
 
     r.removeFromTop (10);
-    mixer.setBounds (r.removeFromBottom (mixer.preferredHeight()));
-    r.removeFromBottom (10);
-    {
-        auto pr = r.removeFromBottom (drumPanel.preferredHeight());
+    {   // bottom row: Drums | Bass tabs above the card, master + tuner on the right, same height as the card
+        const int tabsH = 28;
+        auto row = r.removeFromBottom (tabsH + MixerPanel::panelH);
+        const auto tabsRow = row.removeFromTop (tabsH);
+        mixer.setBounds (row.removeFromRight (MixerPanel::panelW));
+        row.removeFromRight (10);
+        for (auto* t : { &drumPanel.seqTabs(), &bassPanel.seqTabs() }) t->setBounds (tabsRow.withWidth (250));
+        const auto pr = row.withHeight (juce::jmin (row.getHeight(), drumPanel.preferredHeight()));
         drumPanel.setBounds (pr);
         bassPanel.setBounds (pr);
-    }
-    r.removeFromBottom (10);
+    }    r.removeFromBottom (10);
 
+    patternTabs.setBounds (r.removeFromTop (PatternTabs::tabH + 3));
+    r.removeFromTop (4);
     auto rulerRow = r.removeFromTop (26);
     viewport.setBounds (r);
     const int w = viewport.getMaximumVisibleWidth();
@@ -1736,6 +1739,7 @@ void MainComponent::newProject()
 {
     undoManager.clearUndoHistory();
     engine.removeAllTracks();
+    engine.patterns.reset();
     engine.masterVolume = 1.0f;
     engine.drums.resetAll();
     engine.bass.resetAll();
@@ -1908,4 +1912,65 @@ void MainComponent::doOpen (const juce::File& file)
         refreshStrips();
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Open failed", err);
     }
+}
+
+// ------------------------------------------------------------- patterns
+
+void MainComponent::setupPatternTabs()
+{
+    patternTabs.onSelect = [this] (int i) { switchPattern (i); };
+    patternTabs.onAdd = [this]
+    {
+        if (engine.getState() != AudioEngine::Stopped) { setStatus ("Stop the transport to change pattern"); return; }
+        engine.patterns.storeCurrent (engine);
+        const int i = engine.patterns.addBlank (engine);
+        if (i < 0) return;
+        switchPattern (i);
+    };
+    patternTabs.onRenamed = [this] (int i, const juce::String& n)
+    {
+        if (! engine.patterns.isUsed (i)) return;
+        engine.patterns.pats[(size_t) i].name = n.isEmpty() ? PatternBank::defaultName (i) : n;
+        ++editCounter;
+        patternTabs.refresh();
+    };
+    patternTabs.onColour = [this] (int i, int c) { engine.patterns.pats[i].colour = c; ++editCounter; patternTabs.refresh(); };
+    patternTabs.onDuplicate = [this] (int i)
+    {
+        const int n = engine.patterns.duplicate (engine, i);
+        if (n < 0) return;
+        ++editCounter;
+        patternTabs.refresh();
+        setStatus ("Duplicated to pattern " + juce::String (n + 1));
+    };
+    patternTabs.onClear = [this] (int i)
+    {
+        if (i == engine.patterns.current && engine.getState() != AudioEngine::Stopped) { setStatus ("Stop the transport first"); return; }
+        engine.patterns.clearPattern (engine, i);
+        undoManager.clearUndoHistory();
+        ++editCounter;
+        syncRows();
+    };
+    patternTabs.onDelete = [this] (int i)
+    {
+        if (i == engine.patterns.current && engine.getState() != AudioEngine::Stopped) { setStatus ("Stop the transport first"); return; }
+        if (engine.patterns.remove (engine, i))
+        {
+            undoManager.clearUndoHistory();
+            ++editCounter;
+            syncRows();
+        }
+    };
+}
+
+void MainComponent::switchPattern (int i)
+{
+    if (i == engine.patterns.current || ! engine.patterns.isUsed (i)) return;
+    if (engine.getState() != AudioEngine::Stopped) { setStatus ("Stop the transport to change pattern"); return; }
+    engine.patterns.storeCurrent (engine);
+    engine.patterns.current = i;
+    engine.patterns.loadCurrent (engine);
+    undoManager.clearUndoHistory();           // undo steps belong to the pattern they were made in
+    ++editCounter;
+    syncRows();
 }

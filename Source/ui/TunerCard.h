@@ -74,7 +74,7 @@ public:
         g.drawText ("A = " + juce::String (juce::roundToInt (refHz)) + " Hz", refRect, juce::Justification::right);
 
         // note name
-        const juce::Rectangle<int> noteArea (10, 30, getWidth() - 20, 56);
+        const juce::Rectangle<int> noteArea (10, 26, getWidth() - 20, 50);
         if (active)
         {
             g.setColour (live);
@@ -95,7 +95,7 @@ public:
 
         // ruler: one tick per 10 cents, a note label at every semitone
         const float ppSemi = 66.0f;
-        const float yTop = 100.0f, yBase = 132.0f;
+        const float yTop = 86.0f, yBase = 116.0f;
         const float half = cx / ppSemi;
         const int k0 = (int) std::floor ((shown - half) * 10.0f) - 1, k1 = (int) std::ceil ((shown + half) * 10.0f) + 1;
         g.setFont (juce::FontOptions (13.0f));
@@ -127,12 +127,12 @@ public:
         g.setColour (active ? Theme::text : Theme::dim);
         g.setFont (juce::FontOptions (30.0f));
         g.drawText (active ? juce::String (freq, 1) + " Hz" : juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")) + " Hz",
-                    juce::Rectangle<int> (0, 160, getWidth(), 36), juce::Justification::centred);
+                    juce::Rectangle<int> (0, 134, getWidth(), 34), juce::Justification::centred);
         g.setColour (Theme::dim);
         g.setFont (juce::FontOptions (14.0f));
         const auto centsText = active ? (cents >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (cents)) + " cents"
                                       : juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")) + " cents";
-        g.drawText (centsText, juce::Rectangle<int> (0, 198, getWidth(), 20), juce::Justification::centred);
+        g.drawText (centsText, juce::Rectangle<int> (0, 166, getWidth(), 20), juce::Justification::centred);
     }
 
     void mouseDown (const juce::MouseEvent& e) override

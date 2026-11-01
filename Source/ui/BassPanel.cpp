@@ -20,7 +20,6 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
 
     tabs.onSelect = [this] (int i) { if (onSelectTab) onSelectTab (i); };
     tabs.hasData = [this] (int i) { return i == 0 ? engine.drums.hasAnySteps() : engine.bass.hasAnySteps(); };
-    addAndMakeVisible (tabs);
 
     auto release = [this] { if (onReleaseFocus) onReleaseFocus(); };
 
@@ -203,20 +202,6 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
     randBtn.onClick = [this] { showRandomOptions(); };
     randBtn.addMouseListener (this, false);          // right-click: roll again with the same settings
     addAndMakeVisible (randBtn);
-
-    for (auto* b : { &octDown, &octUp })
-    {
-        b->setWantsKeyboardFocus (false);
-        b->setTooltip (b == &octDown ? "Show lower notes (one octave)" : "Show higher notes (one octave)");
-        b->onClick = [this, b]
-        {
-            viewOct = juce::jlimit (-2, 3, viewOct + (b == &octUp ? 1 : -1));
-            const int lo = engine.bass.root.load() + BassMachine::semitones (engine.bass.scale.load(), baseDegree());
-            info ("Bass range", juce::String (BassMachine::noteName (lo)) + juce::String (lo / 12 - 1) + " and up");
-            repaint();
-        };
-        addChildComponent (b);
-    }
 
     // ---- sound
     presetBox.setTextWhenNothingSelected ("Sound");
@@ -421,8 +406,9 @@ void BassPanel::updateControls()
     const bool paged = expanded && pages > 1;
     for (auto* k : knobs) k->s.setVisible (expanded);
     presetBox.setVisible (expanded); waveBox.setVisible (expanded);
-    octDown.setVisible (expanded); octUp.setVisible (expanded);
+    const bool pagedChanged = prevPage.isVisible() != paged;
     prevPage.setVisible (paged); nextPage.setVisible (paged); pageLabel.setVisible (paged);
+    if (pagedChanged) resized();
     prevPage.setEnabled (page > 0); nextPage.setEnabled (page < pages - 1);
     if (paged)
     {
@@ -485,7 +471,7 @@ void BassPanel::resized()
     auto r = juce::Rectangle<int> (0, 0, getWidth(), headerH).reduced (12, 7);
     const int h = r.getHeight(), y = r.getY();
     // right group first (it never gets squeezed): volume, M, S, Clear, Echo, Rev, Rec, Bake, then the VU meter if there is room
-    const int rightFixed = 390, leftFixed = 6 + 24 + 124 + 10 + 32 + 132 + 70, comboBase = 496;
+    const int rightFixed = 390, leftFixed = 6 + 24 + 64 + 8 + 30 + (prevPage.isVisible() ? 134 : 0), comboBase = 496;
     const int avail = r.getWidth();
     const int meterRoom = avail - (leftFixed + comboBase) - rightFixed - 16;
     const int meterW = meterRoom >= 60 ? juce::jmin (190, meterRoom) : 0;
@@ -504,7 +490,6 @@ void BassPanel::resized()
     juce::Rectangle<int> l (r.getX(), y, juce::jmax (0, rightEdge - r.getX()), h);
     l.removeFromLeft (6);
     chevron.setBounds (l.removeFromLeft (24));
-    tabs.setBounds (l.removeFromLeft (124)); l.removeFromLeft (10);
     barsBox.setBounds (l.removeFromLeft (w (84))); l.removeFromLeft (6);
     rootBox.setBounds (l.removeFromLeft (w (54))); l.removeFromLeft (6);
     scaleBox.setBounds (l.removeFromLeft (w (128))); l.removeFromLeft (6);
@@ -516,8 +501,6 @@ void BassPanel::resized()
     nextPage.setBounds (l.removeFromLeft (26));
     presetBox.setBounds (14, headerH + 2, 150, 24);
     waveBox.setBounds (172, headerH + 2, 96, 24);
-    octDown.setBounds (276, headerH + 2, 44, 24);
-    octUp.setBounds (324, headerH + 2, 44, 24);
     for (int i = 0; i < knobs.size(); ++i)
     {
         const int col = i % 4, row = i / 4;
@@ -607,7 +590,9 @@ void BassPanel::paint (juce::Graphics& g)
     {
         const int d = baseDegree() + row;
         g.setColour (Theme::dim.withAlpha (0.75f));
-        g.drawText (BassMachine::noteName (bm.root.load() + BassMachine::semitones (bm.scale.load(), d)), ga.getX() + 3, (int) rowY (row), 22, rowHeight(), juce::Justification::centredLeft);
+        const int midi = bm.root.load() + BassMachine::semitones (bm.scale.load(), d);
+        const bool isC = ((d % n) + n) % n == 0;
+        g.drawText (juce::String (BassMachine::noteName (midi)) + (isC ? juce::String (midi / 12 - 1) : juce::String()), ga.getX() + 3, (int) rowY (row), 26, rowHeight(), juce::Justification::centredLeft);
     }
     for (int c = c0; c < c1; ++c)
     {
@@ -813,4 +798,14 @@ void BassPanel::mouseUp (const juce::MouseEvent&)
     pushPattern (wasErase ? "Erase bass notes" : wasResize ? "Bass note length" : "Bass pattern", beforePaint, engine.bass.snapshot());
     repaint (gridArea());
     if (onReleaseFocus) onReleaseFocus();
+}
+void BassPanel::scrollView (int rows)
+{
+    const int size = BassMachine::scaleSize (engine.bass.scale.load());
+    const int old = viewShift;
+    viewShift = juce::jlimit (-2 * size, 3 * size, viewShift + rows);
+    if (viewShift == old) return;
+    const int lo = engine.bass.root.load() + BassMachine::semitones (engine.bass.scale.load(), baseDegree());
+    info ("Bass range", juce::String (BassMachine::noteName (lo)) + juce::String (lo / 12 - 1) + " and up");
+    repaint();
 }

@@ -6,6 +6,7 @@
 #include "Track.h"
 #include "DrumMachine.h"
 #include "BassMachine.h"
+#include "PatternBank.h"
 
 // Audio-thread entry point. Owns the sample-counting transport clock that
 // count-in, click, loop and record start are all synchronised to.
@@ -87,6 +88,7 @@ public:
     Track tracks[maxTracks];
     DrumMachine drums;
     BassMachine bass;
+    PatternBank patterns;                  // message thread only
     std::atomic<float> masterVolume { 1.0f };
     std::atomic<float> masterPeakL { 0.0f }, masterPeakR { 0.0f };
     std::atomic<float> inputLevel[16] {};   // decaying peak per active input channel

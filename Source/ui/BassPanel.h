@@ -17,6 +17,7 @@ public:
 
     explicit BassPanel (AudioEngine& e);
 
+    SeqTabs& seqTabs() { return tabs; }                // shown by the main window above the card
     int preferredHeight() const { return expanded ? headerH + shiftH + gridH + bottomPad : headerH; }
     bool isExpanded() const noexcept { return expanded; }
     void setExpanded (bool b);
@@ -25,7 +26,16 @@ public:
     void tick();
 
     std::function<void (const juce::MouseEvent&, const juce::MouseWheelDetails&)> onWheel;
-    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override { if (onWheel) onWheel (e, w); }
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+    {
+        // plain wheel scrolls the piano roll up and down; Ctrl / Shift / sideways keep zooming and panning the time axis
+        if (e.mods.isCtrlDown() || e.mods.isShiftDown() || w.deltaY == 0.0f) { if (onWheel) onWheel (e, w); return; }
+        wheelAcc += w.deltaY * 7.0f;
+        const int n = (int) wheelAcc;
+        if (n == 0) return;
+        wheelAcc -= (float) n;
+        scrollView (n);
+    }
 
     void paint (juce::Graphics&) override;
     void lookAndFeelChanged() override;
@@ -73,7 +83,7 @@ private:
     // rows shown: 11 scale degrees, or the 13 semitones of an octave (C2-C3 with root C) for the chromatic scale; Oct-/Oct+ move the window
     int rowsNow() const { return engine.bass.scale.load() == 6 ? 13 : BassMachine::numRows; }
     int rowHeight() const { return gridH / rowsNow(); }
-    int baseDegree() const { return (engine.bass.scale.load() == 6 ? 0 : BassMachine::degreeBase) + viewOct * BassMachine::scaleSize (engine.bass.scale.load()); }
+    int baseDegree() const { return (engine.bass.scale.load() == 6 ? 0 : BassMachine::degreeBase) + viewShift; }
     float rowY (int row) const { return (float) (headerH + shiftH + (rowsNow() - 1 - row) * rowHeight()); }
     void pushPattern (const juce::String& name, const BassMachine::Snapshot& before, const BassMachine::Snapshot& after);
     void updateControls();
@@ -96,12 +106,14 @@ private:
     juce::Slider volume;
     LevelMeter meter;
     juce::OwnedArray<Knob> knobs;
-    juce::TextButton octDown { "Oct-" }, octUp { "Oct+" }, randBtn { "Random" };
+    juce::TextButton randBtn { "Random" };
     BassRandom::Options randOpts;
     juce::Random rng;
     void showRandomOptions();
     void generateRandom();
-    int viewOct = 0;
+    int viewShift = 0;        // piano roll scroll in scale degrees (the wheel moves it)
+    float wheelAcc = 0.0f;
+    void scrollView (int rows);
 
     // mouse editing: Create = new note being dragged out, Pending = pressed an existing note (click removes it, drag erases),
     // Resize = dragging the right edge of a note, Erase = wiping notes under the pointer

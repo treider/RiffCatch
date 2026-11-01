@@ -2,15 +2,18 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Theme.h"
 
-// "DRUMS | BASS" tabs in the header of the step-sequencer panels (the two panels share one slot).
-// Drawn like the Notes button: a framed tile, filled with the primary colour when that sequencer holds data.
-// The open tab gets a light inner outline.
+// "Drums | Bass" tabs in the header of the step-sequencer panels (the two panels share one slot), drawn like browser tabs:
+// rounded tops, the open tab in the panel colour and joined to the panel body, the others darker on a darker tab bar.
+// A tab whose sequencer holds a pattern gets its label in the primary colour and a dot.
 class SeqTabs : public juce::Component
 {
 public:
-    SeqTabs (int selectedTab, juce::Colour) : selected (selectedTab) { setWantsKeyboardFocus (false); }
+    SeqTabs (int selectedTab, juce::Colour accentColour) : selected (selectedTab), accent (accentColour) { setWantsKeyboardFocus (false); }
     std::function<void (int)> onSelect;
     std::function<bool (int)> hasData;                     // is there a pattern in tab 0 (drums) / 1 (bass)?
+
+    // the darker bar the tabs stand on (panels fill their header with this)
+    static juce::Colour barColour() { return Theme::panel.darker (0.30f); }
 
     void refresh()
     {
@@ -21,22 +24,24 @@ public:
     void paint (juce::Graphics& g) override
     {
         const char* const names[2] = { "Drums", "Bass" };
-        const float w = (float) (getWidth() - 4) * 0.5f;
+        const float w = (float) (getWidth() - 3) * 0.5f;
         for (int i = 0; i < 2; ++i)
         {
-            const auto r = juce::Rectangle<float> ((float) i * (w + 4.0f), 0.0f, w, (float) getHeight());
+            const auto r = juce::Rectangle<float> ((float) i * (w + 3.0f), 0.0f, w, (float) getHeight());
             const bool on = i == selected, data = hasData && hasData (i);
-            auto fill = data ? Theme::accent : Theme::raised;
-            if (hover == i) fill = fill.brighter (0.12f);
-            Theme::framedTile (g, r, fill, 2.5f);
-            if (on)
-            {
-                g.setColour ((data ? Theme::onAccent : Theme::text).withAlpha (0.75f));
-                g.drawRoundedRectangle (r.reduced (4.5f), Theme::radius, 1.0f);
-            }
-            g.setColour (data ? Theme::onAccent : Theme::text);
+            juce::Path tab;
+            tab.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight(), Theme::radiusLg, Theme::radiusLg, true, true, false, false);
+            auto fill = on ? Theme::panel : Theme::panel.darker (0.14f);
+            if (! on && hover == i) fill = Theme::panel.darker (0.04f);
+            g.setColour (fill);
+            g.fillPath (tab);
+            if (on) { g.setColour (accent); g.fillRect (r.getX() + 6.0f, r.getY() + 1.0f, r.getWidth() - 12.0f, 2.0f); }   // coloured line on top of the open tab
+
             g.setFont (juce::Font (juce::FontOptions (13.0f, on ? juce::Font::bold : juce::Font::plain)));
-            g.drawText (names[i], r.toNearestInt(), juce::Justification::centred);
+            g.setColour (data ? Theme::accent : (on ? Theme::text : Theme::dim));
+            auto textR = r.toNearestInt().withTrimmedTop (3);
+            if (data) { g.fillEllipse (textR.getX() + 9.0f, (float) textR.getCentreY() - 3.0f, 6.0f, 6.0f); textR.removeFromLeft (10); }
+            g.drawText (names[i], textR, juce::Justification::centred);
         }
     }
     void mouseMove (const juce::MouseEvent& e) override { const int h = tabAt (e.x); if (h != hover) { hover = h; repaint(); } }
@@ -50,4 +55,5 @@ public:
 private:
     int tabAt (int x) const { return x < getWidth() / 2 ? 0 : 1; }
     int selected = 0, hover = -1, lastState = -1;
+    juce::Colour accent;
 };

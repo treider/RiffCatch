@@ -12,6 +12,68 @@
 #include "ui/TunerCard.h"
 #include "project/ProjectIO.h"
 
+// kept out of runEngineSelfTest: that function's stack frame is already large
+inline void patternSelfTest (const std::function<void (bool, const juce::String&)>& check)
+{
+    auto peP = std::make_unique<AudioEngine>(); auto& pe = *peP;
+    pe.prepareForTest (44100.0, 2);
+    pe.addTrack(); pe.addTrack();
+    juce::AudioBuffer<float> a (2, 44100); a.clear(); a.setSample (0, 10, 0.5f);
+    pe.tracks[0].setAudio (std::move (a));
+    pe.tracks[0].offset = 123;
+    pe.tracks[0].name = "Guitar";
+    pe.tracks[1].volume = 0.7f;
+    pe.drums.steps[0][0] = 1;
+    pe.drums.volume = 0.6f;
+    pe.bass.steps[0] = BassMachine::pack (3, 4, false, false);
+    pe.loopBars = 2;
+    auto& bank = pe.patterns;
+    bank.storeCurrent (pe);
+    const int n = bank.addBlank (pe);
+    check (n == 1 && bank.numUsed() == 2, "pattern: a new pattern is added");
+    bank.current = n; bank.loadCurrent (pe);
+    check (pe.order.size() == 1 && pe.tracks[pe.order[0]].length.load() == 0 && pe.drums.steps[0][0].load() == 0 && ! pe.bass.hasAnySteps(),
+           "pattern: the new pattern has one empty track and no notes");
+    for (int i = 0; i < 4; ++i) pe.addTrack();
+    juce::AudioBuffer<float> b (2, 22050); b.clear(); b.setSample (1, 5, 0.25f);
+    pe.tracks[pe.order[1]].setAudio (std::move (b));
+    pe.tracks[pe.order[0]].volume = 0.3f;
+    pe.tracks[pe.order[0]].name = "Chorus gtr";
+    pe.drums.steps[1][4] = 2;
+    pe.drums.volume = 0.9f;
+    pe.loopBars = 3;
+    bank.pats[(size_t) n].name = "Chorus";
+    bank.storeCurrent (pe);
+    bank.current = 0; bank.loadCurrent (pe);
+    check (pe.order.size() == 2 && pe.tracks[pe.order[0]].length.load() == 44100 && std::abs (pe.tracks[pe.order[0]].data.getSample (0, 10) - 0.5f) < 1.0e-6f
+           && pe.tracks[pe.order[0]].offset.load() == 123 && pe.tracks[pe.order[0]].name == "Guitar" && std::abs (pe.tracks[pe.order[1]].volume.load() - 0.7f) < 1.0e-6f
+           && pe.drums.steps[0][0].load() == 1 && pe.drums.steps[1][4].load() == 0 && std::abs (pe.drums.volume.load() - 0.6f) < 1.0e-6f
+           && pe.bass.hasAnySteps() && pe.loopBars.load() == 2, "pattern: switching back restores the tracks, mix, drums, bass and loop length");
+
+    auto pdir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("riffcatch-pattern-test");
+    pdir.deleteRecursively();
+    juce::String perr;
+    check (ProjectIO::save (pe, ProjectIO::fileInFolder (pdir), perr), "pattern: project saved " + perr);
+    auto pe2P = std::make_unique<AudioEngine>(); auto& pe2 = *pe2P;
+    pe2.prepareForTest (44100.0, 2);
+    check (ProjectIO::load (pe2, ProjectIO::fileInFolder (pdir), perr), "pattern: project loaded " + perr);
+    auto& b2 = pe2.patterns;
+    check (b2.numUsed() == 2 && b2.current == 0 && b2.pats[1].name == "Chorus" && b2.pats[1].loopBars == 3 && b2.pats[1].tracks.size() == 5
+           && b2.pats[1].tracks[1].audio.getNumSamples() == 22050 && std::abs (b2.pats[1].tracks[1].audio.getSample (1, 5) - 0.25f) < 1.0e-5f
+           && std::abs (b2.pats[1].tracks[0].volume - 0.3f) < 1.0e-4f && b2.pats[1].tracks[0].name == "Chorus gtr"
+           && b2.pats[1].drums.steps[1][4] == 2 && std::abs (b2.pats[1].drumMix.volume - 0.9f) < 1.0e-4f && pe2.order.size() == 2,
+           "pattern: patterns with their own tracks round-trip through the project file");
+    b2.storeCurrent (pe2);
+    b2.current = 1; b2.loadCurrent (pe2);
+    check (pe2.order.size() == 5 && pe2.tracks[pe2.order[1]].length.load() == 22050 && pe2.drums.steps[1][4].load() == 2 && pe2.loopBars.load() == 3,
+           "pattern: the second pattern has 5 tracks and its own content");
+    b2.current = 0; b2.loadCurrent (pe2);
+    check (pe2.order.size() == 2 && pe2.tracks[pe2.order[0]].length.load() == 44100, "pattern: back to the first pattern's 2 tracks");
+    bank.clearPattern (pe, 0);
+    check (pe.order.size() == 2 && pe.tracks[pe.order[0]].length.load() == 0 && ! pe.drums.hasAnySteps(), "pattern: clearing keeps the tracks but empties the content");
+    check (bank.remove (pe, 1) && bank.numUsed() == 1 && ! bank.remove (pe, 0), "pattern: the last pattern cannot be deleted");
+    pdir.deleteRecursively();
+}
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
 {
@@ -948,6 +1010,7 @@ inline juce::String runEngineSelfTest()
         check (ne2.projectNotes == ne.projectNotes, "project notes round-trip");
         dir.deleteRecursively();
     }
+    patternSelfTest (check);
     {   // custom themes
         const auto dk = Theme::generate ("selftest-theme", juce::Colour (0xffea580c), juce::Colour (0xfffbbf24), true);
         const auto lt = Theme::generate ("selftest-light", juce::Colour (0xff2563eb), juce::Colour (0xff06b6d4), false);

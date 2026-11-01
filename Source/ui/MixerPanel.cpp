@@ -52,8 +52,8 @@ ChannelStrip::ChannelStrip (AudioEngine& e, int s, int orderPos) : engine (e), s
     addAndMakeVisible (fader);
 
     dbLabel.setJustificationType (juce::Justification::centred);
-    dbLabel.setColour (juce::Label::textColourId, Theme::dim);
-    dbLabel.setFont (juce::Font (juce::FontOptions (11.0f)));
+    dbLabel.setColour (juce::Label::textColourId, Theme::text);
+    dbLabel.setFont (juce::Font (juce::FontOptions (11.5f)));
     dbLabel.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (dbLabel);
 
@@ -76,9 +76,10 @@ ChannelStrip::ChannelStrip (AudioEngine& e, int s, int orderPos) : engine (e), s
         };
         addAndMakeVisible (pan);
 
-        styleFlatToggle (muteBtn, Theme::accent);
+        muteBtn.number = pos + 1;
+        muteBtn.colour = Theme::trackColour (slotIndex);
         styleFlatToggle (soloBtn, Theme::accent);
-        muteBtn.setTooltip ("Mute");
+        muteBtn.setTooltip ("Track on / off (mute)");
         soloBtn.setTooltip ("Solo");
         muteBtn.onClick = [this] { track().mute = muteBtn.getToggleState(); if (onChanged) onChanged (slotIndex); };
         soloBtn.onClick = [this] { track().solo = soloBtn.getToggleState(); if (onChanged) onChanged (slotIndex); };
@@ -169,11 +170,12 @@ void ChannelStrip::tick()
 void ChannelStrip::lookAndFeelChanged()
 {
     fader.setColour (juce::Slider::trackColourId, isMaster() ? Theme::purple : Theme::accent);
-    dbLabel.setColour (juce::Label::textColourId, Theme::dim);
+    dbLabel.setColour (juce::Label::textColourId, Theme::text);
     if (! isMaster())
     {
         pan.setColour (juce::Slider::rotarySliderFillColourId, Theme::accent);
-        for (auto* b : { &muteBtn, &soloBtn, (juce::TextButton*) &echoBtn, (juce::TextButton*) &reverbBtn }) styleFlatToggle (*b, Theme::accent);
+        muteBtn.colour = Theme::trackColour (slotIndex);
+        for (auto* b : { &soloBtn, (juce::TextButton*) &echoBtn, (juce::TextButton*) &reverbBtn }) styleFlatToggle (*b, Theme::accent);
     }
     repaint();
 }
@@ -182,6 +184,7 @@ void ChannelStrip::paint (juce::Graphics& g)
 {
     const auto b = getLocalBounds().toFloat();
     const auto accent = isMaster() ? Theme::purple : Theme::trackColour (slotIndex);
+    const auto onHeader = accent.getPerceivedBrightness() > 0.6f ? juce::Colours::black.withAlpha (0.8f) : juce::Colours::white;
     {
         juce::Graphics::ScopedSaveState ss (g);
         juce::Path card;
@@ -189,130 +192,77 @@ void ChannelStrip::paint (juce::Graphics& g)
         g.reduceClipRegion (card);
         g.setColour (Theme::panel);
         g.fillRect (b);
-        g.setColour (accent);
-        g.fillRect (b.withHeight (3.0f));
+        g.setColour (accent);                                           // coloured title block, as in Live
+        g.fillRect (b.withHeight (22.0f));
     }
     g.setColour (Theme::border.withAlpha (0.55f));
     g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
 
-    {   // dark well around VU + fader, with a lighter ring
-        const auto well = meter.getBounds().getUnion (fader.getBounds()).toFloat().expanded (4.0f, 2.0f);
+    {   // one dark well holds VU, dB scale and fader; the read-out sits right under it, same width
+        const auto well = wellArea.toFloat();
         Theme::wellRing (g, well, 2.5f);
         g.setColour (Theme::deep);
         g.fillRoundedRectangle (well, Theme::radius);
-    }
-    g.setColour (Theme::text);
+        if (! scaleArea.isEmpty())
+        {
+            g.setFont (juce::Font (juce::FontOptions (9.5f)));
+            const auto mb = meter.getBounds().toFloat();
+            for (int db = 0; db >= -60; db -= 12)
+            {
+                const float y = mb.getBottom() - mb.getHeight() * (float) (db + 60) / 66.0f;     // same mapping as the VU and the fader
+                g.setColour (Theme::dim.withAlpha (0.55f));
+                g.fillRect ((float) scaleArea.getX(), y - 0.5f, 3.0f, 1.0f);
+                g.fillRect ((float) scaleArea.getRight() - 3.0f, y - 0.5f, 3.0f, 1.0f);
+                g.setColour (Theme::dim);
+                g.drawText (juce::String (-db), scaleArea.getX() + 2, (int) y - 6, scaleArea.getWidth() - 4, 12, juce::Justification::centred);
+            }
+        }
+        const auto db = dbLabel.getBounds().toFloat();
+        Theme::framedTile (g, db, Theme::deep, 1.5f);
+    }    g.setColour (onHeader);
     g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
-    const juce::String label = isMaster() ? juce::String ("MASTER") : juce::String (pos + 1) + "  " + shownName;
-    g.drawText (label, 8, 6, getWidth() - 16, 18, juce::Justification::centredLeft, true);
+    g.drawText (isMaster() ? juce::String ("Master") : shownName, 8, 2, getWidth() - 16, 18, juce::Justification::centredLeft, true);
 }
 
 void ChannelStrip::resized()
 {
     const int W = getWidth(), H = getHeight();
-    const int below = 14 + 4 + 34 + 4 + 48 + 8;               // db label, pan, two button rows, padding
-    const int top = 28, bodyH = juce::jmax (40, H - top - below);
-    const int meterW = isMaster() ? 16 : 12;
-    const int faderW = 26;
-    const int total = meterW + 8 + faderW;
-    const int x0 = (W - total) / 2;
-    meter.setBounds (x0, top, meterW, bodyH);
-    fader.setBounds (x0 + meterW + 8, top, faderW, bodyH);
-    dbLabel.setBounds (0, top + bodyH + 2, W, 14);
-    if (isMaster()) return;
-    pan.setBounds ((W - 34) / 2, top + bodyH + 18, 34, 34);
-    const int bw = (W - 16 - 4) / 2;
-    int y = H - 8 - 48;
-    muteBtn.setBounds (8, y, bw, 22); soloBtn.setBounds (8 + bw + 4, y, bw, 22);
-    y += 26;
-    echoBtn.setBounds (8, y, bw, 22); reverbBtn.setBounds (8 + bw + 4, y, bw, 22);
+    const int top = 30;
+    const bool scale = W >= 84;
+    const int meterW = isMaster() ? 16 : 12, faderW = 24, scaleW = 20;
+    const int wellW = 5 + meterW + (scale ? 3 + scaleW + 3 : 8) + faderW + 5;
+    const int wellX = (W - wellW) / 2;
+    int yDb;
+    if (isMaster()) yDb = H - 8 - 20;
+    else
+    {
+        const int yEcho = H - 8 - 22, yBtn = yEcho - 4 - 26, yPan = yBtn - 6 - 34;
+        yDb = yPan - 4 - 20;
+        pan.setBounds ((W - 34) / 2, yPan, 34, 34);
+        const int bw = (W - 16 - 4) / 2;
+        muteBtn.setBounds (8, yBtn, bw, 26); soloBtn.setBounds (8 + bw + 4, yBtn, bw, 26);
+        echoBtn.setBounds (8, yEcho, bw, 22); reverbBtn.setBounds (8 + bw + 4, yEcho, bw, 22);
+    }
+    const int bodyH = juce::jmax (50, yDb - 5 - top);
+    wellArea = { wellX, top, wellW, bodyH };
+    meter.setBounds (wellX + 5, top + 7, meterW, bodyH - 14);                 // inset so its scale matches the fader travel
+    scaleArea = scale ? juce::Rectangle<int> (wellX + 5 + meterW + 3, top, scaleW, bodyH) : juce::Rectangle<int>();
+    fader.setBounds (wellX + wellW - 5 - faderW, top, faderW, bodyH);
+    dbLabel.setBounds (wellX, yDb, wellW, 20);
 }
-
 // ------------------------------------------------------------------ panel
 
 MixerPanel::MixerPanel (AudioEngine& e) : engine (e), master (e, -1, 0), tuner (e)
 {
-    addAndMakeVisible (chevron);
-    chevron.onClick = [this] { setExpanded (! expanded); };
-    title.setText ("MIXER", juce::dontSendNotification);
-    title.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
-    title.setColour (juce::Label::textColourId, Theme::text);
-    title.setInterceptsMouseClicks (false, false);
-    addAndMakeVisible (title);
-
-    plus.setTooltip ("Add new track");
-    plus.onClick = [this] { if (onAddTrack) onAddTrack(); };
-    holder.addChildComponent (plus);
-    rowMeter.setHorizontal (true);
-    addChildComponent (rowMeter);
-    rowMeter.setVisible (false);
-
-    stripView.setViewedComponent (&holder, false);
-    stripView.setScrollBarsShown (false, true);
-    stripView.setScrollBarThickness (8);
-    addAndMakeVisible (stripView);
-
     master.onUndoable = [this] (const juce::String& n, std::function<void()> a, std::function<void()> b) { if (onUndoable) onUndoable (n, std::move (a), std::move (b)); };
     master.onInfo = [this] (const juce::String& s) { if (onInfo) onInfo (s); };
     addAndMakeVisible (master);
     addAndMakeVisible (tuner);
-}
-
-void MixerPanel::setExpanded (bool b)
-{
-    expanded = b;
-    chevron.open = b;
-    chevron.repaint();
-    stripView.setVisible (b);
-    master.setVisible (b);
-    tuner.setVisible (b);
-    tuner.setRunning (b);
-    rowMeter.setVisible (! b);
-    plus.setVisible (b && canAdd);
-    if (onLayoutChanged) onLayoutChanged();
-}
-
-void MixerPanel::refreshFromEngine()
-{
-    shownOrder.clear();     // force a rebuild
-    rebuild();
-    master.syncFromEngine();
-}
-
-void MixerPanel::rebuild()
-{
-    if (shownOrder == engine.order) return;
-    shownOrder = engine.order;
-    strips.clear();
-    int i = 0;
-    for (int slot : shownOrder)
-    {
-        auto* s = strips.add (new ChannelStrip (engine, slot, i++));
-        s->onChanged = [this] (int sl) { if (onTrackChanged) onTrackChanged (sl); };
-        s->onInfo = [this] (const juce::String& t) { if (onInfo) onInfo (t); };
-        holder.addAndMakeVisible (s);
-    }
-    layoutStrips();
-}
-
-void MixerPanel::layoutStrips()
-{
-    const int n = strips.size();
-    const int avail = stripView.getWidth();
-    const int slots = n + (canAdd ? 1 : 0);
-    const int sw = slots > 0 ? juce::jlimit (66, 120, avail / slots) : 80;
-    holder.setSize (juce::jmax (avail, slots * sw), juce::jmax (40, stripView.getMaximumVisibleHeight()));
-    for (int i = 0; i < n; ++i)
-        strips[i]->setBounds (i * sw, 0, sw - 4, holder.getHeight());
-    plus.setBounds (n * sw, 0, sw - 4, holder.getHeight());
-    plus.setVisible (canAdd && expanded);
+    tuner.setRunning (true);
 }
 
 void MixerPanel::tick()
 {
-    rebuild();
-    if (! expanded) { rowMeter.setLevels (engine.masterPeakL.exchange (0.0f), engine.masterPeakR.exchange (0.0f)); return; }
-    for (auto* s : strips) s->tick();
     master.tick();
     tuner.tick();
 }
@@ -328,16 +278,11 @@ void MixerPanel::paint (juce::Graphics& g)
         g.reduceClipRegion (card);
         g.setColour (Theme::panel);
         g.fillRect (b);
-        {   // shadows fall only to the sides and below each strip, never up into the header
-            auto shadowStrip = [&] (juce::Component& c)
-            {
-                juce::Graphics::ScopedSaveState s2 (g);
-                const auto r = getLocalArea (&c, c.getLocalBounds());   // strips live inside the viewport holder
-                g.reduceClipRegion (r.expanded (Theme::shadowRadius, 0).withTrimmedBottom (-Theme::shadowRadius).withTop (r.getY()));
-                Theme::cardShadow (g, r.toFloat());
-            };
-            for (auto* s : strips) shadowStrip (*s);
-            shadowStrip (master);
+        {   // the master strip casts a shadow to the sides and below
+            juce::Graphics::ScopedSaveState s2 (g);
+            const auto r = master.getBounds();
+            g.reduceClipRegion (r.expanded (Theme::shadowRadius, 0).withTrimmedBottom (-Theme::shadowRadius).withTop (r.getY()));
+            Theme::cardShadow (g, r.toFloat());
         }
         g.setColour (accent);
         g.fillRect (b.withWidth (4.0f));
@@ -346,24 +291,11 @@ void MixerPanel::paint (juce::Graphics& g)
     g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
 }
 
-void MixerPanel::lookAndFeelChanged() { title.setColour (juce::Label::textColourId, Theme::text); }
-
 void MixerPanel::resized()
 {
-    auto r = getLocalBounds();
-    auto head = r.removeFromTop (headerH);
-    head.removeFromLeft (8);
-    chevron.setBounds (head.removeFromLeft (30).reduced (2));
-    title.setBounds (head.removeFromLeft (100));
-    head.removeFromRight (padX + 6);
-    rowMeter.setBounds (head.removeFromRight (190).withSizeKeepingCentre (190, 14));
-    r.removeFromLeft (padX + 4);
-    r.removeFromRight (padX);
-    auto body = r.withHeight (stripH);
-    master.setBounds (body.removeFromRight (104));
-    body.removeFromRight (6);
-    tuner.setBounds (body.removeFromRight (juce::jmin (290, juce::jmax (0, body.getWidth() - 360))));
-    body.removeFromRight (6);
-    stripView.setBounds (body);
-    layoutStrips();
+    auto r = getLocalBounds().reduced (pad, pad);
+    r.removeFromLeft (8);
+    master.setBounds (r.removeFromRight (104));
+    r.removeFromRight (8);
+    tuner.setBounds (r);
 }

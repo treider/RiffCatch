@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(RiffCatch VERSION 0.53 LANGUAGES C CXX)   # bump the minor version every iteration
+project(RiffCatch VERSION 0.56 LANGUAGES C CXX)   # bump the minor version every iteration
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -53,6 +53,7 @@ target_sources(RiffCatch PRIVATE
   Source/MainComponent.cpp
   Source/WinTitleBar.cpp
   Source/audio/AudioEngine.cpp
+  Source/audio/PatternBank.cpp
   Source/audio/HitEditor.cpp
   Source/project/ProjectIO.cpp
   Source/project/Exporter.cpp

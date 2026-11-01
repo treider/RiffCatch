@@ -31,7 +31,6 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
 
     tabs.onSelect = [this] (int i) { if (onSelectTab) onSelectTab (i); };
     tabs.hasData = [this] (int i) { return i == 0 ? engine.drums.hasAnySteps() : engine.bass.hasAnySteps(); };
-    addAndMakeVisible (tabs);
 
     for (int b = 1; b <= DrumMachine::maxBars; ++b) barsBox.addItem (juce::String (b) + (b == 1 ? " bar" : " bars"), b);
     barsBox.setWantsKeyboardFocus (false);
@@ -304,7 +303,6 @@ void DrumPanel::resized()
     auto r = juce::Rectangle<int> (0, 0, getWidth(), headerH).reduced (12, 7);
     r.removeFromLeft (6);
     chevron.setBounds (r.removeFromLeft (24));
-    tabs.setBounds (r.removeFromLeft (124)); r.removeFromLeft (10);
     barsBox.setBounds (r.removeFromLeft (84)); r.removeFromLeft (6);
     templateBox.setBounds (r.removeFromLeft (112)); r.removeFromLeft (8);
     prevPage.setBounds (r.removeFromLeft (26)); r.removeFromLeft (4);

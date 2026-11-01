@@ -15,6 +15,7 @@ public:
 
     explicit DrumPanel (AudioEngine& e);
 
+    SeqTabs& seqTabs() { return tabs; }                // shown by the main window above the card
     int preferredHeight() const { return expanded ? headerH + DrumMachine::numVoices * laneH + bottomPad : headerH; }
     bool isExpanded() const noexcept { return expanded; }
     void setExpanded (bool b);
