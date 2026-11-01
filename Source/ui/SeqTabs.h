@@ -35,7 +35,7 @@ public:
             if (! on && hover == i) fill = Theme::panel.darker (0.04f);
             g.setColour (fill);
             g.fillPath (tab);
-            if (on) { g.setColour (accent); g.fillRect (r.getX() + 6.0f, r.getY() + 1.0f, r.getWidth() - 12.0f, 2.0f); }   // coloured line on top of the open tab
+            if (on) { g.setColour (selected == 0 ? Theme::orange : Theme::cyan); g.fillRect (r.getX() + 6.0f, r.getY() + 1.0f, r.getWidth() - 12.0f, 2.0f); }   // coloured line on top of the open tab
 
             g.setFont (juce::Font (juce::FontOptions (13.0f, on ? juce::Font::bold : juce::Font::plain)));
             g.setColour (data ? Theme::accent : (on ? Theme::text : Theme::dim));

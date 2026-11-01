@@ -74,7 +74,7 @@ private:
 class MixerPanel : public juce::Component
 {
 public:
-    static constexpr int panelH = 202, panelW = 440, pad = 5;
+    static constexpr int panelH = 206, panelW = 440, pad = 5;
     explicit MixerPanel (AudioEngine& e);
 
     int preferredHeight() const { return panelH; }

@@ -121,6 +121,7 @@ MainComponent::MainComponent()
     addAndMakeVisible (ruler);
     addAndMakeVisible (patternTabs);
     setupPatternTabs();
+    setupLibraryCounter();
 
     titleLabel.setText ("RiffCatch", juce::dontSendNotification);
     titleLabel.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));
@@ -155,7 +156,8 @@ MainComponent::MainComponent()
     timeLabel.setBorderSize ({ 0, 0, 0, 0 });
     timeLabel.setJustificationType (juce::Justification::centred);
     timeLabel.setColour (juce::Label::textColourId, Theme::text.withMultipliedBrightness (0.72f));   // softer than pure white
-    addAndMakeVisible (timeLabel);
+    addChildComponent (timeLabel);                        // only holds the text; the clock below draws it in seven segments
+    addAndMakeVisible (clock);
 
     projectLabel.setJustificationType (juce::Justification::centredRight);
     projectLabel.setFont (juce::Font (juce::FontOptions (14.0f)));
@@ -933,6 +935,7 @@ void MainComponent::restyle()
 {
     titleLabel.setColour (juce::Label::textColourId, Theme::blue);
     timeLabel.setColour (juce::Label::textColourId, Theme::text.withMultipliedBrightness (0.72f));
+    clock.setColour (Theme::accent);
     projectLabel.setColour (juce::Label::textColourId, Theme::dim);
     for (auto* l : { &bpmCaption, &countCaption }) l->setColour (juce::Label::textColourId, Theme::dim);
     bpmLabel.setColour (juce::Label::textColourId, Theme::accent);
@@ -1109,6 +1112,7 @@ void MainComponent::timerCallback()
     const int m = (int) (secs / 60.0);
     timeLabel.setText (juce::String::formatted ("%02d:%02d.%03d", m, (int) secs % 60, (int) ((secs - std::floor (secs)) * 1000.0)),
                        juce::dontSendNotification);
+    clock.setText (timeLabel.getText());
 
     if (st == AudioEngine::CountIn)
     {
@@ -1308,6 +1312,7 @@ void MainComponent::resized()
     skipEndBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
     loopBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (14);
     timeLabel.setBounds (bar.removeFromLeft (160).reduced (0, 2));
+    clock.setBounds (timeLabel.getBounds());
     barLabel.setBounds (bar.removeFromLeft (140));
 
     fileBtn.setBounds (bar.removeFromRight (34).withSizeKeepingCentre (34, 30));
@@ -1973,4 +1978,35 @@ void MainComponent::switchPattern (int i)
     undoManager.clearUndoHistory();           // undo steps belong to the pattern they were made in
     ++editCounter;
     syncRows();
+}
+
+void MainComponent::setupLibraryCounter()
+{
+    auto wire = [this] (LibraryCounter& ch, PatternBank::Kind kind)
+    {
+        auto after = [this]
+        {
+            undoManager.clearUndoHistory();          // undo steps belong to the pattern they were made in
+            ++editCounter;
+            drumPanel.refreshFromEngine();
+            bassPanel.refreshFromEngine();
+            patternTabs.refresh();
+            repaint();
+        };
+        ch.onStep = [this, kind, after] (int delta)
+        {
+            const int cur = engine.patterns.currentRef (kind);
+            const int target = juce::jlimit (0, PatternBank::maxItems - 1, cur + delta);
+            if (target == cur) return;
+            engine.patterns.selectItem (engine, kind, target);
+            after();
+        };
+        ch.onCopy = [this, kind, after]
+        {
+            if (engine.patterns.newItem (engine, kind, true) < 0) setStatus ("The library is full (16)");
+            else after();
+        };
+    };
+    wire (drumPanel.counter(), PatternBank::Drums);
+    wire (bassPanel.counter(), PatternBank::Bass);
 }

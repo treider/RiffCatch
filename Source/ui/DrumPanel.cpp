@@ -31,6 +31,7 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
 
     tabs.onSelect = [this] (int i) { if (onSelectTab) onSelectTab (i); };
     tabs.hasData = [this] (int i) { return i == 0 ? engine.drums.hasAnySteps() : engine.bass.hasAnySteps(); };
+    addAndMakeVisible (libCounter);
 
     for (int b = 1; b <= DrumMachine::maxBars; ++b) barsBox.addItem (juce::String (b) + (b == 1 ? " bar" : " bars"), b);
     barsBox.setWantsKeyboardFocus (false);
@@ -301,20 +302,24 @@ void DrumPanel::pushPattern (const juce::String& name, const DrumMachine::Snapsh
 void DrumPanel::resized()
 {
     auto r = juce::Rectangle<int> (0, 0, getWidth(), headerH).reduced (12, 7);
-    r.removeFromLeft (6);
-    chevron.setBounds (r.removeFromLeft (24));
-    barsBox.setBounds (r.removeFromLeft (84)); r.removeFromLeft (6);
-    templateBox.setBounds (r.removeFromLeft (112)); r.removeFromLeft (8);
-    prevPage.setBounds (r.removeFromLeft (26)); r.removeFromLeft (4);
-    pageLabel.setBounds (r.removeFromLeft (72)); r.removeFromLeft (4);
-    nextPage.setBounds (r.removeFromLeft (26)); r.removeFromLeft (16);
-    r.removeFromRight (4);                                          // VU right edge lines up with the mixer's
-    meter.setBounds (r.removeFromRight (190).withSizeKeepingCentre (190, 14)); r.removeFromRight (16);
-    clearBtn.setBounds (r.removeFromRight (56)); r.removeFromRight (12);
-    soloBtn.setBounds (r.removeFromRight (30)); r.removeFromRight (4);
-    muteBtn.setBounds (r.removeFromRight (30)); r.removeFromRight (12);
-    volume.setBounds (r.removeFromRight (32).withSizeKeepingCentre (32, 32));
+    const int h = r.getHeight(), y = r.getY();
+    // the controls the bass panel has too (counter, bars, volume, M, S, Clear) sit at exactly the same place in both panels
+    int x = r.getRight() - 4;
+    auto put = [&] (juce::Component& c, int w, int gap) { x -= w; c.setBounds (x, y, w, h); x -= gap; };
+    put (clearBtn, 56, 12); put (soloBtn, 30, 4); put (muteBtn, 30, 12);
+    x -= 32; volume.setBounds (juce::Rectangle<int> (x, y, 32, h).withSizeKeepingCentre (32, 32));
+    const int rightEdge = x - 8;
 
+    chevron.setBounds (r.getX() + 6, y, 24, h);
+    counter().setBounds (LibraryCounter::panelX, y, LibraryCounter::totalW, h);
+    juce::Rectangle<int> l (LibraryCounter::panelX + LibraryCounter::totalW + 8, y, 0, h);
+    l.setRight (rightEdge);
+    barsBox.setBounds (l.removeFromLeft (84)); l.removeFromLeft (6);
+    templateBox.setBounds (l.removeFromLeft (112)); l.removeFromLeft (8);
+    prevPage.setBounds (l.removeFromLeft (26)); l.removeFromLeft (4);
+    pageLabel.setBounds (l.removeFromLeft (72)); l.removeFromLeft (4);
+    nextPage.setBounds (l.removeFromLeft (26)); l.removeFromLeft (16);
+    meter.setBounds (juce::Rectangle<int> (juce::jmax (l.getX(), rightEdge - 190), y, juce::jmin (190, rightEdge - l.getX()), h).withSizeKeepingCentre (juce::jmin (190, juce::jmax (0, rightEdge - l.getX())), 14));
     for (int v = 0; v < DrumMachine::numVoices; ++v)
     {
         const int y = headerH + v * laneH;
@@ -429,6 +434,7 @@ void DrumPanel::tick()
 {
     meter.setLevels (engine.drums.peakL.exchange (0.0f), engine.drums.peakR.exchange (0.0f));
     tabs.refresh();
+    libCounter.refresh();
     if (! expanded) return;
     const auto la = lanesArea();
     const float px = (float) la.getX() + (float) ((engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) - viewStart) / viewSeconds * (double) la.getWidth());

@@ -134,6 +134,12 @@ private:
     bool stereo = false;
     juce::int64 done = 0;
     unsigned rev = ~0u;
+    // the loop pass being recorded (audio goes to a staging buffer, so the clip has no data yet): its peaks, built from the staging buffer
+    std::vector<float> liveLo, liveHi;
+    juce::int64 liveDone = 0;
+    unsigned liveSeq = ~0u;
+    int liveStage = -1;
+    void updateLive();
 };
 
 // Master bus row.

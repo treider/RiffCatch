@@ -167,6 +167,7 @@ PatternBank::BassMix bassMixFromVar (const juce::var& o)
 }
 bool save (AudioEngine& e, const juce::File& projectFile, juce::String& error)
 {
+    e.patterns.storeMachines (e);                // the open pattern's drum and bass notes go into their library items
     const auto dir = projectFile.getParentDirectory();
     // never write into a folder that holds somebody else's files
     if (dir.exists() && ! projectFile.existsAsFile())
@@ -247,12 +248,12 @@ bool save (AudioEngine& e, const juce::File& projectFile, juce::String& error)
         po->setProperty ("index", pi);
         po->setProperty ("name", p.name.substring (0, 24));
         po->setProperty ("colour", p.colour);
+        po->setProperty ("drumRef", p.drumRef);
+        po->setProperty ("bassRef", p.bassRef);
         if (pi == e.patterns.current) po->setProperty ("loopBars", e.loopBars.load());
         else
         {
             po->setProperty ("loopBars", p.loopBars);
-            po->setProperty ("drums", drumSnapToVar (p.drums));
-            po->setProperty ("bass", bassSnapToVar (p.bass));
             po->setProperty ("drumMix", drumMixToVar (p.drumMix));
             po->setProperty ("bassMix", bassMixToVar (p.bassMix));
             juce::Array<juce::var> pts;
@@ -308,6 +309,16 @@ bool save (AudioEngine& e, const juce::File& projectFile, juce::String& error)
     root->setProperty ("masterVolume", (double) e.masterVolume.load());
     root->setProperty ("loop", juce::var (loop));
     root->setProperty ("tracks", tracks);
+    {   // the drum and bass pattern libraries (the open pattern's items come from the live machines)
+        juce::Array<juce::var> dl, bl;
+        for (int i = 0; i < PatternBank::maxItems; ++i)
+        {
+            if (e.patterns.itemUsed (PatternBank::Drums, i)) { auto v = drumSnapToVar (e.patterns.drumLib[(size_t) i]); v.getDynamicObject()->setProperty ("index", i); dl.add (v); }
+            if (e.patterns.itemUsed (PatternBank::Bass, i))  { auto v = bassSnapToVar (e.patterns.bassLib[(size_t) i]);  v.getDynamicObject()->setProperty ("index", i); bl.add (v); }
+        }
+        root->setProperty ("drumLibrary", dl);
+        root->setProperty ("bassLibrary", bl);
+    }
     root->setProperty ("patterns", patterns);
     root->setProperty ("currentPattern", e.patterns.current);
 
@@ -517,7 +528,18 @@ bool load (AudioEngine& e, const juce::File& projectFile, juce::String& error)
     {   // patterns: the open one is the tracks / drums / bass loaded above, the others come from the "patterns" array
         auto& bank = e.patterns;
         bank.current = juce::jlimit (0, PatternBank::maxPatterns - 1, (int) json.getProperty ("currentPattern", 0));
-        if (auto* pa = json["patterns"].getArray())
+        if (auto* dl = json["drumLibrary"].getArray())
+            for (auto& v : *dl)
+            {
+                const int i = (int) v.getProperty ("index", -1);
+                if (i >= 0 && i < PatternBank::maxItems) { bank.drumLib[(size_t) i] = drumSnapFromVar (v, e.drums.barSteps.load()); bank.drumUsed[i] = true; }
+            }
+        if (auto* bl = json["bassLibrary"].getArray())
+            for (auto& v : *bl)
+            {
+                const int i = (int) v.getProperty ("index", -1);
+                if (i >= 0 && i < PatternBank::maxItems) { bank.bassLib[(size_t) i] = bassSnapFromVar (v, e.bass.barSteps.load()); bank.bassUsed[i] = true; }
+            }        if (auto* pa = json["patterns"].getArray())
         {
             bank.pats[0].used = false;
             for (auto& pv : *pa)
@@ -530,9 +552,11 @@ bool load (AudioEngine& e, const juce::File& projectFile, juce::String& error)
                 if (p.name.isEmpty()) p.name = PatternBank::defaultName (pi);
                 p.colour = juce::jlimit (0, 15, (int) pv.getProperty ("colour", pi));
                 p.loopBars = juce::jlimit (1, 64, (int) pv.getProperty ("loopBars", e.loopBars.load()));
+                p.drumRef = juce::jlimit (0, PatternBank::maxItems - 1, (int) pv.getProperty ("drumRef", 0));
+                p.bassRef = juce::jlimit (0, PatternBank::maxItems - 1, (int) pv.getProperty ("bassRef", 0));
                 if (pi == bank.current) continue;
-                p.drums = drumSnapFromVar (pv["drums"], e.drums.barSteps.load());
-                p.bass = bassSnapFromVar (pv["bass"], e.bass.barSteps.load());
+                if (pv["drums"].isObject()) { const int n = bank.allocDrum (drumSnapFromVar (pv["drums"], e.drums.barSteps.load())); if (n >= 0) p.drumRef = n; }   // projects from v0.56 keep the notes in the pattern
+                if (pv["bass"].isObject())  { const int n = bank.allocBass (bassSnapFromVar (pv["bass"], e.bass.barSteps.load())); if (n >= 0) p.bassRef = n; }
                 p.drumMix = drumMixFromVar (pv["drumMix"]);
                 p.bassMix = bassMixFromVar (pv["bassMix"]);
                 if (auto* ta = pv["tracks"].getArray())
@@ -564,6 +588,13 @@ bool load (AudioEngine& e, const juce::File& projectFile, juce::String& error)
             p.used = true; p.name = PatternBank::defaultName (bank.current); p.colour = bank.current; p.loopBars = e.loopBars.load();
         }
         if (bank.numUsed() == 0) bank.reset();
+        for (auto& p : bank.pats)                      // refs must point at items that exist
+        {
+            if (! p.used) continue;
+            if (! bank.itemUsed (PatternBank::Drums, p.drumRef)) { p.drumRef = 0; bank.drumUsed[0] = true; }
+            if (! bank.itemUsed (PatternBank::Bass, p.bassRef))  { p.bassRef = 0; bank.bassUsed[0] = true; }
+        }
+        bank.storeMachines (e);                        // the live machines hold the open pattern
     }
     if (count == 0) e.addTrack();
     return true;

@@ -5,16 +5,18 @@
 #include "TrackRow.h"
 #include "Undo.h"
 #include "SeqTabs.h"
+#include "LibraryCounter.h"
 
 // Step sequencer panel above the master strip: six drum lanes, aligned with the ruler / clip lanes.
 // Click or drag in the grid to set hits (right-click or Shift = accent). The pattern repeats over the loop.
 class DrumPanel : public juce::Component
 {
 public:
-    static constexpr int headerH = 38, laneH = 26, bottomPad = 8;
+    static constexpr int headerH = 42, laneH = 26, bottomPad = 8;
 
     explicit DrumPanel (AudioEngine& e);
 
+    LibraryCounter& counter() { return libCounter; }
     SeqTabs& seqTabs() { return tabs; }                // shown by the main window above the card
     int preferredHeight() const { return expanded ? headerH + DrumMachine::numVoices * laneH + bottomPad : headerH; }
     bool isExpanded() const noexcept { return expanded; }
@@ -75,6 +77,7 @@ private:
 
     Chevron chevron;
     SeqTabs tabs { 0, Theme::orange };
+    LibraryCounter libCounter { engine, PatternBank::Drums, Theme::orange };
     juce::ComboBox barsBox, templateBox;
     juce::TextButton clearBtn { "Clear" }, prevPage { "<" }, nextPage { ">" }, muteBtn { "M" }, soloBtn { "S" };
     juce::Label pageLabel;

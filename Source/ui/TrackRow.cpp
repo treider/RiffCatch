@@ -314,6 +314,31 @@ void TrackRow::updateCache()
     }
 }
 
+void TrackRow::updateLive()
+{
+    auto& t = track();
+    if (! (t.recActive.load() && t.recToStage.load() && engine.getState() == AudioEngine::Recording))
+    {
+        if (liveDone > 0 || ! liveLo.empty()) { liveLo.clear(); liveHi.clear(); liveDone = 0; }
+        liveSeq = ~0u; liveStage = -1;
+        return;
+    }
+    const auto sp = t.stagePos.load();
+    const int ws = t.writeStage.load() & 1;
+    const auto seq = t.stageSeq.load();
+    if (seq != liveSeq || ws != liveStage || sp < liveDone * binSize) { liveLo.clear(); liveHi.clear(); liveDone = 0; liveSeq = seq; liveStage = ws; }
+    const auto& sb = t.stage[ws];
+    const auto target = juce::jmin<juce::int64> (sp, sb.getNumSamples()) / binSize;
+    for (auto b = liveDone; b < target; ++b)
+    {
+        const auto a = juce::FloatVectorOperations::findMinAndMax (sb.getReadPointer (0) + b * binSize, binSize);
+        const auto c = juce::FloatVectorOperations::findMinAndMax (sb.getReadPointer (1) + b * binSize, binSize);
+        liveLo.push_back (juce::jmin (a.getStart(), c.getStart()));
+        liveHi.push_back (juce::jmax (a.getEnd(), c.getEnd()));
+    }
+    liveDone = target;
+}
+
 void TrackRow::tick()
 {
     auto& t = track();
@@ -324,6 +349,7 @@ void TrackRow::tick()
     inMeter.setLevels (lvl (l), lvl (r));
     meter.setLevels (t.peakL.exchange (0.0f), t.peakR.exchange (0.0f));
     updateCache();
+    updateLive();
     {
         const int glowState = (t.armed.load() ? 1 : 0) + ((t.recActive.load() && engine.getState() == AudioEngine::Recording) ? 2 : 0);
         if (glowState != lastGlowState) { lastGlowState = glowState; repaint(); }
@@ -468,7 +494,7 @@ void TrackRow::paint (juce::Graphics& g)
                 if (stereo) peak = juce::jmax (peak, mx2[(size_t) k], -mn2[(size_t) k]);
             }
             const float gain = juce::jlimit (1.0f, 40.0f, 0.95f / juce::jmax (0.001f, peak));
-            auto drawLane = [&] (const std::vector<float>& lo, const std::vector<float>& hi, juce::Rectangle<float> area)
+            auto drawLane = [&] (const std::vector<float>& lo, const std::vector<float>& hi, juce::Rectangle<float> area, juce::int64 count)
             {
                 const float mid = area.getCentreY(), half = area.getHeight() * 0.5f - 2.0f;
                 const int xa = juce::jmax (0, (int) (w.getX() - area.getX()) - 1);
@@ -476,8 +502,8 @@ void TrackRow::paint (juce::Graphics& g)
                 for (int x = xa; x < xb; ++x)
                 {
                     const auto b0 = (juce::int64) (x * spp / binSize);
-                    if (b0 >= done) break;
-                    const auto b1 = juce::jmin (done, juce::jmax (b0 + 1, (juce::int64) ((x + 1) * spp / binSize)));
+                    if (b0 >= count) break;
+                    const auto b1 = juce::jmin (count, juce::jmax (b0 + 1, (juce::int64) ((x + 1) * spp / binSize)));
                     float mnv = 0.0f, mxv = 0.0f;
                     for (auto k = b0; k < b1; ++k) { mnv = juce::jmin (mnv, lo[(size_t) k]); mxv = juce::jmax (mxv, hi[(size_t) k]); }
                     const float y1 = mid - juce::jlimit (0.0f, 1.0f, mxv * gain) * half;
@@ -488,13 +514,35 @@ void TrackRow::paint (juce::Graphics& g)
             if (stereo)
             {
                 const float h2 = clip.getHeight() * 0.5f;
-                drawLane (mn, mx, clip.withHeight (h2));
-                drawLane (mn2, mx2, clip.withTrimmedTop (h2));
+                drawLane (mn, mx, clip.withHeight (h2), done);
+                drawLane (mn2, mx2, clip.withTrimmedTop (h2), done);
                 g.setColour (Theme::deep.withAlpha (0.6f));
                 g.fillRect (clip.getX(), clip.getY() + h2, clip.getWidth(), 1.0f);
             }
             else
-                drawLane (mn, mx, clip);
+                drawLane (mn, mx, clip, done);
+        }
+        else if (live && tr.recToStage.load() && liveDone > 0)       // loop recording: the pass so far
+        {
+            g.setColour (col.withMultipliedBrightness (0.30f).withAlpha (0.95f));
+            const double spp = sr * viewSeconds / w.getWidth();
+            float peak = 0.0f;
+            for (juce::int64 k = 0; k < liveDone; ++k) peak = juce::jmax (peak, liveHi[(size_t) k], -liveLo[(size_t) k]);
+            const float gain = juce::jlimit (1.0f, 40.0f, 0.95f / juce::jmax (0.001f, peak));
+            const float mid = clip.getCentreY(), half = clip.getHeight() * 0.5f - 2.0f;
+            const int xa = juce::jmax (0, (int) (w.getX() - clip.getX()) - 1);
+            const int xb = juce::jmin ((int) clip.getWidth(), (int) (w.getRight() - clip.getX()) + 2);
+            for (int x = xa; x < xb; ++x)
+            {
+                const auto b0 = (juce::int64) (x * spp / binSize);
+                if (b0 >= liveDone) break;
+                const auto b1 = juce::jmin (liveDone, juce::jmax (b0 + 1, (juce::int64) ((x + 1) * spp / binSize)));
+                float mnv = 0.0f, mxv = 0.0f;
+                for (auto k = b0; k < b1; ++k) { mnv = juce::jmin (mnv, liveLo[(size_t) k]); mxv = juce::jmax (mxv, liveHi[(size_t) k]); }
+                const float y1 = mid - juce::jlimit (0.0f, 1.0f, mxv * gain) * half;
+                const float y2 = mid - juce::jlimit (-1.0f, 0.0f, mnv * gain) * half;
+                g.fillRect ((float) (clip.getX() + x), y1, 1.0f, juce::jmax (1.0f, y2 - y1));
+            }
         }
         };
         drawClip (dx);

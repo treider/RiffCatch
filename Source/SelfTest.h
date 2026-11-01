@@ -32,6 +32,8 @@ inline void patternSelfTest (const std::function<void (bool, const juce::String&
     const int n = bank.addBlank (pe);
     check (n == 1 && bank.numUsed() == 2, "pattern: a new pattern is added");
     bank.current = n; bank.loadCurrent (pe);
+    check (bank.pats[(size_t) n].drumRef == bank.pats[0].drumRef && bank.pats[(size_t) n].bassRef == bank.pats[0].bassRef, "pattern: a new pattern starts on the same drum and bass patterns");
+    bank.selectItem (pe, PatternBank::Drums, 1); bank.selectItem (pe, PatternBank::Bass, 1);       // give it its own
     check (pe.order.size() == 1 && pe.tracks[pe.order[0]].length.load() == 0 && pe.drums.steps[0][0].load() == 0 && ! pe.bass.hasAnySteps(),
            "pattern: the new pattern has one empty track and no notes");
     for (int i = 0; i < 4; ++i) pe.addTrack();
@@ -61,7 +63,7 @@ inline void patternSelfTest (const std::function<void (bool, const juce::String&
     check (b2.numUsed() == 2 && b2.current == 0 && b2.pats[1].name == "Chorus" && b2.pats[1].loopBars == 3 && b2.pats[1].tracks.size() == 5
            && b2.pats[1].tracks[1].audio.getNumSamples() == 22050 && std::abs (b2.pats[1].tracks[1].audio.getSample (1, 5) - 0.25f) < 1.0e-5f
            && std::abs (b2.pats[1].tracks[0].volume - 0.3f) < 1.0e-4f && b2.pats[1].tracks[0].name == "Chorus gtr"
-           && b2.pats[1].drums.steps[1][4] == 2 && std::abs (b2.pats[1].drumMix.volume - 0.9f) < 1.0e-4f && pe2.order.size() == 2,
+           && b2.drumLib[(size_t) b2.pats[1].drumRef].steps[1][4] == 2 && std::abs (b2.pats[1].drumMix.volume - 0.9f) < 1.0e-4f && pe2.order.size() == 2,
            "pattern: patterns with their own tracks round-trip through the project file");
     b2.storeCurrent (pe2);
     b2.current = 1; b2.loadCurrent (pe2);
@@ -70,9 +72,45 @@ inline void patternSelfTest (const std::function<void (bool, const juce::String&
     b2.current = 0; b2.loadCurrent (pe2);
     check (pe2.order.size() == 2 && pe2.tracks[pe2.order[0]].length.load() == 44100, "pattern: back to the first pattern's 2 tracks");
     bank.clearPattern (pe, 0);
-    check (pe.order.size() == 2 && pe.tracks[pe.order[0]].length.load() == 0 && ! pe.drums.hasAnySteps(), "pattern: clearing keeps the tracks but empties the content");
+    check (pe.order.size() == 2 && pe.tracks[pe.order[0]].length.load() == 0 && pe.drums.hasAnySteps(), "pattern: clearing empties the audio clips but keeps the tracks and the shared drum and bass patterns");
     check (bank.remove (pe, 1) && bank.numUsed() == 1 && ! bank.remove (pe, 0), "pattern: the last pattern cannot be deleted");
-    pdir.deleteRecursively();
+    {   // libraries: shared drum and bass patterns
+        auto p3P = std::make_unique<AudioEngine>(); auto& p3 = *p3P;
+        p3.prepareForTest (44100.0, 2);
+        p3.addTrack();
+        p3.drums.steps[0][0] = 1;
+        auto& bk = p3.patterns;
+        bk.storeCurrent (p3);
+        const int d2 = bk.newItem (p3, PatternBank::Drums, false);
+        check (d2 == 1 && bk.currentRef (PatternBank::Drums) == 1 && ! p3.drums.hasAnySteps(), "library: a new drum pattern is empty and selected");
+        p3.drums.steps[2][3] = 2;
+        bk.selectItem (p3, PatternBank::Drums, 0);
+        check (p3.drums.steps[0][0].load() == 1 && p3.drums.steps[2][3].load() == 0 && bk.drumLib[1].steps[2][3] == 2, "library: switching keeps each drum pattern's own notes");
+        const int np = bk.addBlank (p3);
+        check (np == 1 && bk.pats[1].drumRef == bk.pats[0].drumRef && bk.pats[1].bassRef == bk.pats[0].bassRef, "library: a new pattern starts on the same drum and bass patterns");
+        bk.pats[1].drumRef = 0;
+        check (bk.usedBy (PatternBank::Drums, 0).size() == 2 && ! bk.deleteItem (PatternBank::Drums, 0), "library: a drum pattern used by two patterns is shared and cannot be deleted");
+        const int dup = bk.duplicate (p3, 0);
+        check (dup >= 0 && bk.pats[(size_t) dup].drumRef == bk.pats[0].drumRef, "library: duplicating a pattern shares its drum pattern");
+        check (bk.deleteItem (PatternBank::Drums, 1) && ! bk.itemUsed (PatternBank::Drums, 1), "library: an unused drum pattern can be deleted");
+        bk.current = 1; bk.loadCurrent (p3);
+        check (p3.drums.steps[0][0].load() == 1, "library: the second pattern plays the shared drum pattern");
+        {   // the counter: a number that does not exist starts empty, an empty unplayed one disappears
+            auto p4P = std::make_unique<AudioEngine>(); auto& p4 = *p4P;
+            p4.prepareForTest (44100.0, 2);
+            p4.addTrack();
+            p4.drums.steps[0][0] = 1;
+            auto& b4 = p4.patterns;
+            b4.storeCurrent (p4);
+            b4.selectItem (p4, PatternBank::Drums, 1);
+            check (b4.itemUsed (PatternBank::Drums, 1) && ! p4.drums.hasAnySteps() && b4.currentRef (PatternBank::Drums) == 1, "counter: counting up to a new number starts an empty pattern");
+            b4.selectItem (p4, PatternBank::Drums, 0);
+            check (! b4.itemUsed (PatternBank::Drums, 1) && p4.drums.steps[0][0].load() == 1, "counter: leaving an empty, unplayed pattern removes it");
+            b4.selectItem (p4, PatternBank::Drums, 3);
+            p4.drums.steps[1][1] = 1;
+            b4.selectItem (p4, PatternBank::Drums, 0);
+            check (b4.itemUsed (PatternBank::Drums, 3) && b4.drumLib[3].steps[1][1] == 1, "counter: a pattern with notes stays in the library");
+        }    }    pdir.deleteRecursively();
 }
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()

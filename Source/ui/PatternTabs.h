@@ -141,16 +141,51 @@ private:
 
     void setHover (int h) { if (h != hover) { hover = h; repaint(); } }
 
+    // a 4 x 4 grid of colour swatches inside the popup menu: the colour itself is the preview
+    struct SwatchGrid : juce::PopupMenu::CustomComponent
+    {
+        SwatchGrid (int current, std::function<void (int)> pick) : juce::PopupMenu::CustomComponent (false), cur (current), onPick (std::move (pick)) {}
+        void getIdealSize (int& w, int& h) override { w = 4 * cell + 2 * margin; h = 4 * cell + 2 * margin; }
+        juce::Rectangle<float> swatch (int c) const { return juce::Rectangle<float> ((float) (margin + (c % 4) * cell), (float) (margin + (c / 4) * cell), (float) cell, (float) cell).reduced (3.0f); }
+        int swatchAt (juce::Point<int> p) const { for (int c = 0; c < 16; ++c) if (swatch (c).expanded (3.0f).contains (p.toFloat())) return c; return -1; }
+        void paint (juce::Graphics& g) override
+        {
+            for (int c = 0; c < 16; ++c)
+            {
+                const auto r = swatch (c);
+                g.setColour (Theme::trackColour (c));
+                g.fillRoundedRectangle (r, Theme::radius);
+                if (c == cur) { g.setColour (Theme::text); g.drawRoundedRectangle (r.expanded (2.0f), Theme::radius + 1.0f, 2.0f); }
+                else if (c == hover) { g.setColour (Theme::text.withAlpha (0.6f)); g.drawRoundedRectangle (r.expanded (2.0f), Theme::radius + 1.0f, 1.0f); }
+            }
+        }
+        void mouseMove (const juce::MouseEvent& e) override { const int h = swatchAt (e.getPosition()); if (h != hover) { hover = h; repaint(); } }
+        void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
+        void mouseUp (const juce::MouseEvent& e) override
+        {
+            const int c = swatchAt (e.getPosition());
+            if (c < 0) return;
+            if (onPick) onPick (c);
+            triggerMenuItem();
+        }
+        static constexpr int cell = 28, margin = 6;
+        int cur, hover = -1;
+        std::function<void (int)> onPick;
+    };
     void showMenu (int i)
     {
         juce::PopupMenu colours;
-        for (int c = 0; c < 16; ++c)
-            colours.addColouredItem (200 + c, "Colour " + juce::String (c + 1), Theme::trackColour (c), true, engine.patterns.pats[i].colour == c);
+        {
+            juce::PopupMenu::Item sw;
+            sw.itemID = 199;
+            sw.customComponent = new SwatchGrid (engine.patterns.pats[(size_t) i].colour, [this, i] (int c) { if (onColour) onColour (i, c); });
+            colours.addItem (sw);
+        }
         juce::PopupMenu m;
         m.addItem (1, "Rename...");
         m.addSubMenu ("Colour", colours);
         m.addItem (2, "Duplicate", engine.patterns.numUsed() < PatternBank::maxPatterns);
-        m.addItem (3, "Clear content");
+        m.addItem (3, "Clear audio clips");
         m.addSeparator();
         m.addItem (4, "Delete pattern", engine.patterns.numUsed() > 1);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
@@ -160,7 +195,7 @@ private:
                              else if (r == 2 && onDuplicate) onDuplicate (i);
                              else if (r == 3 && onClear) onClear (i);
                              else if (r == 4 && onDelete) onDelete (i);
-                             else if (r >= 200 && onColour) onColour (i, r - 200);
+                             
                          });
     }
 };

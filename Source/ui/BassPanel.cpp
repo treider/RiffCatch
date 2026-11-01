@@ -20,6 +20,7 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
 
     tabs.onSelect = [this] (int i) { if (onSelectTab) onSelectTab (i); };
     tabs.hasData = [this] (int i) { return i == 0 ? engine.drums.hasAnySteps() : engine.bass.hasAnySteps(); };
+    addAndMakeVisible (libCounter);
 
     auto release = [this] { if (onReleaseFocus) onReleaseFocus(); };
 
@@ -406,6 +407,7 @@ void BassPanel::updateControls()
     const bool paged = expanded && pages > 1;
     for (auto* k : knobs) k->s.setVisible (expanded);
     presetBox.setVisible (expanded); waveBox.setVisible (expanded);
+    echoBtn.setVisible (expanded); reverbBtn.setVisible (expanded);
     const bool pagedChanged = prevPage.isVisible() != paged;
     prevPage.setVisible (paged); nextPage.setVisible (paged); pageLabel.setVisible (paged);
     if (pagedChanged) resized();
@@ -470,27 +472,31 @@ void BassPanel::resized()
 {
     auto r = juce::Rectangle<int> (0, 0, getWidth(), headerH).reduced (12, 7);
     const int h = r.getHeight(), y = r.getY();
-    // right group first (it never gets squeezed): volume, M, S, Clear, Echo, Rev, Rec, Bake, then the VU meter if there is room
-    const int rightFixed = 390, leftFixed = 6 + 24 + 64 + 8 + 30 + (prevPage.isVisible() ? 134 : 0), comboBase = 496;
-    const int avail = r.getWidth();
-    const int meterRoom = avail - (leftFixed + comboBase) - rightFixed - 16;
-    const int meterW = meterRoom >= 60 ? juce::jmin (190, meterRoom) : 0;
-    meter.setVisible (meterW > 0);
+    // the controls the drum panel has too (counter, bars, volume, M, S, Clear) sit at exactly the same place in both panels
     int x = r.getRight() - 4;
-    if (meterW > 0) { meter.setBounds (juce::Rectangle<int> (x - meterW, y, meterW, h).withSizeKeepingCentre (meterW, 14)); x -= meterW + 16; }
     auto put = [&] (juce::Component& c, int w, int gap) { x -= w; c.setBounds (x, y, w, h); x -= gap; };
-    put (bakeBtn, 52, 4); put (liveBtn, 44, 6); put (reverbBtn, 40, 4); put (echoBtn, 48, 12);
     put (clearBtn, 56, 12); put (soloBtn, 30, 4); put (muteBtn, 30, 12);
     x -= 32; volume.setBounds (juce::Rectangle<int> (x, y, 32, h).withSizeKeepingCentre (32, 32));
+    x -= 20;
+    put (bakeBtn, 52, 4); put (liveBtn, 44, 0);                 // bass only: Rec and Bake
+    const int rightFixed = r.getRight() - 4 - x;
     const int rightEdge = x - 8;
 
+    chevron.setBounds (r.getX() + 6, y, 24, h);
+    counter().setBounds (LibraryCounter::panelX, y, LibraryCounter::totalW, h);
+    const int leftStart = LibraryCounter::panelX + LibraryCounter::totalW + 8;
+    const int leftFixed = (leftStart - r.getX()) + 64 + 8 + 30 + (prevPage.isVisible() ? 134 : 0), comboBase = 496;
+    const int meterRoom = r.getWidth() - leftFixed - comboBase - rightFixed - 16;
+    const int meterW = meterRoom >= 60 ? juce::jmin (190, meterRoom) : 0;
+    meter.setVisible (meterW > 0);
+    if (meterW > 0) meter.setBounds (juce::Rectangle<int> (rightEdge - meterW, y, meterW, h).withSizeKeepingCentre (meterW, 14));
+
     // left group; the combo boxes shrink when the window is narrow
-    const float f = juce::jlimit (0.5f, 1.0f, (float) (rightEdge - r.getX() - leftFixed) / (float) comboBase);
+    const int groupEnd = meterW > 0 ? rightEdge - meterW - 16 : rightEdge;
+    const float f = juce::jlimit (0.5f, 1.0f, (float) (groupEnd - leftStart - (leftFixed - (leftStart - r.getX()))) / (float) comboBase);
     auto w = [f] (int v) { return (int) std::lround (v * f); };
-    juce::Rectangle<int> l (r.getX(), y, juce::jmax (0, rightEdge - r.getX()), h);
-    l.removeFromLeft (6);
-    chevron.setBounds (l.removeFromLeft (24));
-    barsBox.setBounds (l.removeFromLeft (w (84))); l.removeFromLeft (6);
+    juce::Rectangle<int> l (leftStart, y, juce::jmax (0, groupEnd - leftStart), h);
+    barsBox.setBounds (l.removeFromLeft (84)); l.removeFromLeft (6);
     rootBox.setBounds (l.removeFromLeft (w (54))); l.removeFromLeft (6);
     scaleBox.setBounds (l.removeFromLeft (w (128))); l.removeFromLeft (6);
     templateBox.setBounds (l.removeFromLeft (w (112))); l.removeFromLeft (6);
@@ -501,13 +507,14 @@ void BassPanel::resized()
     nextPage.setBounds (l.removeFromLeft (26));
     presetBox.setBounds (14, headerH + 2, 150, 24);
     waveBox.setBounds (172, headerH + 2, 96, 24);
+    echoBtn.setBounds (276, headerH + 2, 48, 24);
+    reverbBtn.setBounds (328, headerH + 2, 40, 24);
     for (int i = 0; i < knobs.size(); ++i)
     {
         const int col = i % 4, row = i / 4;
         knobs[i]->s.setBounds (14 + col * 92 + 26, headerH + 34 + row * 60, 38, 38);
     }
 }
-
 void BassPanel::paint (juce::Graphics& g)
 {
     const auto accent = Theme::cyan;
@@ -637,6 +644,7 @@ void BassPanel::tick()
 {
     meter.setLevels (engine.bass.peakL.exchange (0.0f), engine.bass.peakR.exchange (0.0f));
     tabs.refresh();
+    libCounter.refresh();
     if (! expanded || ! isVisible()) return;
     const auto ga = gridArea();
     const float px = (float) ga.getX() + (float) ((engine.getPosition() / juce::jmax (1.0, engine.getSampleRate()) - viewStart) / viewSeconds * (double) ga.getWidth());

@@ -5,6 +5,7 @@
 #include "TrackRow.h"
 #include "Undo.h"
 #include "SeqTabs.h"
+#include "LibraryCounter.h"
 #include "audio/BassRandom.h"
 
 // Bass synth panel: a piano-roll-like grid in the chosen scale, aligned with the ruler / clip lanes (like the drum panel).
@@ -13,10 +14,11 @@
 class BassPanel : public juce::Component
 {
 public:
-    static constexpr int headerH = 38, shiftH = 13, rowH = 13, gridH = 143, bottomPad = 8;   // rowH: the normal row height (11 rows); the chromatic scale shows 13 thinner rows
+    static constexpr int headerH = 42, shiftH = 13, rowH = 13, gridH = 143, bottomPad = 8;   // rowH: the normal row height (11 rows); the chromatic scale shows 13 thinner rows
 
     explicit BassPanel (AudioEngine& e);
 
+    LibraryCounter& counter() { return libCounter; }
     SeqTabs& seqTabs() { return tabs; }                // shown by the main window above the card
     int preferredHeight() const { return expanded ? headerH + shiftH + gridH + bottomPad : headerH; }
     bool isExpanded() const noexcept { return expanded; }
@@ -99,6 +101,7 @@ private:
 
     Chevron chevron;
     SeqTabs tabs { 1, Theme::cyan };
+    LibraryCounter libCounter { engine, PatternBank::Bass, Theme::cyan };
     juce::ComboBox barsBox, rootBox, scaleBox, templateBox, progBox, presetBox, waveBox;
     juce::TextButton clearBtn { "Clear" }, bakeBtn { "Bake" }, liveBtn { "Rec" }, prevPage { "<" }, nextPage { ">" }, muteBtn { "M" }, soloBtn { "S" };
     FxToggle echoBtn, reverbBtn;

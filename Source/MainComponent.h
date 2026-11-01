@@ -9,6 +9,8 @@
 #include "ui/DrumPanel.h"
 #include "ui/BassPanel.h"
 #include "ui/PatternTabs.h"
+#include "ui/LibraryCounter.h"
+#include "ui/SegmentDisplay.h"
 #include "ui/AnalysisCard.h"
 #include "ui/MixerPanel.h"
 #include "ui/Undo.h"
@@ -128,6 +130,7 @@ private:
     int seqTab = 0;
     PatternTabs patternTabs { engine };
     juce::Rectangle<int> seqTabsRect;
+    void setupLibraryCounter();
     void setupPatternTabs();
     void switchPattern (int i);
     Ruler ruler { engine };
@@ -167,6 +170,7 @@ private:
     void looperStartFirstTake();
     void looperFinishFirstTake();
     void looperQueueOverdub();
+    SegmentClock clock;
     juce::Label timeLabel, barLabel, projectLabel, statusLabel, titleLabel, bpmCaption, countCaption;
     juce::Label bpmLabel;
     juce::TextButton tapBtn { "Tap" }, clickBtn { "Click" };
