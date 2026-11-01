@@ -1,4 +1,5 @@
 #include "PatternBank.h"
+#include <algorithm>
 #include "AudioEngine.h"
 
 PatternBank::DrumMix PatternBank::captureDrumMix (const DrumMachine& d)
@@ -188,6 +189,7 @@ bool PatternBank::remove (AudioEngine& e, int i)
     if (! isUsed (i) || numUsed() <= 1) return false;
     const bool wasCurrent = i == current;
     pats[(size_t) i] = Pattern();
+    song.erase (std::remove_if (song.begin(), song.end(), [i] (const SongClip& s) { return s.pattern == i; }), song.end());
     prune();
     if (wasCurrent)
     {

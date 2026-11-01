@@ -11,6 +11,7 @@
 #include "ui/PatternTabs.h"
 #include "ui/LibraryCounter.h"
 #include "ui/SegmentDisplay.h"
+#include "ui/SongBar.h"
 #include "ui/AnalysisCard.h"
 #include "ui/MixerPanel.h"
 #include "ui/Undo.h"
@@ -131,6 +132,10 @@ private:
     PatternTabs patternTabs { engine };
     juce::Rectangle<int> seqTabsRect;
     void setupLibraryCounter();
+    SongBar songBar { engine };
+    juce::TextButton songBtn { "Song" };
+    void setSongMode (bool on);
+    bool startSong();
     void setupPatternTabs();
     void switchPattern (int i);
     Ruler ruler { engine };

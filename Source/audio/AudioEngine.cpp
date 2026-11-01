@@ -300,6 +300,45 @@ int AudioEngine::processChunk (const float* const* in, int numIn, float* const* 
         st = (State) state.load();
     }
 
+    if (songActive.load() && st == Playing)     // song mode: play the rendered arrangement
+    {
+        const auto len = songLen.load();
+        const auto sp = playPos.load();
+        if (sp >= len) { state = (int) Stopped; return n; }
+        n = (int) juce::jmax<juce::int64> (1, juce::jmin<juce::int64> (n, len - sp));
+        juce::FloatVectorOperations::clear (mixL, n);
+        juce::FloatVectorOperations::clear (mixR, n);
+        {
+            juce::SpinLock::ScopedTryLockType lk (songLock);
+            if (lk.isLocked() && songBuf != nullptr && songBuf->getNumSamples() >= sp + n)
+            {
+                juce::FloatVectorOperations::copy (mixL, songBuf->getReadPointer (0) + sp, n);
+                juce::FloatVectorOperations::copy (mixR, songBuf->getReadPointer (1) + sp, n);
+            }
+        }
+        const float mt = masterVolume.load();
+        const float ms = (mt - masterCur) / (float) n;
+        float g = masterCur, pl = 0.0f, pr = 0.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            g += ms;
+            mixL[i] *= g; mixR[i] *= g;
+            pl = juce::jmax (pl, std::abs (mixL[i])); pr = juce::jmax (pr, std::abs (mixR[i]));
+        }
+        masterCur = mt;
+        if (pl > masterPeakL.load()) masterPeakL = pl;
+        if (pr > masterPeakR.load()) masterPeakR = pr;
+        if (numOut >= 2)
+        {
+            if (out[0] != nullptr) juce::FloatVectorOperations::add (out[0] + offset, mixL, n);
+            if (out[1] != nullptr) juce::FloatVectorOperations::add (out[1] + offset, mixR, n);
+        }
+        else if (numOut == 1 && out[0] != nullptr)
+            for (int i = 0; i < n; ++i) out[0][offset + i] += 0.5f * (mixL[i] + mixR[i]);
+        playPos = sp + n;
+        if (sp + n >= len) state = (int) Stopped;
+        return n;
+    }
     auto pos = playPos.load();
     const bool playing = (st == Playing || st == Recording);
     const bool looping = playing && loopEnabled.load();

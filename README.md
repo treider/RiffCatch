@@ -49,12 +49,16 @@ A lightweight multitrack looper and recorder for guitarists, built with JUCE and
 - Trim silence (clip menu) keeps the timing. Imported files are trimmed automatically
 - Import audio files (WAV and others) onto a new track by menu, drag and drop, or right-click in the empty area below the tracks
 
-### Mixer
-- Channel strips with level meters, fader, pan, mute, solo, plus Echo and Reverb per track
-- Master strip with stereo meter
+### Patterns and song
+- Up to 16 patterns (tabs above the tracks, with name and colour; double-click a tab to rename it). Each pattern has its own tracks, with their volume, pan, mute, solo, Echo and Reverb, its own audio clips and loop length
+- Drum and bass patterns are a shared library (D01..D16, B01..B16). A seven-segment counter in each card chooses which one the open pattern plays; counting to a new number starts an empty pattern. Several patterns can play the same one
+- Song mode: one row of pattern blocks in play order, with repeats (drag to reorder, wheel to change repeats, right-click for the menu). Play renders the whole song and plays it; export bounces the whole song
 
+### Mixer
+- Level meters, volume knob, pan, mute, solo, plus Echo and Reverb on every track row
+- Master strip with stereo meter, next to the tuner
 ### Tuner
-- Chromatic tuner in the mixer area, fed from the input of the armed track (or track 1). Scrolling cent ruler, note name, Hz and cents, adjustable A reference (430-450 Hz, remembered)
+- Chromatic tuner next to the master strip, fed from the input of the armed track (or track 1). Scrolling cent ruler, note name, Hz and cents, adjustable A reference (430-450 Hz, remembered)
 
 ### Export and projects
 - A project is a folder with a `<name>.riffcatch` project file (JSON) and one WAV per track. Save as asks for a name and creates the folder; double-click a `.riffcatch` file (registered for your user automatically, or via File > Open .riffcatch files with RiffCatch) or drop it on the window to open it. Only one RiffCatch window runs at a time

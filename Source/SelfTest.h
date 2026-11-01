@@ -112,6 +112,48 @@ inline void patternSelfTest (const std::function<void (bool, const juce::String&
             check (b4.itemUsed (PatternBank::Drums, 3) && b4.drumLib[3].steps[1][1] == 1, "counter: a pattern with notes stays in the library");
         }    }    pdir.deleteRecursively();
 }
+inline void songSelfTest (const std::function<void (bool, const juce::String&)>& check)
+{
+    {   // song: patterns rendered one after the other
+        auto p5P = std::make_unique<AudioEngine>(); auto& p5 = *p5P;
+        p5.prepareForTest (44100.0, 2);
+        p5.bpm = 120.0; p5.loopBars = 1;
+        p5.addTrack();
+        juce::AudioBuffer<float> a1 (2, (int) p5.getBarLength()); a1.clear();
+        for (int i = 0; i < a1.getNumSamples(); ++i) { a1.setSample (0, i, 0.25f); a1.setSample (1, i, 0.25f); }
+        p5.tracks[0].setAudio (std::move (a1));
+        auto& b5 = p5.patterns;
+        b5.storeCurrent (p5);
+        const int second = b5.addBlank (p5);
+        b5.current = second; b5.loadCurrent (p5);
+        juce::AudioBuffer<float> a2 (2, (int) p5.getBarLength()); a2.clear();
+        for (int i = 0; i < a2.getNumSamples(); ++i) { a2.setSample (0, i, 0.5f); a2.setSample (1, i, 0.5f); }
+        p5.tracks[p5.order[0]].setAudio (std::move (a2));
+        b5.song = { { 0, 1 }, { second, 2 } };
+        juce::AudioBuffer<float> sm;
+        juce::String serr;
+        const bool okSong = Exporter::renderSongBuffer (p5, sm, serr, false);
+        const int bar = (int) p5.getBarLength();
+        check (okSong && sm.getNumSamples() >= 3 * bar && sm.getNumSamples() < 3 * bar + 44100 * 2, "song: length is the sum of the patterns' passes (" + juce::String (sm.getNumSamples()) + ")");
+        check (okSong && std::abs (sm.getSample (0, bar / 2) - 0.25f * 0.70711f) < 1.0e-3f && std::abs (sm.getSample (0, bar + bar / 2) - 0.5f * 0.70711f) < 1.0e-3f && std::abs (sm.getSample (1, 2 * bar + bar / 2) - 0.5f * 0.70711f) < 1.0e-3f,
+               "song: pattern 1 plays first, then pattern 2 twice");
+        auto buf = std::make_shared<juce::AudioBuffer<float>> (sm);
+        p5.setSong (buf);
+        p5.stop();
+        float zin[1] = { 0.0f }; const float* zi[2] = { zin, zin };
+        std::vector<float> o0 (1024), o1 (1024); float* zo[2] = { o0.data(), o1.data() };
+        juce::AudioIODeviceCallbackContext ctx;
+        p5.seek (bar + 100);
+        p5.play();
+        p5.audioDeviceIOCallbackWithContext (zi, 1, zo, 2, 1024, ctx);
+        check (p5.getState() == AudioEngine::Playing && std::abs (o0[10] - 0.5f * 0.70711f) < 0.02f, "song: the transport plays the rendered song from the cursor");
+        p5.seek (3 * bar - 10);
+        p5.audioDeviceIOCallbackWithContext (zi, 1, zo, 2, 1024, ctx);
+        p5.clearSong();
+        check (! p5.songLoaded(), "song: can be cleared");
+    }
+}
+
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
 {
@@ -1049,6 +1091,7 @@ inline juce::String runEngineSelfTest()
         dir.deleteRecursively();
     }
     patternSelfTest (check);
+    songSelfTest (check);
     {   // custom themes
         const auto dk = Theme::generate ("selftest-theme", juce::Colour (0xffea580c), juce::Colour (0xfffbbf24), true);
         const auto lt = Theme::generate ("selftest-light", juce::Colour (0xff2563eb), juce::Colour (0xff06b6d4), false);

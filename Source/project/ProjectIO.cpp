@@ -321,6 +321,12 @@ bool save (AudioEngine& e, const juce::File& projectFile, juce::String& error)
     }
     root->setProperty ("patterns", patterns);
     root->setProperty ("currentPattern", e.patterns.current);
+    {   // the song: patterns in play order
+        juce::Array<juce::var> sg;
+        for (auto& c : e.patterns.song) { auto* o = new juce::DynamicObject(); o->setProperty ("pattern", c.pattern); o->setProperty ("repeats", c.repeats); sg.add (juce::var (o)); }
+        root->setProperty ("song", sg);
+        root->setProperty ("songMode", e.patterns.songMode);
+    }
 
     {   // drum machine: pattern as one string per voice ('0' off, '1' hit, '2' accent)
         auto& dm = e.drums;
@@ -528,6 +534,11 @@ bool load (AudioEngine& e, const juce::File& projectFile, juce::String& error)
     {   // patterns: the open one is the tracks / drums / bass loaded above, the others come from the "patterns" array
         auto& bank = e.patterns;
         bank.current = juce::jlimit (0, PatternBank::maxPatterns - 1, (int) json.getProperty ("currentPattern", 0));
+        if (auto* sg = json["song"].getArray())
+            for (auto& v : *sg)
+                if (bank.song.size() < 256)
+                    bank.song.push_back ({ juce::jlimit (0, PatternBank::maxPatterns - 1, (int) v.getProperty ("pattern", 0)), juce::jlimit (1, 64, (int) v.getProperty ("repeats", 1)) });
+        bank.songMode = (bool) json.getProperty ("songMode", false);
         if (auto* dl = json["drumLibrary"].getArray())
             for (auto& v : *dl)
             {
@@ -594,6 +605,7 @@ bool load (AudioEngine& e, const juce::File& projectFile, juce::String& error)
             if (! bank.itemUsed (PatternBank::Drums, p.drumRef)) { p.drumRef = 0; bank.drumUsed[0] = true; }
             if (! bank.itemUsed (PatternBank::Bass, p.bassRef))  { p.bassRef = 0; bank.bassUsed[0] = true; }
         }
+        bank.song.erase (std::remove_if (bank.song.begin(), bank.song.end(), [&bank] (const PatternBank::SongClip& s) { return ! bank.isUsed (s.pattern); }), bank.song.end());
         bank.storeMachines (e);                        // the live machines hold the open pattern
     }
     if (count == 0) e.addTrack();

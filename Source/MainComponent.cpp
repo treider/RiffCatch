@@ -121,6 +121,14 @@ MainComponent::MainComponent()
     addAndMakeVisible (ruler);
     addAndMakeVisible (patternTabs);
     setupPatternTabs();
+    addChildComponent (songBar);
+    songBar.onChanged = [this] { ++editCounter; };
+    songBar.onOpenPattern = [this] (int i) { switchPattern (i); };
+    songBtn.setClickingTogglesState (false);
+    songBtn.setWantsKeyboardFocus (false);
+    songBtn.setTooltip ("Song mode: Play plays the patterns of the song one after the other. Click again to go back to editing one pattern");
+    songBtn.onClick = [this] { setSongMode (! engine.patterns.songMode); };
+    addAndMakeVisible (songBtn);
     setupLibraryCounter();
 
     titleLabel.setText ("RiffCatch", juce::dontSendNotification);
@@ -441,6 +449,7 @@ void MainComponent::refreshStrips()
     for (auto* r : rows)
         if (engine.tracks[r->slot()].active.load()) r->refreshFromTrack();
     patternTabs.refresh();
+    songBar.repaint();
     mixer.refreshFromEngine();
     drumPanel.refreshFromEngine();
     bassPanel.refreshFromEngine();
@@ -457,6 +466,7 @@ void MainComponent::updateSettingsFromEngine()
     bpmLabel.setText (std::abs (b - std::round (b)) < 0.05 ? juce::String ((int) std::round (b)) : juce::String (b, 1), juce::dontSendNotification);
     loopBtn.setToggleState (engine.loopEnabled.load(), juce::dontSendNotification);
     clickBtn.setToggleState (engine.clickEnabled.load(), juce::dontSendNotification);
+    songBtn.setToggleState (engine.patterns.songMode, juce::dontSendNotification);
     barsBox.setSelectedId (engine.loopBars.load(), juce::dontSendNotification);
     syncTimeSigBox();
     clickVol.setValue (engine.clickVolume.load(), juce::dontSendNotification);
@@ -834,6 +844,7 @@ void MainComponent::warnIfMultipleArmed()
 
 void MainComponent::toggleRecord()
 {
+    if (engine.patterns.songMode) { setStatus ("Song mode plays the whole song. Turn Song off to record"); return; }
     if (engine.getState() == AudioEngine::Recording) { engine.play(); disarmAll(); return; }   // stop recording, keep playing
     if (engine.getState() == AudioEngine::CountIn) { stopTransport(); return; }
     warnIfMultipleArmed();
@@ -844,8 +855,10 @@ void MainComponent::toggleRecord()
 
 void MainComponent::togglePlay()
 {
-    if (engine.getState() != AudioEngine::Stopped) stopTransport();
-    else engine.play();
+    if (engine.getState() != AudioEngine::Stopped) { stopTransport(); return; }
+    if (engine.patterns.songMode) { if (! startSong()) return; }
+    else engine.clearSong();
+    engine.play();
 }
 
 bool MainComponent::keyPressed (const juce::KeyPress& k)
@@ -1165,6 +1178,7 @@ void MainComponent::timerCallback()
     }
     ruler.repaint();
     mixer.tick();
+    songBar.setPlayhead (engine.patterns.songMode && engine.songLoaded() && engine.getState() == AudioEngine::Playing ? engine.getPosition() : -1);
     drumPanel.tick();
     bassPanel.tick();
 
@@ -1361,8 +1375,15 @@ void MainComponent::resized()
         bassPanel.setBounds (pr);
     }    r.removeFromBottom (10);
 
-    patternTabs.setBounds (r.removeFromTop (PatternTabs::tabH + 3));
+    {
+        auto tabsRowR = r.removeFromTop (PatternTabs::tabH + 3);
+        songBtn.setBounds (tabsRowR.removeFromRight (74).withTrimmedBottom (3).withTrimmedTop (2));
+        tabsRowR.removeFromRight (8);
+        patternTabs.setBounds (tabsRowR);
+    }
     r.removeFromTop (4);
+    songBar.setVisible (engine.patterns.songMode);
+    if (engine.patterns.songMode) { songBar.setBounds (r.removeFromTop (SongBar::barH)); r.removeFromTop (4); }
     auto rulerRow = r.removeFromTop (26);
     viewport.setBounds (r);
     const int w = viewport.getMaximumVisibleWidth();
@@ -2009,4 +2030,31 @@ void MainComponent::setupLibraryCounter()
     };
     wire (drumPanel.counter(), PatternBank::Drums);
     wire (bassPanel.counter(), PatternBank::Bass);
+}
+// ------------------------------------------------------------- song
+
+void MainComponent::setSongMode (bool on)
+{
+    if (on == engine.patterns.songMode) return;
+    if (engine.getState() != AudioEngine::Stopped) { setStatus ("Stop the transport first"); return; }
+    auto& bank = engine.patterns;
+    bank.songMode = on;
+    if (on && bank.song.empty())                       // start with every pattern once, in order
+        for (int i = 0; i < PatternBank::maxPatterns; ++i) if (bank.isUsed (i)) bank.song.push_back ({ i, 1 });
+    if (! on) engine.clearSong();
+    songBtn.setToggleState (on, juce::dontSendNotification);
+    ++editCounter;
+    resized();
+    repaint();
+    setStatus (on ? "Song mode: Play plays the whole song" : "Back to editing one pattern");
+}
+
+bool MainComponent::startSong()
+{
+    auto buf = std::make_shared<juce::AudioBuffer<float>>();
+    juce::String err;
+    if (! Exporter::renderSongBuffer (engine, *buf, err, false)) { setStatus (err); return false; }
+    if (engine.getCursor() >= buf->getNumSamples()) engine.setCursor (0);
+    engine.setSong (buf);
+    return true;
 }

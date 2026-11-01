@@ -2,6 +2,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <atomic>
 #include <vector>
+#include <memory>
 #include <array>
 #include "Track.h"
 #include "DrumMachine.h"
@@ -89,6 +90,19 @@ public:
     DrumMachine drums;
     BassMachine bass;
     PatternBank patterns;                  // message thread only
+
+    // Song playback: the whole arrangement is rendered offline into one buffer (Exporter::renderSong) and played from it,
+    // so patterns change exactly on the bar and every pattern sounds as it does when exported.
+    void setSong (std::shared_ptr<juce::AudioBuffer<float>> buf)     // message thread; the transport should be stopped
+    {
+        juce::SpinLock::ScopedLockType l (songLock);
+        songBuf = std::move (buf);
+        songLen = songBuf != nullptr ? (juce::int64) songBuf->getNumSamples() : 0;
+        songActive = songBuf != nullptr;
+    }
+    void clearSong() { setSong (nullptr); }
+    bool songLoaded() const noexcept { return songActive.load(); }
+    juce::int64 getSongLength() const noexcept { return songLen.load(); }
     std::atomic<float> masterVolume { 1.0f };
     std::atomic<float> masterPeakL { 0.0f }, masterPeakR { 0.0f };
     std::atomic<float> inputLevel[16] {};   // decaying peak per active input channel
@@ -133,6 +147,10 @@ public:
     juce::String projectNotes;                            // message thread only; saved in project.json
 
 private:
+    juce::SpinLock songLock;
+    std::shared_ptr<juce::AudioBuffer<float>> songBuf;
+    std::atomic<bool> songActive { false };
+    std::atomic<juce::int64> songLen { 0 };
     static constexpr int chunk = 4096;
     int processChunk (const float* const* in, int numIn, float* const* out, int numOut, int offset, int n);
 

@@ -44,6 +44,11 @@ public:
         BassMix bassMix;
     };
 
+    // the song: patterns in play order, each repeated a number of times (one repeat = one pass of the pattern's loop)
+    struct SongClip { int pattern = 0; int repeats = 1; };
+    std::vector<SongClip> song;
+    bool songMode = false;
+
     std::vector<Pattern> pats = std::vector<Pattern> ((size_t) maxPatterns);      // on the heap: engines are also created on the stack
     int current = 0;
 
@@ -57,6 +62,7 @@ public:
     void reset()
     {
         for (auto& p : pats) p = Pattern();
+        song.clear(); songMode = false;
         for (auto& d : drumLib) d = DrumMachine::Snapshot();
         for (auto& b : bassLib) b = BassMachine::Snapshot();
         for (int i = 0; i < maxItems; ++i) drumUsed[i] = bassUsed[i] = false;
