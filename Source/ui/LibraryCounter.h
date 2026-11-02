@@ -35,7 +35,7 @@ public:
         g.setColour (Theme::deep.darker (0.2f));
         g.fillRoundedRectangle (d, Theme::radius);
 
-        const auto lit = themeColour().withAlpha (filled ? 1.0f : 0.7f);
+        const auto lit = Seg::digitColour.withAlpha (filled ? 1.0f : 0.7f);
         const float dh = d.getHeight() - 8.0f, gapX = dh * 0.3f;
         float x = d.getX() + 7.0f;
         const float y = d.getY() + 4.0f, dw = Seg::glyphWidth (dh);

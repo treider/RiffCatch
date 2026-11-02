@@ -15,7 +15,6 @@ static void styleFader (juce::Slider& s, juce::Colour accent, bool horizontal)
     s.setColour (juce::Slider::trackColourId, accent);
     s.setWantsKeyboardFocus (false);
 }
-
 static void styleFlat (juce::TextButton& b, juce::Colour on)
 {
     b.setClickingTogglesState (true);
@@ -259,7 +258,7 @@ void TrackRow::restyle()
     input.setColour (juce::ComboBox::textColourId, Theme::text);
     del.setColour (juce::TextButton::textColourOffId, Theme::dim);
     pan.setColour (juce::Slider::rotarySliderFillColourId, accent);
-    styleFader (fader, accent, true);
+    fader.setColour (juce::Slider::rotarySliderFillColourId, accent);       // (the volume is a knob: only the colour changes with the theme)
     dbLabel.setColour (juce::Label::textColourId, Theme::dim);
     hitsBtn.setColour (juce::TextButton::buttonOnColourId, Theme::accent);
     takeLabel.setColour (juce::Label::textColourId, Theme::text);

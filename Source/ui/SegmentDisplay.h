@@ -5,6 +5,8 @@
 // Seven-segment display drawing, like an old countdown timer: lit segments in the display colour, unlit ones as a faint ghost.
 namespace Seg
 {
+    inline juce::Colour digitColour { 0xff9fd8ff };    // lit segments: light blue (counter and clock)
+
     // segments a (top), b (upper right), c (lower right), d (bottom), e (lower left), f (upper left), g (middle)
     constexpr int sa = 1, sb = 2, sc = 4, sd = 8, se = 16, sf = 32, sg = 64;
     constexpr int maskD = sb | sc | sd | se | sg, maskB = sc | sd | se | sf | sg;
@@ -58,7 +60,7 @@ class SegmentClock : public juce::Component
 {
 public:
     void setText (const juce::String& t) { if (t != text) { text = t; repaint(); } }
-    void setColour (juce::Colour c) { if (c != colour) { colour = c; repaint(); } }
+    void setColour (juce::Colour) {}                     // the digits always use Seg::digitColour
 
     void paint (juce::Graphics& g) override
     {
@@ -69,15 +71,15 @@ public:
             for (auto c : text) w += (juce::CharacterFunctions::isDigit (c) ? Seg::glyphWidth (h) : Seg::colonWidth (h)) + h * gap;
             return w - h * gap;
         };
-        float h = juce::jmin (getHeight() - 10.0f, 30.0f);
+        float h = juce::jmin (getHeight() - 18.0f, 30.0f);       // some air above and below the digits
         while (h > 8.0f && widthFor (h) > getWidth() - 14.0f) h -= 1.0f;
         float x = ((float) getWidth() - widthFor (h)) * 0.5f;
         const float y = ((float) getHeight() - h) * 0.5f;
         for (auto c : text)
         {
-            if (juce::CharacterFunctions::isDigit (c)) { Seg::glyph (g, x, y, h, Seg::digitMask (c - '0'), colour); x += Seg::glyphWidth (h); }
-            else if (c == ':') { Seg::colon (g, x, y, h, colour); x += Seg::colonWidth (h); }
-            else { Seg::dot (g, x, y, h, colour); x += Seg::colonWidth (h); }
+            if (juce::CharacterFunctions::isDigit (c)) { Seg::glyph (g, x, y, h, Seg::digitMask (c - '0'), Seg::digitColour); x += Seg::glyphWidth (h); }
+            else if (c == ':') { Seg::colon (g, x, y, h, Seg::digitColour); x += Seg::colonWidth (h); }
+            else { Seg::dot (g, x, y, h, Seg::digitColour); x += Seg::colonWidth (h); }
             x += h * gap;
         }
     }

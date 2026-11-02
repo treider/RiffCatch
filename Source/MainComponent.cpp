@@ -1308,8 +1308,15 @@ void MainComponent::paint (juce::Graphics& g)
     }
     g.setColour (Theme::raised);
     g.fillRoundedRectangle (bpmLabel.getBounds().toFloat(), Theme::radius);
-    g.setColour (Theme::deep);                                            // clock in a dark display box
-    g.fillRoundedRectangle (timeLabel.getBounds().toFloat(), Theme::radius);
+    {   // clock in the same display as the drum / bass counter: black line, lighter ring, dark inside
+        const auto d = timeLabel.getBounds().toFloat().reduced (3.0f);
+        g.setColour (Theme::frame);
+        g.fillRoundedRectangle (d.expanded (3.0f), Theme::radiusLg + 1.5f);
+        g.setColour (Theme::border);
+        g.fillRoundedRectangle (d.expanded (2.0f), Theme::radiusLg + 1.0f);
+        g.setColour (Theme::deep.darker (0.2f));
+        g.fillRoundedRectangle (d, Theme::radius);
+    }
 }
 
 void MainComponent::resized()
@@ -1325,7 +1332,7 @@ void MainComponent::resized()
     skipStartBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
     skipEndBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (8);
     loopBtn.setBounds (bar.removeFromLeft (44)); bar.removeFromLeft (14);
-    timeLabel.setBounds (bar.removeFromLeft (160).reduced (0, 2));
+    timeLabel.setBounds (bar.removeFromLeft (160));          // as tall as the transport buttons
     clock.setBounds (timeLabel.getBounds());
     barLabel.setBounds (bar.removeFromLeft (140));
 
