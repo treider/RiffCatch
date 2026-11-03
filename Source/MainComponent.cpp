@@ -1314,8 +1314,7 @@ void MainComponent::paint (juce::Graphics& g)
         g.fillRoundedRectangle (d.expanded (3.0f), Theme::radiusLg + 1.5f);
         g.setColour (Theme::border);
         g.fillRoundedRectangle (d.expanded (2.0f), Theme::radiusLg + 1.0f);
-        g.setColour (Theme::deep.darker (0.2f));
-        g.fillRoundedRectangle (d, Theme::radius);
+        Seg::paintDisplayBackground (g, d, Theme::radius);
     }
 }
 

@@ -1,11 +1,69 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Theme.h"
+#include <map>
+#include <tuple>
 
 // Seven-segment display drawing, like an old countdown timer: lit segments in the display colour, unlit ones as a faint ghost.
 namespace Seg
 {
-    inline juce::Colour digitColour { 0xff9fd8ff };    // lit segments: light blue (counter and clock)
+    // ---- the look of all seven-segment displays (counter in the cards, clock): adjust here ----
+    inline juce::Colour digitColour  { 0xff9fd8ff };   // lit segments: light blue
+    inline juce::Colour iceBlue      { 0xff0a3566 };   // background: deep ice blue
+    inline juce::Colour shadowColour { 0xff000a1a };   // inner shadow along all edges
+    inline float shadowAlpha = 0.75f;                  // how strong the inner shadow is
+    inline float shadowBlur  = 6.0f;                   // how soft / deep it is, in pixels
+    inline float shadowInset = 1.0f;                   // how far in from the edge it starts, in pixels
+    inline float glowAlpha   = 0.16f;                  // "dodge": soft glow around lit segments
+    inline float burnAlpha   = 0.28f;                  // "burn": unlit segments are burned darker than the background
+
+    // A lit segment with a soft glow behind it, or an unlit one burned into the background.
+    inline void litShape (juce::Graphics& g, juce::Rectangle<float> s, float cr, juce::Colour lit)
+    {
+        const float e = juce::jmax (1.5f, juce::jmin (s.getWidth(), s.getHeight()) * 0.9f);
+        g.setColour (lit.withAlpha (glowAlpha * 0.5f));
+        g.fillRoundedRectangle (s.expanded (e), cr + e);
+        g.setColour (lit.withAlpha (glowAlpha));
+        g.fillRoundedRectangle (s.expanded (e * 0.45f), cr + e * 0.45f);
+        g.setColour (lit);
+        g.fillRoundedRectangle (s, cr);
+    }
+    inline void burnShape (juce::Graphics& g, juce::Rectangle<float> s, float cr)
+    {
+        g.setColour (shadowColour.withAlpha (burnAlpha));
+        g.fillRoundedRectangle (s, cr);
+    }
+
+    // Display background: flat ice blue with a soft inner shadow that follows the rounded shape of the buttons.
+    // Rendered once per size and parameter set, then drawn as an image (the clock repaints about 30 times a second).
+    inline void paintDisplayBackground (juce::Graphics& g, juce::Rectangle<float> r, float radius)
+    {
+        if (r.isEmpty()) return;
+        static std::map<std::tuple<int, int, int, juce::uint32, juce::uint32, int>, juce::Image> cache;
+        const int w = (int) std::ceil (r.getWidth()), h = (int) std::ceil (r.getHeight());
+        const int params = (int) (shadowAlpha * 1000.0f) * 31 + (int) (shadowBlur * 100.0f) * 7 + (int) (shadowInset * 100.0f);
+        const std::tuple<int, int, int, juce::uint32, juce::uint32, int> key { w, h, (int) std::lround (radius * 10.0f), iceBlue.getARGB(), shadowColour.getARGB(), params };
+        auto it = cache.find (key);
+        if (it == cache.end())
+        {
+            if (cache.size() > 24) cache.clear();
+            juce::Image img (juce::Image::ARGB, w, h, true);
+            juce::Graphics ig (img);
+            juce::Path shape;
+            shape.addRoundedRectangle (0.0f, 0.0f, (float) w, (float) h, radius);
+            ig.reduceClipRegion (shape);
+            ig.setColour (iceBlue);
+            ig.fillPath (shape);
+            const float pad = shadowBlur * 3.0f + 4.0f;       // a frame: everything outside the shape, so its blur falls inwards
+            juce::Path frame;
+            frame.addRectangle (-pad, -pad, (float) w + 2.0f * pad, (float) h + 2.0f * pad);
+            frame.addRoundedRectangle (shadowInset, shadowInset, (float) w - 2.0f * shadowInset, (float) h - 2.0f * shadowInset, juce::jmax (1.0f, radius - shadowInset));
+            frame.setUsingNonZeroWinding (false);
+            juce::DropShadow (shadowColour.withAlpha (shadowAlpha), juce::jmax (1, (int) std::lround (shadowBlur)), { 0, 0 }).drawForPath (ig, frame);
+            it = cache.emplace (key, img).first;
+        }
+        g.drawImageAt (it->second, (int) std::floor (r.getX()), (int) std::floor (r.getY()));
+    }
 
     // segments a (top), b (upper right), c (lower right), d (bottom), e (lower left), f (upper left), g (middle)
     constexpr int sa = 1, sb = 2, sc = 4, sd = 8, se = 16, sf = 32, sg = 64;
@@ -34,8 +92,8 @@ namespace Seg
             { x + t * 0.5f, y + hh - t * 0.5f, w - t, t } };            // g
         for (int i = 0; i < 7; ++i)
         {
-            g.setColour ((mask & (1 << i)) != 0 ? lit : lit.withAlpha (0.09f));
-            g.fillRoundedRectangle (seg[i], t * 0.4f);
+            if ((mask & (1 << i)) != 0) litShape (g, seg[i], t * 0.4f, lit);
+            else                        burnShape (g, seg[i], t * 0.4f);
         }
     }
 
@@ -43,15 +101,13 @@ namespace Seg
     inline void colon (juce::Graphics& g, float x, float y, float h, juce::Colour lit)
     {
         const float d = juce::jmax (2.0f, h * 0.13f), cx = x + colonWidth (h) * 0.5f - d * 0.5f;
-        g.setColour (lit);
-        g.fillRoundedRectangle (cx, y + h * 0.28f, d, d, d * 0.3f);
-        g.fillRoundedRectangle (cx, y + h * 0.66f, d, d, d * 0.3f);
+        litShape (g, { cx, y + h * 0.28f, d, d }, d * 0.3f, lit);
+        litShape (g, { cx, y + h * 0.66f, d, d }, d * 0.3f, lit);
     }
     inline void dot (juce::Graphics& g, float x, float y, float h, juce::Colour lit)
     {
         const float d = juce::jmax (2.0f, h * 0.13f);
-        g.setColour (lit);
-        g.fillRoundedRectangle (x + colonWidth (h) * 0.5f - d * 0.5f, y + h - d, d, d, d * 0.3f);
+        litShape (g, { x + colonWidth (h) * 0.5f - d * 0.5f, y + h - d, d, d }, d * 0.3f, lit);
     }
 }
 
