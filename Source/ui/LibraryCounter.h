@@ -28,11 +28,8 @@ public:
         const bool filled = kind == PatternBank::Drums ? engine.drums.hasAnySteps() : engine.bass.hasAnySteps();
         const int users = (int) bank.usedBy (kind, cur).size();
         const auto d = displayRect (users > 1).toFloat();
-        g.setColour (Theme::frame);                              // black line outside the lighter ring
-        g.fillRoundedRectangle (d.expanded (3.0f), Theme::radiusLg + 1.5f);
-        g.setColour (Theme::border);
-        g.fillRoundedRectangle (d.expanded (2.0f), Theme::radiusLg + 1.0f);
-        Seg::paintDisplayBackground (g, d, Theme::radius);
+        Seg::paintDisplayHousing (g, d.expanded (3.0f), Theme::radiusLg + 1.5f);
+
 
         const auto lit = Seg::digitColour.withAlpha (filled ? 1.0f : 0.7f);
         const float dh = d.getHeight() - 8.0f, gapX = dh * 0.3f;

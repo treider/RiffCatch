@@ -1310,11 +1310,8 @@ void MainComponent::paint (juce::Graphics& g)
     g.fillRoundedRectangle (bpmLabel.getBounds().toFloat(), Theme::radius);
     {   // clock in the same display as the drum / bass counter: black line, lighter ring, dark inside
         const auto d = timeLabel.getBounds().toFloat().reduced (3.0f);
-        g.setColour (Theme::frame);
-        g.fillRoundedRectangle (d.expanded (3.0f), Theme::radiusLg + 1.5f);
-        g.setColour (Theme::border);
-        g.fillRoundedRectangle (d.expanded (2.0f), Theme::radiusLg + 1.0f);
-        Seg::paintDisplayBackground (g, d, Theme::radius);
+        Seg::paintDisplayHousing (g, d.expanded (3.0f), Theme::radiusLg + 1.5f);
+
     }
 }
 
