@@ -519,25 +519,24 @@ void BassPanel::paint (juce::Graphics& g)
 {
     const auto accent = Theme::cyan;
     const auto b = getLocalBounds().toFloat();
-    {
-        juce::Graphics::ScopedSaveState ss (g);
-        juce::Path card;
-        card.addRoundedRectangle (b, Theme::radiusLg);
-        g.reduceClipRegion (card);
-        g.setColour (Theme::panel);
-        g.fillRect (b);
-        g.setColour (accent);
-        g.fillRect (b.withWidth (4.0f));
-    }
-    g.setColour (accent.withAlpha (0.22f));
-    g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
+    // The parent already supplies the cached Theme::cardShadow at these unchanged bounds.
+    Theme::bassEnclosure (g, b);
     if (! expanded) return;
 
     const auto& bm = engine.bass;
     const int vs = viewSteps(), ps = bm.patternSteps(), bs = bm.barSteps.load();
     const auto ga = gridArea();
     const int n = BassMachine::scaleSize (bm.scale.load());
-    Theme::wellRing (g, juce::Rectangle<int> (ga.getX(), headerH, ga.getWidth(), shiftH + ga.getHeight()).toFloat(), 3.0f);
+    const auto well = juce::Rectangle<int> (ga.getX(), headerH, ga.getWidth(), shiftH + ga.getHeight()).toFloat();
+    Theme::wellRing (g, well, 3.0f);
+    g.setGradientFill (juce::ColourGradient (Theme::border.interpolatedWith (Theme::text, 0.22f), well.getX(), well.getY(),
+                                            Theme::border.darker (0.45f), well.getRight(), well.getBottom(), false));
+    g.drawRoundedRectangle (well.expanded (2.5f), Theme::radiusLg + 1.0f, 1.0f);
+    g.setColour (Theme::deep.darker (0.65f));
+    g.fillRoundedRectangle (well.expanded (1.5f), Theme::radiusLg);
+    g.setGradientFill (juce::ColourGradient (Theme::border.withAlpha (0.15f), well.getX(), well.getY(),
+                                            Theme::border.interpolatedWith (Theme::text, 0.18f), well.getX(), well.getBottom(), false));
+    g.drawRoundedRectangle (well.expanded (1.0f), Theme::radius, 1.0f);
     const double pps = (double) ga.getWidth() / viewSeconds;
     const double stepS = stepSec();
     const float cellW = (float) (stepS * pps);
@@ -557,6 +556,10 @@ void BassPanel::paint (juce::Graphics& g)
     {
         g.setColour (Theme::deep);
         g.fillRect (stripArea());
+        // Inner top shadow stays in the transposition strip, below its text and outside all notes.
+        g.setGradientFill (juce::ColourGradient (Theme::deep.darker (0.9f), well.getX(), well.getY(),
+                                                Theme::deep.withAlpha (0.0f), well.getX(), well.getY() + 5.0f, false));
+        g.fillRect (well.withHeight (5.0f));
         g.saveState();
         g.reduceClipRegion (stripArea());
         g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));

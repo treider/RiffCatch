@@ -33,9 +33,14 @@ public:
             tab.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight(), Theme::radiusLg, Theme::radiusLg, true, true, false, false);
             auto fill = on ? Theme::panel : Theme::panel.darker (0.14f);
             if (! on && hover == i) fill = Theme::panel.darker (0.04f);
-            g.setColour (fill);
-            g.fillPath (tab);
-            if (on) { g.setColour (selected == 0 ? Theme::orange : Theme::cyan); g.fillRect (r.getX() + 6.0f, r.getY() + 1.0f, r.getWidth() - 12.0f, 2.0f); }   // coloured line on top of the open tab
+            if (on && i == 1)
+                Theme::bassEnclosure (g, r, true);
+            else
+            {
+                g.setColour (fill);
+                g.fillPath (tab);
+                if (on) { g.setColour (Theme::orange); g.fillRect (r.getX() + 6.0f, r.getY() + 1.0f, r.getWidth() - 12.0f, 2.0f); }
+            }
 
             g.setFont (juce::Font (juce::FontOptions (13.0f, on ? juce::Font::bold : juce::Font::plain)));
             g.setColour (data ? Theme::accent : (on ? Theme::text : Theme::dim));

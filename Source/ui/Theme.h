@@ -153,6 +153,53 @@ namespace Theme
         g.setColour (border);
         g.fillRoundedRectangle (r.expanded (grow), radiusLg + grow * 0.5f);
     }
+
+    // P1 Bass material only: derive every layer from the live theme, not a fixed orange palette.
+    inline juce::Colour bassRim() { return accent.interpolatedWith (cyan, 0.35f); }
+    inline void bassEnclosure (juce::Graphics& g, juce::Rectangle<float> r, bool tab = false)
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        juce::Path shape;
+        // Extend the active tab below its clip so there is no closing bottom border.
+        const auto edge = r.reduced (1.0f).withTrimmedBottom (tab ? -6.0f : 0.0f);
+        shape.addRoundedRectangle (edge.getX(), edge.getY(), edge.getWidth(), edge.getHeight(),
+                                   radiusLg, radiusLg, true, true, ! tab, ! tab);
+        g.reduceClipRegion (shape);
+        const auto rim = bassRim();
+        const auto dark = deep.darker (0.45f);
+        juce::ColourGradient face (panel.interpolatedWith (raised, 0.18f), r.getX(), r.getY(),
+                                   panel.interpolatedWith (deep, 0.65f), r.getRight(), r.getBottom(), false);
+        face.addColour (0.45, panel.interpolatedWith (deep, 0.35f));
+        g.setGradientFill (face);
+        g.fillPath (shape);
+
+        // Contact bevel beside the lit rim, rather than a uniformly glowing outline.
+        g.setColour (dark);
+        g.strokePath (shape, juce::PathStrokeType (8.0f));
+        juce::ColourGradient light (rim.interpolatedWith (text, 0.38f), edge.getX(), edge.getY(),
+                                    rim.darker (0.65f), edge.getRight(), edge.getBottom(), false);
+        light.addColour (0.16, rim);
+        light.addColour (0.55, rim.interpolatedWith (border, 0.70f));
+        g.setGradientFill (light);
+        g.strokePath (shape, juce::PathStrokeType (4.0f));
+
+        // Top-left grazing light is bounded to the bevel, with a weaker lower contact edge.
+        g.setGradientFill (juce::ColourGradient (rim.withAlpha (0.95f), r.getX() + 5.0f, r.getY() + 5.0f,
+                                                rim.withAlpha (0.0f), r.getX() + (tab ? 110.0f : 320.0f), r.getY() + 85.0f, true));
+        g.strokePath (shape, juce::PathStrokeType (6.0f));
+        g.setGradientFill (juce::ColourGradient (dark.withAlpha (0.0f), r.getX(), r.getY() + r.getHeight() * 0.35f,
+                                                dark.withAlpha (0.65f), r.getX(), r.getBottom(), false));
+        g.strokePath (shape, juce::PathStrokeType (2.0f));
+
+        // A short exposed-edge glint and its smaller reflection, separated by the dark bevel.
+        const float reach = juce::jmin (180.0f, r.getWidth() * 0.7f);
+        g.setGradientFill (juce::ColourGradient (rim.interpolatedWith (text, 0.72f), r.getX() + 12.0f, r.getY(),
+                                                rim.withAlpha (0.0f), r.getX() + reach, r.getY() + 12.0f, true));
+        g.strokePath (shape, juce::PathStrokeType (1.5f));
+        g.setGradientFill (juce::ColourGradient (rim.withAlpha (0.38f), r.getX() + 16.0f, r.getY() + 3.5f,
+                                                rim.withAlpha (0.0f), r.getX() + reach, r.getY() + 3.5f, false));
+        g.fillRoundedRectangle (r.getX() + 16.0f, r.getY() + 3.5f, reach - 16.0f, 1.0f, 0.5f);
+    }
 }
 class RiffLookAndFeel : public juce::LookAndFeel_V4
 {
