@@ -154,6 +154,96 @@ inline void songSelfTest (const std::function<void (bool, const juce::String&)>&
     }
 }
 
+// Offscreen regression only: no window, settings, captures or audio-device access.
+inline void bassKnobSelfTest (BassPanel& panel, const std::function<void (bool, const juce::String&)>& check)
+{
+    RiffLookAndFeel laf;
+    const juce::StringArray names { "Sub", "Cutoff", "Reso", "Env", "Decay", "Sustain", "Glide", "Drive" };
+    const double lo[] { 0.0, 30.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.0 };
+    const double hi[] { 1.0, 12000.0, 0.97, 1.0, 1.5, 1.0, 300.0, 1.0 };
+    const double defaults[] { 0.5, 400.0, 0.2, 0.4, 0.3, 0.7, 0.0, 0.2 };
+    int marked = 0, unmarked = 0;
+    bool scopeOK = true, parametersOK = true;
+    for (auto* child : panel.getChildren())
+        if (auto* s = dynamic_cast<juce::Slider*> (child))
+        {
+            const bool optedIn = (bool) s->getProperties().getWithDefault ("bassSoundKnob", false);
+            const int i = names.indexOf (s->getTooltip());
+            scopeOK &= optedIn == (i >= 0);
+            if (optedIn) ++marked; else ++unmarked;
+            if (i < 0) continue;
+            const auto value = s->getValue();
+            juce::Image image (juce::Image::ARGB, 38, 38, true);
+            juce::Graphics g (image);
+            panel.lookAndFeelChanged();
+            laf.drawRotarySlider (g, 0, 0, 38, 38, (float) s->valueToProportionOfLength (value),
+                                  juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, *s);
+            parametersOK &= s->getValue() == value && s->getMinimum() == lo[i] && s->getMaximum() == hi[i]
+                         && s->getDoubleClickReturnValue() == defaults[i] && ! s->getWantsKeyboardFocus()
+                         && s->getWidth() == 38 && s->getHeight() == 38;
+            if (i == 1) parametersOK &= std::abs (s->proportionOfLengthToValue (0.5) - 500.0) < 0.001;
+        }
+    check (scopeOK && marked == 8 && unmarked == 1, "bass knobs: only eight sound sliders opt in, not volume");
+    check (parametersOK, "bass knobs: painting/restyle preserve values, ranges, resets, Cutoff curve, size and focus policy");
+
+    const Theme::Preset saved { "live", Theme::blue.getARGB(), Theme::purple.getARGB(), Theme::cyan.getARGB(),
+                               Theme::bg.getARGB(), Theme::panel.getARGB(), Theme::text.getARGB() };
+    const bool legacy = Theme::legacyTracks;
+    const int selected = Theme::current;
+    juce::Slider s;
+    s.setRange (0.0, 1.0);
+    s.setValue (0.5, juce::dontSendNotification);
+    s.getProperties().set ("uni", true);
+    int callbacks = 0;
+    s.onValueChange = [&] { ++callbacks; };
+    auto render = [&]
+    {
+        juce::Image image (juce::Image::ARGB, 38, 38, true);
+        juce::Graphics g (image);
+        laf.drawRotarySlider (g, 0, 0, 38, 38, 0.5f,
+                              juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, s);
+        return image;
+    };
+    for (int t = 0; t < Theme::builtinCount + 2; ++t)
+    {
+        const auto preset = t < Theme::builtinCount ? Theme::presets[(size_t) t]
+            : Theme::generate ("test custom", juce::Colour (0xff2563eb), juce::Colour (0xff06b6d4), t == Theme::builtinCount);
+        Theme::applyPreset (preset, t == 0);
+        s.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
+        s.getProperties().remove ("bassSoundKnob");
+        const auto plain = render();
+        s.getProperties().set ("bassSoundKnob", false);
+        const auto optedOut = render();
+        s.getProperties().set ("bassSoundKnob", true);
+        const auto metal = render();
+        s.setEnabled (false);
+        const auto disabled = render();
+        s.setEnabled (true);
+        bool legacyOK = true, outsideOK = true, faceDiffers = false, disabledDiffers = false;
+        for (int y = 0; y < 38; ++y)
+            for (int x = 0; x < 38; ++x)
+            {
+                legacyOK &= plain.getPixelAt (x, y) == optedOut.getPixelAt (x, y);
+                const bool differs = plain.getPixelAt (x, y) != metal.getPixelAt (x, y);
+                faceDiffers |= differs;
+                disabledDiffers |= disabled.getPixelAt (x, y) != metal.getPixelAt (x, y);
+                // Leave one antialiasing pixel around the unchanged 19px-diameter face.
+                if (juce::Point<float> (x + 0.5f, y + 0.5f).getDistanceFrom ({ 19.0f, 19.0f }) > 10.5f)
+                    outsideOK &= ! differs;
+            }
+        check (legacyOK && outsideOK && faceDiffers && disabledDiffers && metal.getPixelAt (19, 13) == Theme::text,
+               "bass knob rendering: opt-out, ring/arc, face, disabled state and pointer - " + preset.name);
+        check (Theme::bassKnobLight().getPerceivedBrightness() > Theme::bassKnobShade().getPerceivedBrightness()
+               && std::abs (Theme::bassKnobLabel().getPerceivedBrightness() - Theme::panel.getPerceivedBrightness())
+                  > std::abs (Theme::dim.getPerceivedBrightness() - Theme::panel.getPerceivedBrightness())
+               && Theme::blue.getARGB() == preset.primary && Theme::cyan.getARGB() == preset.accent
+               && Theme::panel.getARGB() == preset.surface && Theme::text.getARGB() == preset.text
+               && Theme::current == selected && s.getValue() == 0.5 && callbacks == 0,
+               "bass knob roles: live theme/label contrast, palette and value preserved - " + preset.name);
+    }
+    Theme::applyPreset (saved, legacy);
+}
+
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
 {
@@ -465,6 +555,7 @@ inline juce::String runEngineSelfTest()
         BassPanel panel (ep);
         panel.setSize (1500, 210);
         panel.setView (8.0, 2.0, 0.0, 8.0);
+        bassKnobSelfTest (panel, check);
         auto src = juce::Desktop::getInstance().getMainMouseSource();
         auto ev = [&] (juce::Point<float> p, juce::Point<float> down, bool dragged)
         {

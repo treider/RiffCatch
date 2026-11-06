@@ -44,4 +44,16 @@ The reference's depth comes from deliberate light/dark contrast (Photoshop-style
 
 For unrelated changes preserve the current visual language. For approved redesign tasks, this target supersedes the historical flat/no-gradient restriction. Implement one coherent scope at a time; do not remove features, change theme defaults or modify sound to match a picture.
 
+### v0.65 implementation scope
+
+Only Bass's Sub, Cutoff, Reso, Env, Decay, Sustain, Glide and Drive opt into the
+`bassSoundKnob` face in `RiffLookAndFeel::drawRotarySlider`. Live `Theme::bassKnob*`
+roles provide restrained upper-left metallic light, a tapering upper-edge reflection,
+a narrow lower contact bevel and moderately stronger captions. Existing outer rings,
+value arcs/pointers, bounds, label typography and parameter bindings are retained;
+unmarked sliders (including Bass volume) keep the legacy paint path. No blur, palette
+defaults, DSP or v0.64 enclosure/tab/piano-roll changes are included. Before/after
+comparisons and interaction checks complement the headless regressions; user acceptance
+remains separate.
+
 Completion requires the [visual checklist](visual-checklist.md), a successful build/selftest for code changes, actual screenshot comparison and user testing. Missing visual evidence means incomplete verification. Commit and push remain separate user-approved steps.

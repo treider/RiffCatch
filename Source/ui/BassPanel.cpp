@@ -249,6 +249,7 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
         if (d.skewMid > 0.0) s.setSkewFactorFromMidPoint (d.skewMid);
         s.setDoubleClickReturnValue (true, d.def);
         s.getProperties().set ("uni", d.lo >= 0.0);
+        s.getProperties().set ("bassSoundKnob", true);
         s.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
         s.setWantsKeyboardFocus (false);
         s.setTooltip (d.name);
@@ -544,7 +545,7 @@ void BassPanel::paint (juce::Graphics& g)
     const int c0 = juce::jmax (0, (int) std::floor (viewStart / stepS)), c1 = juce::jmin (vs, (int) std::ceil ((viewStart + viewSeconds) / stepS));
 
     // left column captions
-    g.setColour (Theme::dim);
+    g.setColour (Theme::bassKnobLabel());
     g.setFont (juce::Font (juce::FontOptions (10.5f)));
     for (int i = 0; i < knobs.size(); ++i)
     {

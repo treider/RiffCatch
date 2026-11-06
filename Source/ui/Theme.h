@@ -154,6 +154,14 @@ namespace Theme
         g.fillRoundedRectangle (r.expanded (grow), radiusLg + grow * 0.5f);
     }
 
+    // Bass sound-knob material: live roles also work in custom light/dark previews.
+    // Lighting uses surface brightness, not text (which is dark in light themes).
+    inline juce::Colour bassKnobLight()   { return raised.brighter (0.22f); }
+    inline juce::Colour bassKnobShade()   { return raised.darker (0.32f); }
+    inline juce::Colour bassKnobContact() { return deep.darker (0.50f); }
+    inline juce::Colour bassKnobGlint()   { return raised.brighter (0.65f); }
+    inline juce::Colour bassKnobLabel()   { return dim.interpolatedWith (text, 0.22f); }
+
     // P1 Bass material only: derive every layer from the live theme, not a fixed orange palette.
     inline juce::Colour bassRim() { return accent.interpolatedWith (cyan, 0.35f); }
     inline void bassEnclosure (juce::Graphics& g, juce::Rectangle<float> r, bool tab = false)
@@ -393,9 +401,48 @@ public:
 
         g.setColour (Theme::frame);                               // dark ring around every knob, like the buttons
         g.fillEllipse (c.x - r, c.y - r, 2 * r, 2 * r);
-        g.setColour (Theme::raised);                              // lighter face so the knob stands out from the panel
-        g.fillEllipse (c.x - r + 5.5f, c.y - r + 5.5f, 2 * r - 11.0f, 2 * r - 11.0f);
+        if ((bool) s.getProperties().getWithDefault ("bassSoundKnob", false))
+        {
+            // Only the existing face is restyled; ring, geometry and input stay untouched.
+            juce::Graphics::ScopedSaveState ss (g);
+            const juce::Rectangle<float> face (c.x - r + 5.5f, c.y - r + 5.5f, 2 * r - 11.0f, 2 * r - 11.0f);
+            juce::Path faceClip;
+            faceClip.addEllipse (face);
+            g.reduceClipRegion (faceClip);
+            const bool enabled = s.isEnabled();
+            const bool down = enabled && s.isMouseButtonDown();
+            const bool over = enabled && s.isMouseOverOrDragging();
+            auto stateColour = [&] (juce::Colour col)
+            {
+                if (! enabled) return col.interpolatedWith (Theme::raised, 0.65f);
+                return down ? col.darker (0.10f) : over ? col.brighter (0.08f) : col;
+            };
+            juce::ColourGradient surface (stateColour (Theme::bassKnobLight()), face.getX(), face.getY(),
+                                          stateColour (Theme::bassKnobShade()), face.getRight(), face.getBottom(), false);
+            surface.addColour (0.45, stateColour (Theme::raised));
+            g.setGradientFill (surface);
+            g.fillRect (face);
 
+            // Narrow lower contact bevel, then a short upper-left reflection tapering to nothing.
+            g.setGradientFill (juce::ColourGradient (Theme::bassKnobContact().withAlpha (0.0f), c.x, c.y,
+                                                    stateColour (Theme::bassKnobContact()), c.x, face.getBottom(), false));
+            g.drawEllipse (face.reduced (0.45f), 0.9f);
+            const auto glint = stateColour (Theme::bassKnobGlint());
+            const float strength = enabled && s.hasKeyboardFocus (true) ? 0.95f : 0.70f;
+            g.setGradientFill (juce::ColourGradient (glint.withAlpha (strength), face.getX() + 3.0f, face.getY() + 1.0f,
+                                                    glint.withAlpha (0.0f), face.getRight() - 1.0f, c.y, true));
+            juce::Path reflection;
+            const float edgeR = r - 6.2f;
+            reflection.addCentredArc (c.x, c.y, edgeR, edgeR, 0.0f, -1.15f, 0.95f, true);
+            g.strokePath (reflection, juce::PathStrokeType (0.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        else
+        {
+            g.setColour (Theme::raised);                          // unchanged legacy face for every unmarked slider
+            g.fillEllipse (c.x - r + 5.5f, c.y - r + 5.5f, 2 * r - 11.0f, 2 * r - 11.0f);
+        }
+
+        // Functional signals are always painted last, above all material layers.
         juce::Path bgArc, valArc;
         const float ar = r - 2.6f;
         bgArc.addCentredArc (c.x, c.y, ar, ar, 0.0f, startA, endA, true);
