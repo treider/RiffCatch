@@ -244,12 +244,202 @@ inline void bassKnobSelfTest (BassPanel& panel, const std::function<void (bool, 
     Theme::applyPreset (saved, legacy);
 }
 
+inline void bassControlSelfTest (const std::function<void (bool, const juce::String&)>& check)
+{
+    auto engine = std::make_unique<AudioEngine>();
+    engine->prepareForTest (44100.0, 2);
+    RiffLookAndFeel laf; // outlives the panel
+    BassPanel panel (*engine);
+    panel.setLookAndFeel (&laf);
+    panel.setView (8.0, 2.0, 0.0, 8.0);
+    for (bool paged : { false, true })
+        for (bool expanded : { true, false })
+            for (int width : { 608, 999, 1000, 1008, 1133, 1134, 1500 })
+            {
+                engine->bass.bars = paged ? 8 : 1;
+                panel.setExpanded (expanded);
+                panel.refreshFromEngine();
+                panel.setSize (width, panel.preferredHeight (width));
+                bool fits = true, separated = true, readable = true;
+                int combos = 0, buttons = 0, sliders = 0;
+                for (auto* a : panel.getChildren())
+                {
+                    if (! a->isVisible()) continue;
+                    fits &= ! a->getBounds().isEmpty() && panel.getLocalBounds().contains (a->getBounds());
+                    if (auto* c = dynamic_cast<juce::ComboBox*> (a))
+                    {
+                        ++combos;
+                        readable &= c->getHeight() >= 24 && c->getWidth() >= (c->getTooltip() == "Root note of the key" ? 42 : 80);
+                    }
+                    if (dynamic_cast<juce::Button*> (a) != nullptr) ++buttons;
+                    if (dynamic_cast<juce::Slider*> (a) != nullptr) ++sliders;
+                    for (auto* b : panel.getChildren())
+                        if (a != b && b->isVisible()) separated &= ! a->getBounds().intersects (b->getBounds());
+                }
+                check (fits && separated && readable && combos == (expanded ? 7 : 5)
+                       && buttons == (expanded ? 9 : 7) + (paged && expanded ? 2 : 0)
+                       && sliders == (expanded ? 9 : 1),
+                       "bass layout: all controls contained/readable/non-overlapping width=" + juce::String (width)
+                       + " header=" + juce::String (panel.headerHeight()) + " expanded=" + juce::String ((int) expanded)
+                       + " paged=" + juce::String ((int) paged));
+            }
+    panel.setExpanded (true);
+    engine->bass.bars = 1;
+    panel.refreshFromEngine();
+    panel.setSize (608, panel.preferredHeight (608));
+    const auto before = engine->bass.snapshot();
+    int combos = 0, buttons = 0, volumes = 0;
+    juce::String scopeDetail;
+    bool scope = (bool) panel.counter().getProperties()["bassControl"], volumeOK = false;
+    for (auto* c : panel.getChildren())
+    {
+        const bool marked = (bool) c->getProperties().getWithDefault ("bassControl", false);
+        if (auto* box = dynamic_cast<juce::ComboBox*> (c))
+        {
+            ++combos; scope &= marked;
+            if (! marked) scopeDetail << " combo:" << box->getText();
+        }
+        if (auto* b = dynamic_cast<juce::TextButton*> (c))
+        {
+            ++buttons; scope &= marked && ! b->getWantsKeyboardFocus();
+            if (! marked || b->getWantsKeyboardFocus()) scopeDetail << " button:" << b->getButtonText();
+        }
+        if (auto* s = dynamic_cast<juce::Slider*> (c))
+        {
+            const bool volume = (bool) s->getProperties().getWithDefault ("bassVolumeKnob", false);
+            scope &= volume == (s->getTooltip() == "Bass volume");
+            if (volume != (s->getTooltip() == "Bass volume")) scopeDetail << " slider:" << s->getTooltip();
+            if (volume)
+            {
+                ++volumes;
+                volumeOK = s->getMinimum() == 0.0 && s->getMaximum() == 1.2
+                    && s->getDoubleClickReturnValue() == 0.8 && ! s->getWantsKeyboardFocus();
+            }
+        }
+    }
+    panel.createComponentSnapshot (panel.getLocalBounds());
+    panel.lookAndFeelChanged();
+    check (scope && combos == 7 && buttons == 10 && volumes == 1 && volumeOK && before == engine->bass.snapshot(),
+           "bass controls: explicit opt-in, volume 0..1.2/reset 0.8, focus and pattern preserved (scope="
+           + juce::String ((int) scope) + ", combos=" + juce::String (combos) + ", buttons=" + juce::String (buttons)
+           + ", volumes=" + juce::String (volumes) + ", volumeOK=" + juce::String ((int) volumeOK)
+           + ", pattern=" + juce::String ((int) (before == engine->bass.snapshot())) + scopeDetail + ")");
+    bool liveOK = true;
+    for (int state = 0; state < 3; ++state)
+    {
+        panel.setLiveState (state);
+        bool found = false;
+        for (auto* c : panel.getChildren())
+            if (auto* b = dynamic_cast<juce::TextButton*> (c))
+                if (b->getButtonText() == (state == 0 ? "Rec" : state == 1 ? "Wait" : "REC"))
+                    found = b->getToggleState() == (state != 0) && b->findColour (juce::TextButton::buttonOnColourId) == Theme::red;
+        liveOK &= found;
+    }
+    check (liveOK, "bass controls: Rec/Wait/REC retain toggle and record-red semantics");
+    panel.setLiveState (0);
+
+    const Theme::Preset saved { "live", Theme::blue.getARGB(), Theme::purple.getARGB(), Theme::cyan.getARGB(),
+                               Theme::bg.getARGB(), Theme::panel.getARGB(), Theme::text.getARGB() };
+    const bool legacy = Theme::legacyTracks;
+    auto equal = [] (const juce::Image& a, const juce::Image& b)
+    {
+        for (int y = 0; y < a.getHeight(); ++y)
+            for (int x = 0; x < a.getWidth(); ++x)
+                if (a.getPixelAt (x, y) != b.getPixelAt (x, y)) return false;
+        return true;
+    };
+    for (int theme : { 3, 0 }) // new visual scope: Sunset and Tokyo Night only
+    {
+        Theme::applyPreset (Theme::presets[(size_t) theme], theme == 0);
+        laf.applyColours();
+        for (bool combo : { false, true })
+        {
+            juce::ComboBox box;
+            juce::TextButton button;
+            button.setSize (104, 28);
+            box.setSize (104, 28);
+            auto render = [&] (int opt, bool enabled, bool over, bool down, bool active)
+            {
+                juce::Component& c = combo ? (juce::Component&) box : (juce::Component&) button;
+                c.setLookAndFeel (&laf);
+                c.setEnabled (enabled);
+                if (opt < 0) c.getProperties().remove ("bassControl"); else c.getProperties().set ("bassControl", opt != 0);
+                juce::Image image (juce::Image::ARGB, 104, 28, true);
+                juce::Graphics g (image);
+                if (combo) laf.drawComboBox (g, 104, 28, down, 0, 0, 0, 0, box);
+                else laf.drawButtonBackground (g, button, active ? Theme::accent : Theme::raised, over, down);
+                c.setLookAndFeel (nullptr);
+                return image;
+            };
+            const auto plain = render (-1, true, false, false, false);
+            const auto optedOut = render (0, true, false, false, false);
+            const auto normal = render (1, true, false, false, false);
+            check (equal (plain, optedOut) && ! equal (plain, normal)
+                   && ! equal (normal, render (1, false, false, false, false))
+                   && ! equal (normal, render (1, true, false, true, false))
+                   && (combo || (! equal (normal, render (1, true, true, false, false))
+                                 && ! equal (normal, render (1, true, false, false, true)))),
+                   "bass material: opt-out unchanged, opt-in and states differ - " + Theme::presets[(size_t) theme].name
+                   + (combo ? " combo" : " button"));
+        }
+        panel.counter().getProperties().set ("bassControl", false);
+        const auto plainCounter = panel.counter().createComponentSnapshot (panel.counter().getLocalBounds());
+        panel.counter().getProperties().set ("bassControl", true);
+        const auto bassCounter = panel.counter().createComponentSnapshot (panel.counter().getLocalBounds());
+        bool displaySame = true, arrowsDiffer = false;
+        for (int y = 0; y < bassCounter.getHeight(); ++y)
+            for (int x = 0; x < bassCounter.getWidth(); ++x)
+                if (x < 72) displaySame &= plainCounter.getPixelAt (x, y) == bassCounter.getPixelAt (x, y);
+                else arrowsDiffer |= plainCounter.getPixelAt (x, y) != bassCounter.getPixelAt (x, y);
+        check (displaySame && arrowsDiffer && Theme::bassNoteLabel().getPerceivedBrightness() > Theme::dim.getPerceivedBrightness(),
+               "bass material: blue library display unchanged, arrows opt in, note label contrast - " + Theme::presets[(size_t) theme].name);
+    }
+    Theme::applyPreset (saved, legacy);
+    panel.setLookAndFeel (nullptr);
+
+    // Same note edit in actual minimum/normal Bass bounds, including the local
+    // header offset. No device, settings or project files are touched.
+    for (int width : { 608, 1008 })
+    {
+        engine->bass.clearPattern();
+        panel.setSize (width, panel.preferredHeight (width));
+        juce::UndoManager undo;
+        panel.onUndoable = [&] (const juce::String& name, std::function<void()> apply, std::function<void()> revert)
+        {
+            undo.beginNewTransaction (name);
+            undo.perform (new LambdaAction (std::move (apply), std::move (revert)));
+        };
+        const float step = (float) (width - TrackRow::waveLeft - TrackRow::waveRightInset) / 64.0f;
+        const juce::Point<float> start ((float) TrackRow::waveLeft + step * 0.5f,
+                                       (float) (panel.headerHeight() + BassPanel::shiftH + 5 * BassPanel::rowH + 6));
+        const auto finish = start.translated (step * 3.0f, 0.0f);
+        auto event = [&] (juce::Point<float> pos, bool drag)
+        {
+            return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), pos,
+                                    juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier), 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                    &panel, &panel, juce::Time::getCurrentTime(), start, juce::Time::getCurrentTime(), 1, drag);
+        };
+        panel.mouseDown (event (start, false));
+        panel.mouseDrag (event (finish, true));
+        panel.mouseUp (event (finish, true));
+        const auto note = engine->bass.steps[0].load();
+        const bool added = BassMachine::isNote (note) && BassMachine::lenOf (note) == 4;
+        undo.undo();
+        const bool removed = ! engine->bass.hasAnySteps();
+        undo.redo();
+        check (added && removed && engine->bass.steps[0].load() == note,
+               "bass layout: note create/length/audition mapping and undo/redo width=" + juce::String (width));
+        panel.onUndoable = {};
+    }
+}
+
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
 {
     juce::String log;
     bool ok = true;
     auto check = [&] (bool c, const juce::String& what) { log << (c ? "PASS " : "FAIL ") << what << "\n"; ok &= c; };
+    bassControlSelfTest (check);
 
     auto eng = std::make_unique<AudioEngine>();
     const double sr = 48000.0;

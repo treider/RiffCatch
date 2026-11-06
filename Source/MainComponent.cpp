@@ -1192,6 +1192,7 @@ void MainComponent::showSeqTab (int tab)
     drumPanel.seqTabs().setVisible (seqTab == 0);
     bassPanel.seqTabs().setVisible (seqTab == 1);
     if (auto* f = props.getUserSettings()) { f->setValue ("seqTab", seqTab); f->saveIfNeeded(); }
+    resized();
     repaint();
 }
 
@@ -1289,7 +1290,7 @@ void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::bg);
     Theme::cardShadow (g, barArea.getUnion (settingsArea).toFloat());
-    Theme::cardShadow (g, drumPanel.getBounds().toFloat());
+    Theme::cardShadow (g, (seqTab == 1 ? bassPanel.getBounds() : drumPanel.getBounds()).toFloat());
     Theme::cardShadow (g, mixer.getBounds().toFloat());
     {
         const auto f = barArea.getUnion (settingsArea).toFloat();     // one merged top panel, settings row slightly darker
@@ -1375,7 +1376,11 @@ void MainComponent::resized()
         for (auto* t : { &drumPanel.seqTabs(), &bassPanel.seqTabs() }) t->setBounds (tabsRow.withWidth (250));
         const auto pr = row.withHeight (juce::jmin (row.getHeight(), drumPanel.preferredHeight()));
         drumPanel.setBounds (pr);
-        bassPanel.setBounds (pr);
+        const int bassH = bassPanel.preferredHeight (row.getWidth());
+        const int extra = bassPanel.headerHeight (row.getWidth()) - BassPanel::headerH;
+        bassPanel.setBounds (row.getX(), row.getY() - extra, row.getWidth(), bassH);
+        bassPanel.seqTabs().setBounds (tabsRow.withWidth (250).translated (0, -extra));
+        if (seqTab == 1) r.removeFromBottom (extra);
     }    r.removeFromBottom (10);
 
     {

@@ -145,6 +145,7 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
     volume.setRange (0.0, 1.2, 0.0);
     volume.setDoubleClickReturnValue (true, 0.8);
     volume.getProperties().set ("uni", true);
+    volume.getProperties().set ("bassVolumeKnob", true);
     volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
     volume.setWantsKeyboardFocus (false);
     volume.setTooltip ("Bass volume");
@@ -261,11 +262,18 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
         s.onValueChange = [this, kp, target, nm] { *target = (float) kp->s.getValue(); info ("Bass " + nm.toLowerCase(), kp->fmt (kp->s.getValue())); };
         addChildComponent (s);
     }
+    for (auto* c : { &barsBox, &rootBox, &scaleBox, &templateBox, &progBox, &presetBox, &waveBox })
+        c->getProperties().set ("bassControl", true);
+    for (auto* b : { &randBtn, &liveBtn, &bakeBtn, &muteBtn, &soloBtn, &clearBtn, &prevPage, &nextPage,
+                     (juce::TextButton*) &echoBtn, (juce::TextButton*) &reverbBtn })
+        b->getProperties().set ("bassControl", true);
+    libCounter.getProperties().set ("bassControl", true);
     refreshFromEngine();
 }
 
 void BassPanel::lookAndFeelChanged()
 {
+    volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
     pageLabel.setColour (juce::Label::textColourId, Theme::dim);
     liveBtn.setColour (juce::TextButton::buttonOnColourId, Theme::red);
     for (auto* b : { &muteBtn, &soloBtn, (juce::TextButton*) &echoBtn, (juce::TextButton*) &reverbBtn })
@@ -411,7 +419,11 @@ void BassPanel::updateControls()
     echoBtn.setVisible (expanded); reverbBtn.setVisible (expanded);
     const bool pagedChanged = prevPage.isVisible() != paged;
     prevPage.setVisible (paged); nextPage.setVisible (paged); pageLabel.setVisible (paged);
-    if (pagedChanged) resized();
+    if (pagedChanged)
+    {
+        resized();
+        if (onLayoutChanged) onLayoutChanged();
+    }
     prevPage.setEnabled (page > 0); nextPage.setEnabled (page < pages - 1);
     if (paged)
     {
@@ -423,12 +435,12 @@ void BassPanel::updateControls()
 
 juce::Rectangle<int> BassPanel::gridArea() const
 {
-    return { TrackRow::waveLeft, headerH + shiftH, juce::jmax (1, getWidth() - TrackRow::waveLeft - TrackRow::waveRightInset), gridH };
+    return { TrackRow::waveLeft, headerHeight() + shiftH, juce::jmax (1, getWidth() - TrackRow::waveLeft - TrackRow::waveRightInset), gridH };
 }
 
 juce::Rectangle<int> BassPanel::stripArea() const
 {
-    return { TrackRow::waveLeft, headerH, juce::jmax (1, getWidth() - TrackRow::waveLeft - TrackRow::waveRightInset), shiftH };
+    return { TrackRow::waveLeft, headerHeight(), juce::jmax (1, getWidth() - TrackRow::waveLeft - TrackRow::waveRightInset), shiftH };
 }
 
 int BassPanel::cellAt (float x, bool clamp) const
@@ -446,8 +458,8 @@ int BassPanel::stepForCell (int cell) const
 
 int BassPanel::rowAt (int y) const
 {
-    const int r = (y - headerH - shiftH) / rowHeight();
-    if (y < headerH + shiftH || r < 0 || r >= rowsNow()) return -1;
+    const int r = (y - headerHeight() - shiftH) / rowHeight();
+    if (y < headerHeight() + shiftH || r < 0 || r >= rowsNow()) return -1;
     return rowsNow() - 1 - r;
 }
 
@@ -506,14 +518,41 @@ void BassPanel::resized()
     prevPage.setBounds (l.removeFromLeft (26)); l.removeFromLeft (4);
     pageLabel.setBounds (l.removeFromLeft (72)); l.removeFromLeft (4);
     nextPage.setBounds (l.removeFromLeft (26));
-    presetBox.setBounds (14, headerH + 2, 150, 24);
-    waveBox.setBounds (172, headerH + 2, 96, 24);
-    echoBtn.setBounds (276, headerH + 2, 48, 24);
-    reverbBtn.setBounds (328, headerH + 2, 40, 24);
+    if (headerHeight() > headerH)
+    {
+        // Two stable rows, not a shrinking remainder: navigation/key first,
+        // pattern actions and recording/mix second. All actions stay available.
+        barsBox.setBounds (leftStart, y, 84, h);
+        rootBox.setBounds (leftStart + 90, y, 54, h);
+        scaleBox.setBounds (leftStart + 150, y, 128, h);
+        int px = r.getRight() - 138;
+        prevPage.setBounds (px, y, 26, h);
+        pageLabel.setBounds (px + 30, y, 72, h);
+        nextPage.setBounds (px + 106, y, 26, h);
+        const int y2 = y + 32;
+        templateBox.setBounds (14, y2, 104, h);
+        progBox.setBounds (124, y2, 104, h);
+        randBtn.setBounds (234, y2, 64, h);
+        x = r.getRight() - 4;
+        auto putCompact = [&] (juce::Component& c, int cw, int gap)
+        {
+            x -= cw; c.setBounds (x, y2, cw, h); x -= gap;
+        };
+        putCompact (clearBtn, 56, 6); putCompact (soloBtn, 30, 4); putCompact (muteBtn, 30, 6);
+        x -= 32; volume.setBounds (juce::Rectangle<int> (x, y2, 32, h).withSizeKeepingCentre (32, 32));
+        x -= 8;
+        putCompact (bakeBtn, 52, 4); putCompact (liveBtn, 44, 0);
+        meter.setVisible (false); // the legacy header also omits this passive meter when space is tight
+    }
+    const int bodyY = headerHeight();
+    presetBox.setBounds (14, bodyY + 2, 150, 24);
+    waveBox.setBounds (172, bodyY + 2, 96, 24);
+    echoBtn.setBounds (276, bodyY + 2, 48, 24);
+    reverbBtn.setBounds (328, bodyY + 2, 40, 24);
     for (int i = 0; i < knobs.size(); ++i)
     {
         const int col = i % 4, row = i / 4;
-        knobs[i]->s.setBounds (14 + col * 92 + 26, headerH + 34 + row * 60, 38, 38);
+        knobs[i]->s.setBounds (14 + col * 92 + 26, bodyY + 34 + row * 60, 38, 38);
     }
 }
 void BassPanel::paint (juce::Graphics& g)
@@ -528,7 +567,7 @@ void BassPanel::paint (juce::Graphics& g)
     const int vs = viewSteps(), ps = bm.patternSteps(), bs = bm.barSteps.load();
     const auto ga = gridArea();
     const int n = BassMachine::scaleSize (bm.scale.load());
-    const auto well = juce::Rectangle<int> (ga.getX(), headerH, ga.getWidth(), shiftH + ga.getHeight()).toFloat();
+    const auto well = juce::Rectangle<int> (ga.getX(), headerHeight(), ga.getWidth(), shiftH + ga.getHeight()).toFloat();
     Theme::wellRing (g, well, 3.0f);
     g.setGradientFill (juce::ColourGradient (Theme::border.interpolatedWith (Theme::text, 0.22f), well.getX(), well.getY(),
                                             Theme::border.darker (0.45f), well.getRight(), well.getBottom(), false));
@@ -550,7 +589,7 @@ void BassPanel::paint (juce::Graphics& g)
     for (int i = 0; i < knobs.size(); ++i)
     {
         const int col = i % 4, row = i / 4;
-        g.drawText (knobs[i]->name, 14 + col * 92, headerH + 34 + row * 60 + 38, 92, 13, juce::Justification::centred);
+        g.drawText (knobs[i]->name, 14 + col * 92, headerHeight() + 34 + row * 60 + 38, 92, 13, juce::Justification::centred);
     }
 
     // bar transposition strip
@@ -570,7 +609,7 @@ void BassPanel::paint (juce::Graphics& g)
             if (bar >= bm.bars.load()) continue;
             const int sh = bm.shift[bar].load();
             g.setColour (sh == 0 ? Theme::dim : Theme::cyan);
-            g.drawText (BassTemplates::shiftName (sh), (int) (xOrigin + c * cellW) + 4, headerH, 60, shiftH, juce::Justification::centredLeft);
+            g.drawText (BassTemplates::shiftName (sh), (int) (xOrigin + c * cellW) + 4, headerHeight(), 60, shiftH, juce::Justification::centredLeft);
         }
         g.restoreState();
     }
@@ -600,7 +639,7 @@ void BassPanel::paint (juce::Graphics& g)
     for (int row = 0; row < rowsNow(); ++row)    // note names
     {
         const int d = baseDegree() + row;
-        g.setColour (Theme::dim.withAlpha (0.75f));
+        g.setColour (Theme::bassNoteLabel());
         const int midi = bm.root.load() + BassMachine::semitones (bm.scale.load(), d);
         const bool isC = ((d % n) + n) % n == 0;
         g.drawText (juce::String (BassMachine::noteName (midi)) + (isC ? juce::String (midi / 12 - 1) : juce::String()), ga.getX() + 3, (int) rowY (row), 26, rowHeight(), juce::Justification::centredLeft);
@@ -716,11 +755,11 @@ void BassPanel::mouseDown (const juce::MouseEvent& e)
 {
     mode = Mode::None;
     if (e.eventComponent == &randBtn) { if (e.mods.isPopupMenu()) generateRandom(); return; }
-    if (! expanded || e.y < headerH) return;
+    if (! expanded || e.y < headerHeight()) return;
     const int cell = cellAt ((float) e.x, false);
     if (cell < 0) return;
 
-    if (e.y < headerH + shiftH)    // bar transposition strip
+    if (e.y < headerHeight() + shiftH)    // bar transposition strip
     {
         const int bar = (page * viewSteps() + cell) / engine.bass.barSteps.load();
         if (bar < engine.bass.bars.load()) showShiftMenu (bar);
@@ -769,7 +808,7 @@ void BassPanel::mouseDrag (const juce::MouseEvent& e)
     if (mode == Mode::None) return;
     auto& bm = engine.bass;
     const int cell = cellAt ((float) e.x, true);
-    const int row = rowAt (juce::jlimit (headerH + shiftH, headerH + shiftH + gridH - 1, e.y));
+    const int row = rowAt (juce::jlimit (headerHeight() + shiftH, headerHeight() + shiftH + gridH - 1, e.y));
 
     if (mode == Mode::Create)
     {

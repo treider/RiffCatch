@@ -162,6 +162,41 @@ namespace Theme
     inline juce::Colour bassKnobGlint()   { return raised.brighter (0.65f); }
     inline juce::Colour bassKnobLabel()   { return dim.interpolatedWith (text, 0.22f); }
 
+    inline juce::Colour bassControlLight() { return raised.brighter (0.55f); }
+    inline juce::Colour bassControlContact() { return deep.darker (0.50f); }
+    inline juce::Colour bassNoteLabel() { return dim.interpolatedWith (text, 0.32f); }
+
+    // Explicit Bass opt-in only. Keep the dark frame and semantic active fill;
+    // directional light is clipped to the face, never an accent-coloured outline.
+    inline void bassControlTile (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour fill,
+                                 float ring, bool enabled, bool over, bool down, bool focus)
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        if (! enabled) fill = fill.interpolatedWith (deep, 0.55f);
+        else if (down) fill = fill.darker (0.20f);
+        else if (over) fill = fill.brighter (0.12f);
+        framedTile (g, r, fill, ring);
+        const auto face = r.reduced (ring);
+        if (face.isEmpty()) return;
+        juce::Path clip;
+        clip.addRoundedRectangle (face, juce::jmax (2.0f, juce::jmin (7.0f, r.getHeight() * 0.3f) - ring * 0.6f));
+        g.reduceClipRegion (clip);
+        const float strength = ! enabled ? 0.18f : down ? 0.28f : 0.65f;
+        g.setGradientFill (juce::ColourGradient (bassControlLight().withAlpha (strength * 0.4f), face.getX(), face.getY(),
+                                                fill.withAlpha (0.0f), face.getRight(), face.getBottom(), false));
+        g.fillPath (clip);
+        g.setGradientFill (juce::ColourGradient (bassControlContact().withAlpha (0.0f), face.getX(), face.getCentreY(),
+                                                bassControlContact(), face.getX(), face.getBottom(), false));
+        g.strokePath (clip, juce::PathStrokeType (1.4f));
+        g.setGradientFill (juce::ColourGradient (bassControlLight().withAlpha (focus && enabled ? 1.0f : strength),
+                                                face.getX() + 2.0f, face.getY(),
+                                                bassControlLight().withAlpha (0.0f), face.getRight(), face.getBottom(), false));
+        g.strokePath (clip, juce::PathStrokeType (1.0f));
+        g.setGradientFill (juce::ColourGradient (bassControlLight().withAlpha (strength * 0.45f), face.getX() + 5.0f, face.getY(),
+                                                bassControlLight().withAlpha (0.0f), face.getRight() - 3.0f, face.getY(), false));
+        g.fillRect (face.getX() + 4.0f, face.getY() + 1.5f, juce::jmax (0.0f, face.getWidth() - 8.0f), 0.7f);
+    }
+
     // P1 Bass material only: derive every layer from the live theme, not a fixed orange palette.
     inline juce::Colour bassRim() { return accent.interpolatedWith (cyan, 0.35f); }
     inline void bassEnclosure (juce::Graphics& g, juce::Rectangle<float> r, bool tab = false)
@@ -262,16 +297,21 @@ public:
     int getSliderThumbRadius (juce::Slider&) override { return 8; }
 
     // Same flat, rounded look as the buttons (no outline)
-    void drawComboBox (juce::Graphics& g, int w, int h, bool, int, int, int, int, juce::ComboBox& box) override
+    void drawComboBox (juce::Graphics& g, int w, int h, bool down, int, int, int, int, juce::ComboBox& box) override
     {
         const auto b = juce::Rectangle<float> ((float) w, (float) h);
-        Theme::framedTile (g, b, box.findColour (juce::ComboBox::backgroundColourId).brighter (box.isMouseOver (true) ? 0.08f : 0.0f), 2.0f);
+        const bool bass = (bool) box.getProperties().getWithDefault ("bassControl", false);
+        if (bass)
+            Theme::bassControlTile (g, b, box.findColour (juce::ComboBox::backgroundColourId), 2.0f,
+                                    box.isEnabled(), box.isMouseOver (true), down, box.hasKeyboardFocus (true));
+        else
+            Theme::framedTile (g, b, box.findColour (juce::ComboBox::backgroundColourId).brighter (box.isMouseOver (true) ? 0.08f : 0.0f), 2.0f);
         juce::Path arrow;
         const float cx = (float) w - 14.0f, cy = (float) h * 0.5f;
         arrow.startNewSubPath (cx - 4.0f, cy - 2.0f);
         arrow.lineTo (cx, cy + 2.0f);
         arrow.lineTo (cx + 4.0f, cy - 2.0f);
-        g.setColour (box.findColour (juce::ComboBox::arrowColourId));
+        g.setColour (box.findColour (juce::ComboBox::arrowColourId).withMultipliedAlpha (bass && ! box.isEnabled() ? 0.45f : 1.0f));
         g.strokePath (arrow, juce::PathStrokeType (1.6f));
     }
 
@@ -281,7 +321,11 @@ public:
         auto c = bgc;
         if (down) c = c.darker (0.15f); else if (over) c = c.brighter (0.12f);
         const auto r = b.getLocalBounds().toFloat();
-        Theme::framedTile (g, r, c, r.getHeight() < 26.0f ? 2.0f : 2.5f);
+        const float ring = r.getHeight() < 26.0f ? 2.0f : 2.5f;
+        if ((bool) b.getProperties().getWithDefault ("bassControl", false))
+            Theme::bassControlTile (g, r, bgc, ring, b.isEnabled(), over, down, b.hasKeyboardFocus (true));
+        else
+            Theme::framedTile (g, r, c, ring);
         if (b.getProperties().contains ("outline"))
         {
             g.setColour (juce::Colour ((juce::uint32) (int) b.getProperties()["outline"]));
@@ -401,7 +445,8 @@ public:
 
         g.setColour (Theme::frame);                               // dark ring around every knob, like the buttons
         g.fillEllipse (c.x - r, c.y - r, 2 * r, 2 * r);
-        if ((bool) s.getProperties().getWithDefault ("bassSoundKnob", false))
+        if ((bool) s.getProperties().getWithDefault ("bassSoundKnob", false)
+            || (bool) s.getProperties().getWithDefault ("bassVolumeKnob", false))
         {
             // Only the existing face is restyled; ring, geometry and input stay untouched.
             juce::Graphics::ScopedSaveState ss (g);

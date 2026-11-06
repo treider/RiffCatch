@@ -56,4 +56,29 @@ defaults, DSP or v0.64 enclosure/tab/piano-roll changes are included. Before/aft
 comparisons and interaction checks complement the headless regressions; user acceptance
 remains separate.
 
+### v0.66 implementation scope
+
+Bass's seven header/sound combos, Random, Rec/Wait/REC, Bake, M/S, Clear,
+Echo/Rev and page buttons opt into `bassControl`. The Bass library counter
+opts in only its arrow tiles, not its blue display. Live `bassControlLight`
+and `bassControlContact` roles add restrained upper-left light, a narrow
+reflection and a lower contact edge inside the existing dark frames.
+Semantic active fills, record red and focus policy are retained. The volume
+face explicitly opts into `bassVolumeKnob` using the existing knob material;
+the eight v0.65 sound knobs are unchanged. `bassNoteLabel` strengthens only
+the small piano-roll note names, not the grid surface.
+
+Below 1000px Bass-panel width (1134px with page navigation visible), the
+header wraps into two 28px control rows, adding 32px locally above Bass.
+Library/Bars/Root/Scale and pages occupy the first row; Template/Chords/Random
+and recording/mix actions occupy the second. The parent reserves this extra
+height only while Bass is selected; mixer and Drums retain their positions.
+The 143px note grid, sound-control geometry, typography and input mapping are
+retained, offset together by the extra header height. The passive header
+meter remains omitted when space is tight, as before; no action is hidden.
+Normal unpaged 1500x980 window layout remains on the original single row.
+Automated bounds/paint/parameter checks complement actual 1100x620 and
+1500x980 captures. Visual theme verification for this scope is restricted to
+Sunset and Tokyo Night; user acceptance remains separate.
+
 Completion requires the [visual checklist](visual-checklist.md), a successful build/selftest for code changes, actual screenshot comparison and user testing. Missing visual evidence means incomplete verification. Commit and push remain separate user-approved steps.

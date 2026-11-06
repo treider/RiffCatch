@@ -48,7 +48,10 @@ public:
         {
             const auto r = arrowRect (i).toFloat();
             const bool over = hover == i;
-            Theme::framedTile (g, r, over ? Theme::raised.brighter (0.12f) : Theme::raised, 2.0f);
+            if ((bool) getProperties().getWithDefault ("bassControl", false))
+                Theme::bassControlTile (g, r, Theme::raised, 2.0f, isEnabled(), over, pressed == i, hasKeyboardFocus (true));
+            else
+                Theme::framedTile (g, r, over ? Theme::raised.brighter (0.12f) : Theme::raised, 2.0f);
             juce::Path p;
             const auto c = r.getCentre();
             if (i == 0) p.addTriangle (c.x - 4.5f, c.y + 2.0f, c.x + 4.5f, c.y + 2.0f, c.x, c.y - 3.0f);
@@ -59,8 +62,15 @@ public:
     }
     void mouseMove (const juce::MouseEvent& e) override { setHover (arrowAt (e.getPosition())); }
     void mouseExit (const juce::MouseEvent&) override { setHover (-1); }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        pressed = arrowAt (e.getPosition());
+        if ((bool) getProperties().getWithDefault ("bassControl", false)) repaint();
+    }
     void mouseUp (const juce::MouseEvent& e) override
     {
+        pressed = -1;
+        if ((bool) getProperties().getWithDefault ("bassControl", false)) repaint();
         if (e.mods.isPopupMenu() && displayRect (true).contains (e.getPosition()))
         {
             juce::PopupMenu m;
@@ -86,6 +96,7 @@ private:
     juce::Colour themeColour() const { return kind == PatternBank::Drums ? Theme::orange : Theme::cyan; }     // read at paint time so theme changes apply
     juce::Colour accent;
     int hover = -1;
+    int pressed = -1;
     float wheelAcc = 0.0f;
 
     // the display is as wide as its three digits (a little more while "x2" is shown); the ring around it needs a few pixels of margin

@@ -20,7 +20,12 @@ public:
 
     LibraryCounter& counter() { return libCounter; }
     SeqTabs& seqTabs() { return tabs; }                // shown by the main window above the card
-    int preferredHeight() const { return expanded ? headerH + shiftH + gridH + bottomPad : headerH; }
+    // Width is supplied by the parent before setBounds, so crossing a breakpoint
+    // never uses last frame's width. Page controls also need room in the header.
+    int headerHeight (int width) const { return headerH + (width < (prevPage.isVisible() ? 1134 : 1000) ? 32 : 0); }
+    int headerHeight() const { return headerHeight (getWidth()); }
+    int preferredHeight (int width) const { return headerHeight (width) + (expanded ? shiftH + gridH + bottomPad : 0); }
+    int preferredHeight() const { return preferredHeight (getWidth()); }
     bool isExpanded() const noexcept { return expanded; }
     void setExpanded (bool b);
     void setView (double seconds, double barSecs, double start = 0.0, double full = -1.0);
@@ -86,7 +91,7 @@ private:
     int rowsNow() const { return engine.bass.scale.load() == 6 ? 13 : BassMachine::numRows; }
     int rowHeight() const { return gridH / rowsNow(); }
     int baseDegree() const { return (engine.bass.scale.load() == 6 ? 0 : BassMachine::degreeBase) + viewShift; }
-    float rowY (int row) const { return (float) (headerH + shiftH + (rowsNow() - 1 - row) * rowHeight()); }
+    float rowY (int row) const { return (float) (headerHeight() + shiftH + (rowsNow() - 1 - row) * rowHeight()); }
     void pushPattern (const juce::String& name, const BassMachine::Snapshot& before, const BassMachine::Snapshot& after);
     void updateControls();
     void info (const juce::String& what, const juce::String& value);
