@@ -108,6 +108,7 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
     volume.setRange (0.0, 1.2, 0.0);
     volume.setDoubleClickReturnValue (true, 0.8);
     volume.getProperties().set ("uni", true);
+    volume.getProperties().set ("drumKnob", true);
     volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::orange);
     volume.setWantsKeyboardFocus (false);
     volume.setTooltip ("Drum volume");
@@ -141,6 +142,7 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
         s.setRange (lo, hi, 0.0);
         s.setDoubleClickReturnValue (true, def);
         s.getProperties().set ("uni", unipolar);
+        s.getProperties().set ("drumKnob", true);
         s.setColour (juce::Slider::rotarySliderFillColourId, Theme::accent);
         s.setWantsKeyboardFocus (false);
         s.setTooltip (tip);
@@ -166,6 +168,9 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
     };
     addChildComponent (cymPitch);
 
+    for (auto* c : std::initializer_list<juce::Component*> { &barsBox, &templateBox, &clearBtn,
+                                                           &muteBtn, &soloBtn, &prevPage, &nextPage, &libCounter })
+        c->getProperties().set ("drumControl", true);
     refreshFromEngine();
 }
 
@@ -250,7 +255,13 @@ void DrumPanel::updateControls()
     const bool paged = expanded && pages > 1;
     for (int v = 0; v < DrumMachine::numVoices; ++v) { laneVol[v].setVisible (expanded); lanePan[v].setVisible (expanded); }
     cymPitch.setVisible (expanded);
+    const bool pagedChanged = prevPage.isVisible() != paged;
     prevPage.setVisible (paged); nextPage.setVisible (paged); pageLabel.setVisible (paged);
+    if (pagedChanged)
+    {
+        resized();
+        if (onLayoutChanged) onLayoutChanged();
+    }
     prevPage.setEnabled (page > 0); nextPage.setEnabled (page < pages - 1);
     if (paged)
     {
@@ -261,7 +272,7 @@ void DrumPanel::updateControls()
 
 juce::Rectangle<int> DrumPanel::lanesArea() const
 {
-    return { TrackRow::waveLeft, headerH, juce::jmax (1, getWidth() - TrackRow::waveLeft - TrackRow::waveRightInset), DrumMachine::numVoices * laneH };
+    return { TrackRow::waveLeft, bodyTop(), juce::jmax (1, getWidth() - TrackRow::waveLeft - TrackRow::waveRightInset), DrumMachine::numVoices * laneH };
 }
 
 juce::Rectangle<float> DrumPanel::laneRect (int voice) const
@@ -301,56 +312,31 @@ void DrumPanel::pushPattern (const juce::String& name, const DrumMachine::Snapsh
 
 void DrumPanel::resized()
 {
-    auto r = juce::Rectangle<int> (0, 0, getWidth(), headerH).reduced (12, 7);
-    const int h = r.getHeight(), y = r.getY();
-    // the controls the bass panel has too (counter, bars, volume, M, S, Clear) sit at exactly the same place in both panels
-    int x = r.getRight() - 4;
-    auto put = [&] (juce::Component& c, int w, int gap) { x -= w; c.setBounds (x, y, w, h); x -= gap; };
-    put (clearBtn, 56, 12); put (soloBtn, 30, 4); put (muteBtn, 30, 12);
-    x -= 32; volume.setBounds (juce::Rectangle<int> (x, y, 32, h).withSizeKeepingCentre (32, 32));
-    const int rightEdge = x - 8;
-
-    chevron.setBounds (r.getX() + 6, y, 24, h);
-    counter().setBounds (LibraryCounter::panelX, y, LibraryCounter::totalW, h);
-    juce::Rectangle<int> l (LibraryCounter::panelX + LibraryCounter::totalW + 8, y, 0, h);
-    l.setRight (rightEdge);
-    barsBox.setBounds (l.removeFromLeft (84)); l.removeFromLeft (6);
-    templateBox.setBounds (l.removeFromLeft (112)); l.removeFromLeft (8);
-    prevPage.setBounds (l.removeFromLeft (26)); l.removeFromLeft (4);
-    pageLabel.setBounds (l.removeFromLeft (72)); l.removeFromLeft (4);
-    nextPage.setBounds (l.removeFromLeft (26)); l.removeFromLeft (16);
-    meter.setBounds (juce::Rectangle<int> (juce::jmax (l.getX(), rightEdge - 190), y, juce::jmin (190, rightEdge - l.getX()), h).withSizeKeepingCentre (juce::jmin (190, juce::jmax (0, rightEdge - l.getX())), 14));
+    const auto layout = SeqHeaderLayout::make (sharedHeaderWidth > 0 ? sharedHeaderWidth : getWidth(),
+                                              sharedHeaderWidth > 0 ? sharedHeaderPages : hasPages());
+    layout.apply (headerControls(), headerOrigin);
+    meter.setVisible (! layout.meter.isEmpty());
+    meter.setBounds (layout.meter.translated (headerOrigin.x, headerOrigin.y));
     for (int v = 0; v < DrumMachine::numVoices; ++v)
     {
-        const int y = headerH + v * laneH;
+        const int y = bodyTop() + v * laneH;
         laneVol[v].setBounds (112, y, laneH, laneH);
         lanePan[v].setBounds (172, y, laneH, laneH);
     }
-    cymPitch.setBounds (232, headerH + DrumMachine::Cymbal * laneH, laneH, laneH);
+    cymPitch.setBounds (232, bodyTop() + DrumMachine::Cymbal * laneH, laneH, laneH);
 }
 
 void DrumPanel::paint (juce::Graphics& g)
 {
-    const auto accent = Theme::orange;
     const auto b = getLocalBounds().toFloat();
-    {
-        juce::Graphics::ScopedSaveState ss (g);
-        juce::Path card;
-        card.addRoundedRectangle (b, Theme::radiusLg);
-        g.reduceClipRegion (card);
-        g.setColour (Theme::panel);
-        g.fillRect (b);
-        g.setColour (accent);
-        g.fillRect (b.withWidth (4.0f));
-    }
-    g.setColour (accent.withAlpha (0.22f));
-    g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
+    Theme::drumEnclosure (g, b);
+    Theme::materialControlShadows (g, *this); // header remains tactile when collapsed
     if (! expanded) return;
 
     const auto& dm = engine.drums;
     const int vs = viewSteps(), ps = dm.patternSteps();
     const auto la = lanesArea();
-    Theme::wellRing (g, la.toFloat(), 3.0f);
+    Theme::materialWellRim (g, la.toFloat());
     const double pps = (double) la.getWidth() / viewSeconds;
     const double stepS = stepSec();
     const float cellW = (float) (stepS * pps);
@@ -448,8 +434,8 @@ void DrumPanel::tick()
 void DrumPanel::mouseDown (const juce::MouseEvent& e)
 {
     painting = false;
-    if (! expanded || e.y < headerH) return;
-    const int voice = (e.y - headerH) / laneH;
+    if (! expanded || e.y < bodyTop()) return;
+    const int voice = (e.y - bodyTop()) / laneH;
     if (voice < 0 || voice >= DrumMachine::numVoices) return;
 
     if (e.x < lanesArea().getX() - 6)    // lane header

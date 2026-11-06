@@ -29,6 +29,7 @@ Windows multitrack looper. C++20, JUCE 8.0.4, CMake. Answer briefly in Norwegian
 - Approved redesign target: `docs/screenshots/RiffCatch Retro-Tech DAW Interface.png`. For redesign, open it and read `docs/design/design-system.md`; directional highlights/reflections supersede the historical flat/no-gradient rule.
 - Design -> approved scope -> implementation -> build/selftest/screenshots -> review -> user test. Designer/reviewer are read-only; the primary agent or developer supplies captures.
 - Load only the relevant `.opencode/skills/<name>/SKILL.md`: `riffcatch-visual-design`, `juce-custom-lookandfeel`, or `visual-quality-review`.
+- For glow, bloom, bevels and lighting diagnostics, load `juce-glow-rendering` from `.agents/skills/juce-glow-rendering/SKILL.md`, the shared native OpenCode/Copilot skill.
 - OpenCode: `@ui-designer`, `@juce-developer`, `@visual-reviewer`; setup in `docs/design/opencode-workflow.md`.
 - Copilot: `.github/agents/*.agent.md`, select with `/agent` or delegate by name; setup in `docs/design/copilot-workflow.md`. Adapters read shared role/skill text; OpenCode YAML is not Copilot configuration.
 - No model pinning, default-agent changes or framework dependencies. Use native Windows/current checkout for EXE work; never run competing editing sessions on the same files.

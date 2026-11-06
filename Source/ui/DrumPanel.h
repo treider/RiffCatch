@@ -6,6 +6,7 @@
 #include "Undo.h"
 #include "SeqTabs.h"
 #include "LibraryCounter.h"
+#include "SeqHeaderLayout.h"
 
 // Step sequencer panel above the master strip: six drum lanes, aligned with the ruler / clip lanes.
 // Click or drag in the grid to set hits (right-click or Shift = accent). The pattern repeats over the loop.
@@ -18,7 +19,15 @@ public:
 
     LibraryCounter& counter() { return libCounter; }
     SeqTabs& seqTabs() { return tabs; }                // shown by the main window above the card
-    int preferredHeight() const { return expanded ? headerH + DrumMachine::numVoices * laneH + bottomPad : headerH; }
+    bool hasPages() const { return prevPage.isVisible(); }
+    void setSharedHeader (int width, bool pages, juce::Point<int> origin)
+    { sharedHeaderWidth = width; sharedHeaderPages = pages; headerOrigin = origin; }
+    SeqHeaderLayout::Controls headerControls() { return { &chevron, &libCounter, &barsBox, &templateBox,
+        &prevPage, &pageLabel, &nextPage, &clearBtn, &muteBtn, &soloBtn, &volume }; }
+    int headerHeight() const { return SeqHeaderLayout::height (sharedHeaderWidth > 0 ? sharedHeaderWidth : getWidth(),
+                                                             sharedHeaderWidth > 0 ? sharedHeaderPages : hasPages()); }
+    int bodyTop() const { return headerHeight() + headerOrigin.y; }
+    int preferredHeight() const { return headerHeight() + (expanded ? DrumMachine::numVoices * laneH + bottomPad : 0); }
     bool isExpanded() const noexcept { return expanded; }
     void setExpanded (bool b);
     void refreshTemplates();
@@ -72,6 +81,9 @@ private:
 
     AudioEngine& engine;
     bool expanded = true;
+    int sharedHeaderWidth = 0;
+    bool sharedHeaderPages = false;
+    juce::Point<int> headerOrigin;
     double viewSeconds = 8.0, barSeconds = 2.0, viewStart = 0.0, fullSeconds = 8.0;   // visible window and the whole loop
     int page = 0;
 

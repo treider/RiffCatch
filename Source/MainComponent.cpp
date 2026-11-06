@@ -1291,7 +1291,8 @@ void MainComponent::paint (juce::Graphics& g)
     g.fillAll (Theme::bg);
     Theme::cardShadow (g, barArea.getUnion (settingsArea).toFloat());
     Theme::cardShadow (g, (seqTab == 1 ? bassPanel.getBounds() : drumPanel.getBounds()).toFloat());
-    Theme::cardShadow (g, mixer.getBounds().toFloat());
+    Theme::cardShadow (g, mixer.enclosureBounds().translated ((float) mixer.getX(), (float) mixer.getY()));
+    if (seqTab == 1) bassPanel.paintOuterLight (g, *this);
     {
         const auto f = barArea.getUnion (settingsArea).toFloat();     // one merged top panel, settings row slightly darker
         g.setColour (Theme::panel);
@@ -1367,21 +1368,8 @@ void MainComponent::resized()
     statusLabel.setBounds (sb);
 
     r.removeFromTop (10);
-    {   // bottom row: Drums | Bass tabs above the card, master + tuner on the right, same height as the card
-        const int tabsH = 28;
-        auto row = r.removeFromBottom (tabsH + MixerPanel::panelH);
-        const auto tabsRow = row.removeFromTop (tabsH);
-        mixer.setBounds (row.removeFromRight (MixerPanel::panelW));
-        row.removeFromRight (10);
-        for (auto* t : { &drumPanel.seqTabs(), &bassPanel.seqTabs() }) t->setBounds (tabsRow.withWidth (250));
-        const auto pr = row.withHeight (juce::jmin (row.getHeight(), drumPanel.preferredHeight()));
-        drumPanel.setBounds (pr);
-        const int bassH = bassPanel.preferredHeight (row.getWidth());
-        const int extra = bassPanel.headerHeight (row.getWidth()) - BassPanel::headerH;
-        bassPanel.setBounds (row.getX(), row.getY() - extra, row.getWidth(), bassH);
-        bassPanel.seqTabs().setBounds (tabsRow.withWidth (250).translated (0, -extra));
-        if (seqTab == 1) r.removeFromBottom (extra);
-    }    r.removeFromBottom (10);
+    layoutBottomRow (r, drumPanel, bassPanel, mixer, seqTab);
+    r.removeFromBottom (10);
 
     {
         auto tabsRowR = r.removeFromTop (PatternTabs::tabH + 3);
@@ -1398,6 +1386,55 @@ void MainComponent::resized()
     ruler.setBounds (rulerRow.withWidth (w));
     addTrackBtn.setBounds (rulerRow.withWidth (8 + 4 + 16 + 6 + 336 + 12).withTrimmedLeft (4));   // sits above the track headers
     list.setSize (w, juce::jmax (list.contentHeight(), viewport.getHeight()));
+    repaint(); // include the old/new outside shadows on tab, collapse and page-layout changes
+}
+
+void MainComponent::layoutBottomRow (juce::Rectangle<int>& remaining, DrumPanel& drums,
+                                    BassPanel& bass, MixerPanel& right, int tab)
+{
+    const int tabsH = 28;
+    const int leftWidth = remaining.getWidth() - MixerPanel::panelW - 10;
+    const bool pages = drums.hasPages() || bass.hasPages();
+    bass.setSharedHeader (leftWidth, pages);
+    drums.setSharedHeader (leftWidth, pages, {});
+    auto applyHeader = [&]
+    {
+        drums.setSharedHeader (leftWidth, pages, bass.getPosition() - drums.getPosition());
+        bass.resized(); drums.resized(); // paging union may change without changing bounds
+    };
+    if (tab == 1 ? bass.isExpanded() : drums.isExpanded())
+    {
+        // Reserve both expanded panels, even when Bass is hidden. Bass/mixer
+        // paint inset by 1px; Drums paints to its bounds and needs its full
+        // preferred content height inside that common visible frame.
+        const int height = juce::jmax (bass.preferredHeight (leftWidth), drums.preferredHeight() + 2);
+        auto row = remaining.removeFromBottom (tabsH + height);
+        const auto tabs = row.removeFromTop (tabsH).withWidth (250);
+        right.setBounds (row.removeFromRight (MixerPanel::panelW));
+        row.removeFromRight (10);
+        bass.setBounds (row);
+        drums.setBounds (row.reduced (1));
+        bass.seqTabs().setBounds (tabs);
+        drums.seqTabs().setBounds (tabs);
+        applyHeader();
+        return;
+    }
+
+    // Header-only collapse, with the original full-size mixer. Both headers
+    // now need the shared row count; no full-size empty left frame is retained.
+    auto row = remaining.removeFromBottom (tabsH + MixerPanel::panelH);
+    const auto tabsRow = row.removeFromTop (tabsH);
+    auto mixerBounds = row.removeFromRight (MixerPanel::panelW);
+    row.removeFromRight (10);
+    const int extra = bass.headerHeight (row.getWidth()) - BassPanel::headerH;
+    bass.setBounds (row.getX(), row.getY() - extra, row.getWidth(), bass.preferredHeight (row.getWidth()));
+    drums.setBounds (bass.getBounds().reduced (1));
+    bass.seqTabs().setBounds (tabsRow.withWidth (250).translated (0, -extra));
+    drums.seqTabs().setBounds (bass.seqTabs().getBounds());
+    remaining.removeFromBottom (extra);
+
+    right.setBounds (mixerBounds);
+    applyHeader();
 }
 // ------------------------------------------------------------- dialogs/projects
 

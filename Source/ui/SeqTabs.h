@@ -35,18 +35,35 @@ public:
             if (! on && hover == i) fill = Theme::panel.darker (0.04f);
             if (on && i == 1)
                 Theme::bassEnclosure (g, r, true);
+            else if (on && i == 0)
+                Theme::drumTab (g, r);
             else
             {
                 g.setColour (fill);
                 g.fillPath (tab);
-                if (on) { g.setColour (Theme::orange); g.fillRect (r.getX() + 6.0f, r.getY() + 1.0f, r.getWidth() - 12.0f, 2.0f); }
             }
 
             g.setFont (juce::Font (juce::FontOptions (13.0f, on ? juce::Font::bold : juce::Font::plain)));
             g.setColour (data ? Theme::accent : (on ? Theme::text : Theme::dim));
             auto textR = r.toNearestInt().withTrimmedTop (3);
             if (data) { g.fillEllipse (textR.getX() + 9.0f, (float) textR.getCentreY() - 3.0f, 6.0f, 6.0f); textR.removeFromLeft (10); }
-            g.drawText (names[i], textR, juce::Justification::centred);
+            if (i == 1)
+            {
+                const auto fillColour = data ? Theme::accent : (on ? Theme::text : Theme::dim);
+                juce::GlyphArrangement glyphs;
+                // Match Graphics::drawText's arrangement exactly (not fitted text).
+                glyphs.addCurtailedLineOfText (g.getCurrentFont(), names[i], 0.0f, 0.0f, (float) textR.getWidth(), true);
+                glyphs.justifyGlyphs (0, glyphs.getNumGlyphs(), (float) textR.getX(), (float) textR.getY(),
+                                     (float) textR.getWidth(), (float) textR.getHeight(), juce::Justification::centred);
+                juce::Path glyphPath;
+                glyphs.createPath (glyphPath);
+                g.setColour (Theme::bassGlyphContour());
+                g.strokePath (glyphPath, juce::PathStrokeType (0.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.setColour (fillColour);
+                g.drawText (names[i], textR, juce::Justification::centred);
+            }
+            else
+                g.drawText (names[i], textR, juce::Justification::centred);
         }
     }
     void mouseMove (const juce::MouseEvent& e) override { const int h = tabAt (e.x); if (h != hover) { hover = h; repaint(); } }

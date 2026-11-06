@@ -240,7 +240,7 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
         { "Drive",   0.0,   1.0,   0.2,   &bm.drive,   "",    0.0 } };
     for (const auto& d : defs)
     {
-        auto* k = knobs.add (new Knob());
+        auto* k = knobs.add (new Knob (knobs.isEmpty()));
         k->name = d.name;
         auto& s = k->s;
         s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -262,6 +262,8 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
         s.onValueChange = [this, kp, target, nm] { *target = (float) kp->s.getValue(); info ("Bass " + nm.toLowerCase(), kp->fmt (kp->s.getValue())); };
         addChildComponent (s);
     }
+    knobs[0]->s.getProperties().set ("bassSubLightPoc", true);
+    static_cast<BassLightPoc::Slider&> (knobs[0]->s).lightChanged = [this] { invalidateSubLight(); };
     for (auto* c : { &barsBox, &rootBox, &scaleBox, &templateBox, &progBox, &presetBox, &waveBox })
         c->getProperties().set ("bassControl", true);
     for (auto* b : { &randBtn, &liveBtn, &bakeBtn, &muteBtn, &soloBtn, &clearBtn, &prevPage, &nextPage,
@@ -273,6 +275,8 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
 
 void BassPanel::lookAndFeelChanged()
 {
+    if (! knobs.isEmpty()) knobs[0]->s.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
+    if (auto* parent = getParentComponent()) parent->repaint (getBounds().expanded (12));
     volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
     pageLabel.setColour (juce::Label::textColourId, Theme::dim);
     liveBtn.setColour (juce::TextButton::buttonOnColourId, Theme::red);
@@ -394,6 +398,7 @@ void BassPanel::refreshFromEngine()
     reverbBtn.setToggleState (bm.reverbOn.load(), juce::dontSendNotification);
     const float vals[8] = { bm.sub.load(), bm.cutoff.load(), bm.reso.load(), bm.envAmt.load(), bm.decay.load(), bm.sustain.load(), bm.glide.load(), bm.drive.load() };
     for (int i = 0; i < knobs.size(); ++i) knobs[i]->s.setValue (vals[i], juce::dontSendNotification);
+    invalidateSubLight(); // dontSendNotification intentionally bypasses Slider::valueChanged
     updateControls();
     repaint();
 }
@@ -483,67 +488,13 @@ void BassPanel::pushPattern (const juce::String& name, const BassMachine::Snapsh
 
 void BassPanel::resized()
 {
-    auto r = juce::Rectangle<int> (0, 0, getWidth(), headerH).reduced (12, 7);
-    const int h = r.getHeight(), y = r.getY();
-    // the controls the drum panel has too (counter, bars, volume, M, S, Clear) sit at exactly the same place in both panels
-    int x = r.getRight() - 4;
-    auto put = [&] (juce::Component& c, int w, int gap) { x -= w; c.setBounds (x, y, w, h); x -= gap; };
-    put (clearBtn, 56, 12); put (soloBtn, 30, 4); put (muteBtn, 30, 12);
-    x -= 32; volume.setBounds (juce::Rectangle<int> (x, y, 32, h).withSizeKeepingCentre (32, 32));
-    x -= 20;
-    put (bakeBtn, 52, 4); put (liveBtn, 44, 0);                 // bass only: Rec and Bake
-    const int rightFixed = r.getRight() - 4 - x;
-    const int rightEdge = x - 8;
-
-    chevron.setBounds (r.getX() + 6, y, 24, h);
-    counter().setBounds (LibraryCounter::panelX, y, LibraryCounter::totalW, h);
-    const int leftStart = LibraryCounter::panelX + LibraryCounter::totalW + 8;
-    const int leftFixed = (leftStart - r.getX()) + 64 + 8 + 30 + (prevPage.isVisible() ? 134 : 0), comboBase = 496;
-    const int meterRoom = r.getWidth() - leftFixed - comboBase - rightFixed - 16;
-    const int meterW = meterRoom >= 60 ? juce::jmin (190, meterRoom) : 0;
-    meter.setVisible (meterW > 0);
-    if (meterW > 0) meter.setBounds (juce::Rectangle<int> (rightEdge - meterW, y, meterW, h).withSizeKeepingCentre (meterW, 14));
-
-    // left group; the combo boxes shrink when the window is narrow
-    const int groupEnd = meterW > 0 ? rightEdge - meterW - 16 : rightEdge;
-    const float f = juce::jlimit (0.5f, 1.0f, (float) (groupEnd - leftStart - (leftFixed - (leftStart - r.getX()))) / (float) comboBase);
-    auto w = [f] (int v) { return (int) std::lround (v * f); };
-    juce::Rectangle<int> l (leftStart, y, juce::jmax (0, groupEnd - leftStart), h);
-    barsBox.setBounds (l.removeFromLeft (84)); l.removeFromLeft (6);
-    rootBox.setBounds (l.removeFromLeft (w (54))); l.removeFromLeft (6);
-    scaleBox.setBounds (l.removeFromLeft (w (128))); l.removeFromLeft (6);
-    templateBox.setBounds (l.removeFromLeft (w (112))); l.removeFromLeft (6);
-    progBox.setBounds (l.removeFromLeft (w (118))); l.removeFromLeft (6);
-    randBtn.setBounds (l.removeFromLeft (64)); l.removeFromLeft (8);
-    prevPage.setBounds (l.removeFromLeft (26)); l.removeFromLeft (4);
-    pageLabel.setBounds (l.removeFromLeft (72)); l.removeFromLeft (4);
-    nextPage.setBounds (l.removeFromLeft (26));
-    if (headerHeight() > headerH)
-    {
-        // Two stable rows, not a shrinking remainder: navigation/key first,
-        // pattern actions and recording/mix second. All actions stay available.
-        barsBox.setBounds (leftStart, y, 84, h);
-        rootBox.setBounds (leftStart + 90, y, 54, h);
-        scaleBox.setBounds (leftStart + 150, y, 128, h);
-        int px = r.getRight() - 138;
-        prevPage.setBounds (px, y, 26, h);
-        pageLabel.setBounds (px + 30, y, 72, h);
-        nextPage.setBounds (px + 106, y, 26, h);
-        const int y2 = y + 32;
-        templateBox.setBounds (14, y2, 104, h);
-        progBox.setBounds (124, y2, 104, h);
-        randBtn.setBounds (234, y2, 64, h);
-        x = r.getRight() - 4;
-        auto putCompact = [&] (juce::Component& c, int cw, int gap)
-        {
-            x -= cw; c.setBounds (x, y2, cw, h); x -= gap;
-        };
-        putCompact (clearBtn, 56, 6); putCompact (soloBtn, 30, 4); putCompact (muteBtn, 30, 6);
-        x -= 32; volume.setBounds (juce::Rectangle<int> (x, y2, 32, h).withSizeKeepingCentre (32, 32));
-        x -= 8;
-        putCompact (bakeBtn, 52, 4); putCompact (liveBtn, 44, 0);
-        meter.setVisible (false); // the legacy header also omits this passive meter when space is tight
-    }
+    const auto layout = SeqHeaderLayout::make (getWidth(), sharedHeaderWidth > 0 ? sharedHeaderPages : hasPages());
+    layout.apply (headerControls());
+    rootBox.setBounds (layout.root); scaleBox.setBounds (layout.scale);
+    progBox.setBounds (layout.chords); randBtn.setBounds (layout.random);
+    liveBtn.setBounds (layout.record); bakeBtn.setBounds (layout.bake);
+    meter.setVisible (! layout.meter.isEmpty());
+    meter.setBounds (layout.meter);
     const int bodyY = headerHeight();
     presetBox.setBounds (14, bodyY + 2, 150, 24);
     waveBox.setBounds (172, bodyY + 2, 96, 24);
@@ -555,12 +506,77 @@ void BassPanel::resized()
         knobs[i]->s.setBounds (14 + col * 92 + 26, bodyY + 34 + row * 60, 38, 38);
     }
 }
+juce::Rectangle<float> BassPanel::subSliderArea()
+{
+    auto& s = knobs[0]->s;
+    return getLocalArea (&s, s.getLookAndFeel().getSliderLayout (s).sliderBounds).toFloat();
+}
+
+void BassPanel::invalidateSubLight()
+{
+    if (knobs.isEmpty()) return;
+    const auto& s = knobs[0]->s;
+    const auto bounds = getLocalArea (&s, s.getLocalBounds()).expanded (BassLightPoc::Sub::repaintOutset)
+        .withBottom (s.getBottom() - 1);
+    const int state = (s.isEnabled() ? 1 : 0) | (s.isMouseOverOrDragging() ? 2 : 0)
+                    | (s.isMouseButtonDown() ? 4 : 0) | (s.isVisible() ? 8 : 0);
+    if (bounds == lastSubLightBounds && s.getValue() == lastSubLightValue && state == lastSubLightState) return;
+    lastSubInvalidation = lastSubLightBounds.isEmpty() ? bounds : bounds.getUnion (lastSubLightBounds);
+    lastSubLightBounds = bounds; lastSubLightValue = s.getValue(); lastSubLightState = state;
+    ++subInvalidations;
+    repaint (lastSubInvalidation);
+}
+
+void BassPanel::paintOuterLight (juce::Graphics& g, juce::Component& paintOwner)
+{
+    frameLight.ensure (getLocalBounds().toFloat(), g.getInternalContext().getPhysicalPixelScaleFactor());
+    juce::Graphics::ScopedSaveState save (g);
+    const auto local = paintOwner.getLocalArea (this, getLocalBounds());
+    g.setOrigin (local.getPosition());
+    frameLight.drawOuter (g);
+}
+
 void BassPanel::paint (juce::Graphics& g)
 {
     const auto accent = Theme::cyan;
     const auto b = getLocalBounds().toFloat();
     // The parent already supplies the cached Theme::cardShadow at these unchanged bounds.
-    Theme::bassEnclosure (g, b);
+    frameLight.ensure (b, g.getInternalContext().getPhysicalPixelScaleFactor());
+    Theme::bassEnclosure (g, b, false, true);
+    frameLight.drawInner (g);
+    if (expanded && ! knobs.isEmpty())
+    {
+        auto& s = knobs[0]->s;
+        invalidateSubLight();
+        const auto rotary = s.getRotaryParameters();
+        subLight.ensure (subSliderArea(), (float) s.valueToProportionOfLength (s.getValue()),
+                         g.getInternalContext().getPhysicalPixelScaleFactor(),
+                         rotary.startAngleRadians, rotary.endAngleRadians,
+                         (bool) s.getProperties().getWithDefault ("uni", false));
+        subLight.drawRing (g, s.isEnabled(), s.isMouseButtonDown());
+        subLight.draw (g, s.findColour (juce::Slider::rotarySliderFillColourId),
+                       s.isEnabled(), s.isMouseOverOrDragging(), s.isMouseButtonDown());
+    }
+    // Shadows belong behind the children, outside their unchanged hit rectangles.
+    // Convert from each actual child, including any nested/viewport coordinates.
+    auto controlShadows = [&] (auto&& visit, juce::Component& parent) -> void
+    {
+        for (auto* child : parent.getChildren())
+        {
+            if (! child->isVisible()) continue;
+            if ((bool) child->getProperties().getWithDefault ("bassControl", false))
+            {
+                auto* button = dynamic_cast<juce::Button*> (child);
+                auto* combo = dynamic_cast<juce::ComboBox*> (child);
+                if (button != nullptr || combo != nullptr)
+                    Theme::bassControlShadow (g, getLocalArea (child, child->getLocalBounds()).toFloat(),
+                                              child->isEnabled(), button != nullptr ? button->isDown()
+                                                  : combo->isPopupActive() || combo->isMouseButtonDown());
+            }
+            visit (visit, *child);
+        }
+    };
+    controlShadows (controlShadows, *this);
     if (! expanded) return;
 
     const auto& bm = engine.bass;
@@ -568,15 +584,7 @@ void BassPanel::paint (juce::Graphics& g)
     const auto ga = gridArea();
     const int n = BassMachine::scaleSize (bm.scale.load());
     const auto well = juce::Rectangle<int> (ga.getX(), headerHeight(), ga.getWidth(), shiftH + ga.getHeight()).toFloat();
-    Theme::wellRing (g, well, 3.0f);
-    g.setGradientFill (juce::ColourGradient (Theme::border.interpolatedWith (Theme::text, 0.22f), well.getX(), well.getY(),
-                                            Theme::border.darker (0.45f), well.getRight(), well.getBottom(), false));
-    g.drawRoundedRectangle (well.expanded (2.5f), Theme::radiusLg + 1.0f, 1.0f);
-    g.setColour (Theme::deep.darker (0.65f));
-    g.fillRoundedRectangle (well.expanded (1.5f), Theme::radiusLg);
-    g.setGradientFill (juce::ColourGradient (Theme::border.withAlpha (0.15f), well.getX(), well.getY(),
-                                            Theme::border.interpolatedWith (Theme::text, 0.18f), well.getX(), well.getBottom(), false));
-    g.drawRoundedRectangle (well.expanded (1.0f), Theme::radius, 1.0f);
+    Theme::bassWellRim (g, well);
     const double pps = (double) ga.getWidth() / viewSeconds;
     const double stepS = stepSec();
     const float cellW = (float) (stepS * pps);

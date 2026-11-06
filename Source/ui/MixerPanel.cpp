@@ -29,6 +29,7 @@ ChannelStrip::ChannelStrip (AudioEngine& e, int s, int orderPos) : engine (e), s
     fader.setDoubleClickReturnValue (true, gainToFader (1.0f));
     fader.setColour (juce::Slider::trackColourId, fillCol);
     fader.setWantsKeyboardFocus (false);
+    if (isMaster()) fader.getProperties().set ("masterOutputFader", true);
     fader.setTooltip ("Volume");
     fader.onDragStart = [this] { dragging = true; };
     fader.onDragEnd = [this] { dragging = false; if (isMaster()) commitMaster(); };
@@ -194,13 +195,24 @@ void ChannelStrip::paint (juce::Graphics& g)
         g.fillRect (b);
         g.setColour (accent);                                           // coloured title block, as in Live
         g.fillRect (b.withHeight (22.0f));
+        if (isMaster())
+        {
+            g.setGradientFill (juce::ColourGradient (Theme::masterFaceLight().withAlpha (0.48f), 0.0f, 1.0f,
+                                                    Theme::masterFaceLight().withAlpha (0.0f), b.getRight(), 1.0f, false));
+            g.fillRect (b.reduced (1.0f).withHeight (1.0f));
+            g.setColour (Theme::mixerContact().withAlpha (0.32f));
+            g.fillRect (0.0f, 20.5f, b.getWidth(), 1.5f);
+        }
     }
     g.setColour (Theme::border.withAlpha (0.55f));
     g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
 
     {   // one dark well holds VU, dB scale and fader; the read-out sits right under it, same width
         const auto well = wellArea.toFloat();
-        Theme::wellRing (g, well, 2.5f);
+        if (isMaster())
+            Theme::mixerWellSurround (g, well.expanded (2.5f), Theme::radiusLg + 1.25f, well, Theme::radius);
+        else
+            Theme::wellRing (g, well, 2.5f);
         g.setColour (Theme::deep);
         g.fillRoundedRectangle (well, Theme::radius);
         if (! scaleArea.isEmpty())
@@ -219,6 +231,12 @@ void ChannelStrip::paint (juce::Graphics& g)
         }
         const auto db = dbLabel.getBounds().toFloat();
         Theme::framedTile (g, db, Theme::deep, 1.5f);
+        if (isMaster())
+        {
+            g.setGradientFill (juce::ColourGradient (Theme::mixerContact(), db.getX(), db.getY(),
+                                                    Theme::mixerCoolLight().withAlpha (0.15f), db.getX(), db.getBottom(), false));
+            g.drawRoundedRectangle (db.reduced (0.5f), 5.5f, 1.0f);
+        }
     }    g.setColour (onHeader);
     g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
     g.drawText (isMaster() ? juce::String ("Master") : shownName, 8, 2, getWidth() - 16, 18, juce::Justification::centredLeft, true);
@@ -270,7 +288,7 @@ void MixerPanel::tick()
 void MixerPanel::paint (juce::Graphics& g)
 {
     const auto accent = Theme::purple;
-    const auto b = getLocalBounds().toFloat();
+    const auto b = enclosureBounds();
     {
         juce::Graphics::ScopedSaveState ss (g);
         juce::Path card;
@@ -278,6 +296,17 @@ void MixerPanel::paint (juce::Graphics& g)
         g.reduceClipRegion (card);
         g.setColour (Theme::panel);
         g.fillRect (b);
+        const auto light = Theme::mixerCoolLight();
+        g.setGradientFill (juce::ColourGradient (light.withAlpha (0.08f), 4.0f, 0.0f,
+                                                light.withAlpha (0.0f), b.getWidth() * 0.45f, 36.0f, false));
+        g.fillRect (b);
+        g.setColour (Theme::mixerContact().withAlpha (0.70f));
+        g.drawRoundedRectangle (b.reduced (1.8f), Theme::radiusLg - 1.8f, 1.0f);
+        g.setGradientFill (juce::ColourGradient (light.withAlpha (0.42f), 4.0f, 0.0f,
+                                                light.withAlpha (0.0f), b.getWidth() * 0.75f, b.getHeight(), false));
+        g.drawRoundedRectangle (b.reduced (0.65f), Theme::radiusLg - 0.65f, 1.0f);
+        // Bounded downward falloff fits the existing padding, without shrinking hit areas.
+        Theme::tunerShadow (g, tuner.getBounds().toFloat());
         {   // the master strip casts a shadow to the sides and below
             juce::Graphics::ScopedSaveState s2 (g);
             const auto r = master.getBounds();

@@ -26,6 +26,8 @@ public:
     ~MainComponent() override;
     void paint (juce::Graphics&) override;
     void resized() override;
+    // The production bottom-row layout, also exercised without devices/settings by selftest.
+    static void layoutBottomRow (juce::Rectangle<int>& remaining, DrumPanel&, BassPanel&, MixerPanel&, int tab);
     bool keyPressed (const juce::KeyPress&) override;
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int, int) override;

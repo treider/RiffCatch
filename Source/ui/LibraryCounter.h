@@ -48,8 +48,16 @@ public:
         {
             const auto r = arrowRect (i).toFloat();
             const bool over = hover == i;
-            if ((bool) getProperties().getWithDefault ("bassControl", false))
+            if (Theme::materialControl (*this))
+            {
+                {
+                    juce::Graphics::ScopedSaveState shadowState (g);
+                    // Reserve the blue housing, including the wider shared display.
+                    g.reduceClipRegion (getLocalBounds().withTrimmedLeft (displayRect (true).getRight() + 3));
+                    Theme::bassControlShadow (g, r, isEnabled(), pressed == i);
+                }
                 Theme::bassControlTile (g, r, Theme::raised, 2.0f, isEnabled(), over, pressed == i, hasKeyboardFocus (true));
+            }
             else
                 Theme::framedTile (g, r, over ? Theme::raised.brighter (0.12f) : Theme::raised, 2.0f);
             juce::Path p;
@@ -65,12 +73,12 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         pressed = arrowAt (e.getPosition());
-        if ((bool) getProperties().getWithDefault ("bassControl", false)) repaint();
+        if (Theme::materialControl (*this)) repaint();
     }
     void mouseUp (const juce::MouseEvent& e) override
     {
         pressed = -1;
-        if ((bool) getProperties().getWithDefault ("bassControl", false)) repaint();
+        if (Theme::materialControl (*this)) repaint();
         if (e.mods.isPopupMenu() && displayRect (true).contains (e.getPosition()))
         {
             juce::PopupMenu m;

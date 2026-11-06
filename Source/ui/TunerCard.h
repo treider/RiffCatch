@@ -56,8 +56,7 @@ public:
         const auto b = getLocalBounds().toFloat();
         const float w = b.getWidth();
         const float cx = w * 0.5f;
-        g.setColour (Theme::border);
-        g.fillRoundedRectangle (b, Theme::radiusLg);
+        Theme::mixerWellSurround (g, b, Theme::radiusLg, b.reduced (3.0f), Theme::radiusLg - 1.0f);
         g.setColour (Theme::deep);
         g.fillRoundedRectangle (b.reduced (3.0f), Theme::radiusLg - 1.0f);
 

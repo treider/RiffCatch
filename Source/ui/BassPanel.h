@@ -6,6 +6,8 @@
 #include "Undo.h"
 #include "SeqTabs.h"
 #include "LibraryCounter.h"
+#include "SeqHeaderLayout.h"
+#include "BassLightPoc.h"
 #include "audio/BassRandom.h"
 
 // Bass synth panel: a piano-roll-like grid in the chosen scale, aligned with the ruler / clip lanes (like the drum panel).
@@ -22,7 +24,11 @@ public:
     SeqTabs& seqTabs() { return tabs; }                // shown by the main window above the card
     // Width is supplied by the parent before setBounds, so crossing a breakpoint
     // never uses last frame's width. Page controls also need room in the header.
-    int headerHeight (int width) const { return headerH + (width < (prevPage.isVisible() ? 1134 : 1000) ? 32 : 0); }
+    bool hasPages() const { return prevPage.isVisible(); }
+    void setSharedHeader (int width, bool pages) { sharedHeaderWidth = width; sharedHeaderPages = pages; }
+    SeqHeaderLayout::Controls headerControls() { return { &chevron, &libCounter, &barsBox, &templateBox,
+        &prevPage, &pageLabel, &nextPage, &clearBtn, &muteBtn, &soloBtn, &volume }; }
+    int headerHeight (int width) const { return SeqHeaderLayout::height (width, sharedHeaderWidth > 0 ? sharedHeaderPages : hasPages()); }
     int headerHeight() const { return headerHeight (getWidth()); }
     int preferredHeight (int width) const { return headerHeight (width) + (expanded ? shiftH + gridH + bottomPad : 0); }
     int preferredHeight() const { return preferredHeight (getWidth()); }
@@ -45,6 +51,7 @@ public:
     }
 
     void paint (juce::Graphics&) override;
+    void paintOuterLight (juce::Graphics&, juce::Component& paintOwner);
     void lookAndFeelChanged() override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -78,7 +85,22 @@ private:
         std::function<void()> onRight;
         void mouseDown (const juce::MouseEvent& e) override { if (e.mods.isPopupMenu()) { if (onRight) onRight(); return; } juce::TextButton::mouseDown (e); }
     };
-    struct Knob { juce::Slider s; juce::String name; std::function<juce::String (double)> fmt; };
+    struct Knob
+    {
+        explicit Knob (bool sub) : slider (sub ? new BassLightPoc::Slider : new juce::Slider), s (*slider) {}
+        std::unique_ptr<juce::Slider> slider;
+        juce::Slider& s; // keep all bindings unchanged; the other seven remain plain JUCE Sliders
+        juce::String name;
+        std::function<juce::String (double)> fmt;
+    };
+    friend struct BassLightPocTest;
+    BassLightPoc::Frame frameLight;
+    BassLightPoc::Sub subLight;
+    juce::Rectangle<int> lastSubLightBounds, lastSubInvalidation;
+    double lastSubLightValue = -1.0;
+    int lastSubLightState = -1, subInvalidations = 0;
+    void invalidateSubLight();
+    juce::Rectangle<float> subSliderArea();
 
     juce::Rectangle<int> gridArea() const;                       // the note rows
     juce::Rectangle<int> stripArea() const;                      // bar transposition labels
@@ -101,6 +123,8 @@ private:
 
     AudioEngine& engine;
     bool expanded = true;
+    int sharedHeaderWidth = 0;
+    bool sharedHeaderPages = false;
     double viewSeconds = 8.0, barSeconds = 2.0, viewStart = 0.0, fullSeconds = 8.0;
     int page = 0;
 

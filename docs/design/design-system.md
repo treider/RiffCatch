@@ -44,6 +44,39 @@ The reference's depth comes from deliberate light/dark contrast (Photoshop-style
 
 For unrelated changes preserve the current visual language. For approved redesign tasks, this target supersedes the historical flat/no-gradient restriction. Implement one coherent scope at a time; do not remove features, change theme defaults or modify sound to match a picture.
 
+### v0.80 / v0.81 two-element lighting prototype (not user-accepted)
+
+The user authorized an iterative **Sub knob and Bass outer frame only** POC.
+For these two elements only, explicit soft outside bloom supersedes the earlier
+no-blur/no-separate-halo restrictions below. This does **not** authorize the
+removed reflection under the Bass tab label, a generic rendering framework or
+rollout to the other seven sound knobs, volume, tabs, Drums or tuner/master.
+
+v0.80 introduced three padded native Gaussian alpha masks per emitter, with
+current-snapshot caches rather than a per-value map. The independent visual
+review rejected its scarcely visible Sub halo and narrow/faint frame tail.
+v0.81 increases broad/medium halo energy and range, not the crisp 4px stripe
+or 2.6px arc widths. Only Sub's same-geometry pointer is slightly brighter.
+The native parent ring -> glow -> child face order and caption fade remain;
+tab corners/gap, functional content and neighboring controls are protected.
+All layout, controls, values/callbacks, persistence and audio remain unchanged.
+
+These are local prototype constants, not approved global design tokens:
+Windows native API radii (three times sigma) are frame 16.5/7.5/2.1 and
+Sub 12/7.5/2 logical pixels; broad/medium/near opacities are .65/.50/.34
+and .72/.65/.44 respectively, before existing Sub state modulation.
+Color/state paints reuse masks; size/DPI and Sub value invalidate the relevant
+snapshot. No new timers or audio-thread work. Sub parent invalidation includes
+the union of old/new halo extents. Bounded mask-padding failure must log an
+explicit diagnostic and retain failed status, not silently report success.
+
+Coverage requires native-size normal/minimum Neo-Retro HWND captures, fresh
+Release/selftest, out-of-shape decaying light, transparent mask borders, no
+caption/tab/neighbor spill, geometry/state/zero-arc and silent-repaint checks,
+and cache-cost measurements. Synthetic 144-DPI/theme/state fixtures are not
+actual GUI interaction or alternate-monitor evidence. Visual inspection and
+user acceptance remain separate; **no rollout before explicit POC approval**.
+
 ### v0.65 implementation scope
 
 Only Bass's Sub, Cutoff, Reso, Env, Decay, Sustain, Glide and Drive opt into the
@@ -80,5 +113,268 @@ Normal unpaged 1500x980 window layout remains on the original single row.
 Automated bounds/paint/parameter checks complement actual 1100x620 and
 1500x980 captures. Visual theme verification for this scope is restricted to
 Sunset and Tokyo Night; user acceptance remains separate.
+
+### v0.67 implementation scope
+
+Bass-only dodge/burn paint continuation; all v0.66 layout, opt-ins and behavior
+remain unchanged. `bassEnclosure` retains the live `bassRim` contour at a quieter
+far edge, with a bounded warm upper-left focus (65% toward the existing orange
+role), an inset, fully visible 1.5px local bright core and an adjacent dark contact bevel.
+The active Bass tab alone receives the same material with shorter top light.
+The halo fades to zero rather than tracing a uniform neon box.
+
+`bassControlTile` uses a low-saturation, high-value exposed-metal role rather
+than brightening the dark raised surface. A short top-face reflection, crisp
+tapered upper rim, dark lower contact and short lower reflection preserve
+semantic fills, record red and content. Hover light is 15% stronger; pressed
+light is halved and disabled light is 25% of normal. Library arrows omit the
+face wash. Blue displays, volume face and all eight sound-knob faces are unchanged.
+`bassWellRim` centralizes only the existing 3px piano-roll surround, pairing a
+cool bright top rim with a dark inner edge; no grid overlay or geometry change.
+No global palette/helper, toolbar, mixer or Drums restyling is included.
+Visual comparison is scoped to Sunset/default and Tokyo Night at 100% scaling,
+1500x980 and 1100x620; acceptance remains subject to actual captures and review.
+
+### v0.68 implementation scope
+
+`Resources/themes/Neo-Retro.json` is an optional, shareable custom theme, not a
+tenth built-in. To install, copy that file to `%APPDATA%\RiffCatch\themes\`
+(create the folder if needed), without overwriting an existing user theme of
+the same name. Restart RiffCatch and select **Theme > Neo-Retro**. Sunset remains
+the default; installation does not change the saved selection.
+
+The six opaque roles are Primary `#FF780A`, Secondary `#F2AB24`, Accent
+`#F6C343`, Background `#0B1018`, Surface `#202630`, Text `#DCE3EC`.
+These are approved visual proposals for a navy/charcoal base and warm orange/gold
+details, not sampled reference colours. Existing mapping is unchanged:
+`blue = accent = Primary`, `purple = Secondary`, `cyan = Accent`.
+Record/play colours and the separate blue seven-segment displays remain fixed.
+
+Only the Bass enclosure and active Bass tab change material geometry. Explicit
+rounded bands replace the broad centred contact/halo strokes: the 6px outer
+radius remains, and the halo's inner contour retains at least a 3px radius
+instead of collapsing to a square. Nested half-pixel bands fade the inner halo
+while retaining v0.67's directional hotspot, peak light and dark contact bevel.
+Physical bounds, core highlight, other paints and all v0.66 layout stay unchanged.
+Capture coverage adds Neo-Retro to Sunset/Tokyo Night, at normal/minimum size.
+
+### v0.69 implementation scope
+
+Only the Bass panel's short lower reflection changes: it starts transparent,
+ramps into the existing warm highlight and fades out along the same bounds.
+This removes the abrupt dark-to-light start just after the lower-left curve.
+The v0.68 rounded bands, tab, palette, controls and layout are unchanged.
+
+### v0.70 implementation scope
+
+Bass control highlights follow a closed, inset rounded contour with light
+fading along the top and down the left side, instead of an open bright stroke
+ending just after the corner. The short lower reflection also fades in.
+Control bounds, semantic fills, input, palette and all non-Bass paint are unchanged.
+
+### v0.71 implementation scope
+
+Bass-only ribbon/glow continuation, with no layout, input, persistence or DSP
+changes. The panel retains its v0.68 rounded bands and v0.69 lower reflection
+ramp, adding a sustained gold left core (1.5px) and bounded inward halo through
+the full height, rather than amplifying only the old 70px hotspot. The mid/lower
+core targets roughly 70% of upper brightness; other panel edges remain subdued.
+The active Bass tab has a near-full-width orange top core with inward falloff
+and a faint 4px-high, 45%-width radial reflection beneath its caption.
+Both active and inactive Bass captions receive a thin black glyph contour;
+font, placement, data colour/dot and Drums painting are retained.
+
+Existing `bassControl` buttons/combos get parent-painted, coordinate-converted
+shadows at unchanged bounds; library arrows paint their shadows locally without
+changing the blue display. Four coverage layers give a 1.5px downward offset
+and 2.25px falloff, weaker when pressed/disabled. State changes invalidate only
+the bounded parent shadow area, with no new repaint timer. The v0.70 closed
+control highlights are unchanged.
+
+All eight Bass sound knobs and Bass volume retain their faces, pointers and
+2.6px value arcs, adding slight downward ellipse shadows, 6px/4px low-alpha
+family-colour halos and a 1px brighter arc core. Glow follows the actual arc,
+including a truly empty zero-length arc. All roles are live and Bass-only;
+no global palette changes, blur passes or new image buffers are introduced.
+Actual window evidence and separate visual review remain required; headless
+paint/parameter regressions are not user acceptance.
+
+### v0.72 correction scope
+
+Only the three v0.71 lighting review failures are corrected. The sustained
+left ribbon keeps its core/contact geometry but uses a single inward light
+field fading over 14px, instead of multiplying a narrow band mask by another
+fade. The active Bass tab uses a continuous 10px top-light falloff and a
+localized 7px-high soft reflection below the caption, not a surface wash.
+The value-arc halo now tapers through 9–4px coverage strokes outside the
+unchanged metallic face, leaving visible family-coloured light beyond the
+2.6px solid arc; the pale core is quieter. No blur/image cache is added.
+The v0.71 shadows and glyph contours, rounded joins, all physical geometry,
+controls, blue displays, themes, persistence and audio behavior are retained.
+Related regressions measure light outside the solid cores and contrast after
+compositing the reflection onto the actual tab face. Native-size Neo-Retro
+normal/minimum window captures remain required; other GUI themes/states/DPI
+and user acceptance are not implied by these offscreen tests.
+
+### v0.73 explicit correction scope
+
+The Bass panel's attenuated left ribbon/halo is replaced by the tuner/master
+card's solid 4px fill pattern, clipped to the existing radius-6 enclosure.
+Bass retains its 1px enclosure inset and uses the unattenuated live Accent
+role (`cyan`, yellow in Neo-Retro), not the master's Secondary colour.
+The separate reflection below the Bass tab label is removed entirely.
+The orange tab top, thin black glyph contour, knob glow, control shadows,
+buttons and smooth v0.69 panel-bottom reflection remain unchanged.
+No bounds, layout, tuner painting, themes/settings, interactions or DSP change.
+Regressions check full-height opaque stripe pixels, width/rounded clipping,
+absence of the separate left halo and absence of the under-label reflection
+in actual `SeqTabs` painting. Build and window verification remain separate.
+
+### v0.74 Bass endpoints / first tuner-master material pass
+
+Bass keeps the opaque live Accent stripe at x+1 and 4px width, with radius-2
+inner end corners tangent to the straight side, clipped by the existing
+radius-6 enclosure. Only the endpoints change; no ribbon halo, detached cap,
+horizontal stripe or under-caption reflection is added. All other Bass
+lighting and geometry remain as in v0.73.
+
+Only the tuner/master enclosure, the tuner's existing 3px surround, and the
+master strip receive modest directional upper-left light and dark contact
+edges. New live `mixerCoolLight` is explicitly cool, independent of the
+historical Accent/cyan role (gold in Neo-Retro). The panel base, Secondary
+stripe, existing single master shadow, 22px header and all well/readout bounds
+are retained. No tuning text/markers are overpainted.
+
+Only the master output slider sets `masterOutputFader`: its existing 14px
+round cap gets a light metallic face and inset contact edge. Slot, value line,
+travel and legacy painting for every unmarked slider are unchanged.
+Shared `framedTile`, `wellRing`, `cardShadow` and LevelMeter remain unchanged.
+No resize, focus, reference/menu, gain/undo, persistence, timer or DSP changes.
+Offscreen regressions check all built-in palettes plus Neo-Retro fader paint,
+real component bounds/callbacks and tuner paint fed through its real detector;
+these are not manual audio or GUI interaction acceptance.
+
+### v0.75 equal bottom-row frames / subtle shadows
+
+The tuner/master frame follows the selected expanded sequencer's actual painted top
+and bottom, including Bass's 32px wrapped header and page-navigation breakpoint.
+Bass and mixer retain a shared 1px painted inset; the unchanged edge-painted
+Drums frame is accounted for when positioning the mixer. Tab switches, page
+visibility, collapse and resize use the same bottom-row layout. Bass's header,
+143px piano roll, control positions and the track-area reservation are retained.
+
+Equal-height frames apply only to an expanded sequencer. When folded, the left
+enclosure retains its established preferred header height (Drums 42px, Bass
+42/74px); tuner/master stays full-size at the original fixed bottom-row position,
+with its 1px painted inset. No empty left frame is retained and no tuner controls
+are compressed. The existing track-area reservation is unchanged.
+The right-hand children use their existing resize logic (including real master
+fader travel); normal expanded Bass still gives a 206px mixer, wrapped Bass 238px.
+
+The single cached outer mixer shadow is parent-painted at the visible frame,
+not clipped to the component. The tuner gets a separate, low-opacity downward
+shadow with a bounded 3.25px extent that fits existing padding without reducing
+hit areas. The existing master-only shadow is retained once. No shared shadow
+helper, v0.74 material/stripes, tuner reference/detection, gain/undo, themes,
+settings or DSP changes. Automated checks exercise production row layout and
+painted-edge equality, folded/expanded/tab/page/width cases, shadow extent and
+actual resized child bounds, hit targets and value mapping. Folded cases check
+preferred left heights and the intact normal mixer separately, not equal edges.
+Native Neo-Retro
+window evidence and manual interaction/audio acceptance remain separate.
+
+### v0.76 collapse regression correction
+
+Restores the pre-v0.75 preferred-height collapse of Bass/Drums. The v0.75
+expanded painted-edge alignment, normal/wrapped geometry, all shadows and
+materials remain unchanged. Only expanded sequencers align both mixer edges;
+folding preserves the original full-size mixer position and track reservation.
+
+### v0.77 first Drums material pass (reduced user scope)
+
+Only the Drums panel, active tab and its own controls. Tracks, main panel and
+workspace were explicitly deferred by the user. Bass v0.76 (including
+the opaque 4px yellow stripe, rounded inner ends, tab glyph contour, knob glow
+and shadows), tuner/master, and `layoutBottomRow` are frozen. The removed
+reflection below the Bass caption must not return. All controls, bounds,
+callbacks, ranges/defaults, shortcuts, undo, persistence and audio stay intact;
+the known minimum-width toolbar overlap is not a layout task in this pass.
+
+Drums retains its edge-painted enclosure (not Bass's 1px inset), orange 4px
+stripe and six original lane/cell/accent/repeat/playhead layers. Its dark
+upper-left material, rounded stripe ends and orange active-tab top light
+derive from the established material; the reference does not show expanded
+Drums. `drumControl` explicitly opts header controls/library arrows into the
+unchanged Bass tactile helper. `drumKnob` adds the existing metallic face and
+actual value-arc halo, tighter/weaker on the 26px lane knobs.
+
+Live `materialCoolLight` is separately named, never inferred from `cyan`
+(gold in Neo-Retro). No grain, blur, image buffer, repaint timer, new
+component/framework/dependency or DSP coupling is introduced.
+Shared default `framedTile`, `wellRing`, `cardShadow`, LevelMeter and unmarked
+controls remain unchanged. Drums well lighting stays strictly outside content.
+Production paint/state/opt-in regressions supplement, not replace, genuine
+normal/minimum HWND captures and manual GUI/audio acceptance.
+
+### v0.78 expanded tab-switch stability correction
+
+The user explicitly approved a shared bottom-row height correction after noticing
+movement when switching Drums/Bass. Expanded layout now reserves one budget,
+independent of the selected tab: the maximum of Bass's width/page-dependent
+preferred height and Drums' preferred height plus the two pixels needed for the
+Bass/mixer painted inset. This gives a 208px component budget normally and 238px
+when Bass wraps, including when the paged Bass is hidden behind Drums.
+
+Both tab strips have identical bounds. Bass and mixer use the common component
+top/bottom; edge-painted Drums occupies the common inset frame, aligning all
+visible contours. Thus tab switches change neither the tab baseline, visible
+frame, mixer bounds nor the track viewport reservation. Drums' local controls
+and 26px lanes, and Bass's local controls and fixed 143px grid, are not stretched;
+unused height stays as enclosure space. Drums' local coordinate mapping is
+unchanged; the parent accounts for the 1px frame inset in its bounds.
+
+Folded mode retains the original 42px Drums and 42/74px Bass preferred heights
+and original full-size mixer position/reservation behavior; no full-height empty
+collapsed frame is introduced. All v0.77 material, controls, callbacks, ranges,
+undo, settings and audio remain unchanged. Tracks, main panel and background
+restyling remain deferred. Native regressions explicitly compare before/after
+tab callbacks, width/page breakpoints, resize, disabled and collapse/expand
+states. Genuine GUI tab-switch evidence remains a separate requirement.
+
+### v0.79 all shared sequencer header anchors
+
+The user approved reserving Bass-only slots in Drums, rather than aligning only
+M/S. One small `SeqHeaderLayout` geometry value object now places chevron,
+library counter, Bars, Template, page arrows/label, Clear, M/S and volume.
+Their native parent-coordinate bounds and dimensions are identical. Drums leaves
+Root/Scale/Chords/Random/Rec/Bake slots empty; no Bass feature is removed.
+The logical layout retains Bass's existing allocation and 1000/1134px wrap
+thresholds, but uses the union of **both panels' actual paging visibility**.
+Each panel retains its own page visibility, enabled states and callbacks.
+
+The parent converts logical coordinates using the actual panel-origin difference.
+Bass keeps its 1px painted inset and Drums remains edge-painted; no material,
+glow, stripe or tab effect is changed to conceal a geometry discrepancy.
+Wrapped Drums uses the shared 74px header. Its entire lane paint, knobs,
+mute/audition and step hit mapping move together; lanes remain 26px and the Bass
+grid remains 143px. Expanded enclosure budgets are now 208/240px, with stable
+painted contours, tabs, mixer and remaining track rectangle across tab changes.
+
+Collapse remains **header-only with the original full-size mixer**, not an empty
+expanded frame. Necessarily, folded Drums now shares Bass's 42/74px logical
+header budget as well, and inset-coordinate conversion gives a 40/72px Drums
+component. Folded tabs and reservation no longer depend on which pane is selected.
+This is the bounded consequence of aligning every common control even when
+folded; it supersedes v0.78's separate folded header heights.
+
+No tracks/main/background restyling, DSP, controls, defaults, ranges, shortcuts,
+undo semantics, project/settings schema or Bass/tuner material changes.
+Native regressions compare actual production control bounds via a common parent,
+all four paging combinations, normal/current/minimum sizes and both sides of
+the wrap thresholds, tab callbacks, resize, disabled and collapse/expand states.
+Real component gestures exercise shifted Drum lanes, accents, drag/repeats/pages,
+mute/audition and undo/redo, plus Bass note/length/accent/slide/page mapping.
+Synthetic tests are not GUI/audio acceptance; genuine HWND evidence and manual
+interaction remain separately recorded.
 
 Completion requires the [visual checklist](visual-checklist.md), a successful build/selftest for code changes, actual screenshot comparison and user testing. Missing visual evidence means incomplete verification. Commit and push remain separate user-approved steps.

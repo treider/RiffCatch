@@ -162,9 +162,74 @@ namespace Theme
     inline juce::Colour bassKnobGlint()   { return raised.brighter (0.65f); }
     inline juce::Colour bassKnobLabel()   { return dim.interpolatedWith (text, 0.22f); }
 
-    inline juce::Colour bassControlLight() { return raised.brighter (0.55f); }
+    // Exposed metal is a light source, not merely a brighter dark face.
+    inline juce::Colour bassControlLight() { return juce::Colour::fromHSV (raised.getHue(), 0.06f, 0.90f, 1.0f); }
     inline juce::Colour bassControlContact() { return deep.darker (0.50f); }
     inline juce::Colour bassNoteLabel() { return dim.interpolatedWith (text, 0.32f); }
+    inline juce::Colour bassShadow() { return deep.darker (0.85f); }
+    inline juce::Colour bassGlyphContour() { return juce::Colours::black; }
+    inline juce::Colour bassArcCore (juce::Colour family) { return family.interpolatedWith (bassControlLight(), 0.28f); }
+
+    // Tuner/master only. Accent/cyan may be gold: cool reflected light has its
+    // own hue, with live surface/text influence rather than a cached preset colour.
+    inline juce::Colour mixerCoolLight() { return juce::Colour (0xffa9c9ed).interpolatedWith (text, 0.15f); }
+    inline juce::Colour mixerContact() { return deep.darker (0.65f); }
+    inline juce::Colour masterFaceLight() { return text.interpolatedWith (juce::Colours::white, 0.28f); }
+    inline juce::Colour masterFaceShade() { return text.interpolatedWith (raised, 0.32f); }
+
+    // Tuner only: a small real outside shadow within the existing 4px enclosure gap.
+    // Four coverage layers avoid a blur/cache allocation in the repeated paint path.
+    inline void tunerShadow (juce::Graphics& g, juce::Rectangle<float> r)
+    {
+        for (int layer = 3; layer >= 0; --layer)
+        {
+            const float spread = layer * 0.75f;
+            g.setColour (juce::Colours::black.withAlpha (0.055f));
+            g.fillRoundedRectangle (r.translated (0.0f, 1.0f).expanded (spread), radiusLg + spread);
+        }
+    }
+
+    // Only the existing tuner/master well surrounds use this local material.
+    // The caller paints the unchanged deep interior afterwards.
+    inline void mixerWellSurround (juce::Graphics& g, juce::Rectangle<float> outer, float outerRadius,
+                                   juce::Rectangle<float> well, float innerRadius)
+    {
+        g.setColour (border.darker (0.28f));
+        g.fillRoundedRectangle (outer, outerRadius);
+        const auto light = mixerCoolLight();
+        g.setGradientFill (juce::ColourGradient (light.withAlpha (0.65f), outer.getX(), outer.getY(),
+                                                light.withAlpha (0.0f), outer.getX() + outer.getWidth() * 0.65f,
+                                                outer.getBottom(), false));
+        g.drawRoundedRectangle (outer.reduced (0.65f), outerRadius - 0.65f, 1.1f);
+        g.setColour (mixerContact());
+        g.fillRoundedRectangle (well.expanded (1.0f), innerRadius + 0.5f);
+    }
+
+    // Cheap bounded coverage layers, not a blurred image allocated on each repaint.
+    // Call from the parent, before children, so unchanged hit bounds do not clip it.
+    inline void bassControlShadow (juce::Graphics& g, juce::Rectangle<float> r, bool enabled, bool down)
+    {
+        const float strength = ! enabled ? 0.35f : down ? 0.50f : 1.0f;
+        for (int layer = 3; layer >= 0; --layer)
+        {
+            const float spread = layer * 0.75f;
+            g.setColour (bassShadow().withAlpha (0.055f * strength));
+            g.fillRoundedRectangle (r.translated (0.0f, down ? 1.0f : 1.5f).expanded (spread),
+                                    juce::jmin (7.0f, r.getHeight() * 0.3f) + spread);
+        }
+    }
+
+    // Child-only JUCE invalidation otherwise leaves the outside shadow stale.
+    // Schedule a bounded parent repaint only on a state transition, not a timer.
+    inline void bassShadowState (juce::Component& c, bool down)
+    {
+        const int state = (c.isEnabled() ? 1 : 0) | (down ? 2 : 0);
+        auto& props = c.getProperties();
+        if ((int) props.getWithDefault ("bassShadowState", -1) == state) return;
+        props.set ("bassShadowState", state);
+        if (auto* parent = c.getParentComponent())
+            parent->repaint (parent->getLocalArea (&c, c.getLocalBounds()).expanded (4));
+    }
 
     // Explicit Bass opt-in only. Keep the dark frame and semantic active fill;
     // directional light is clipped to the face, never an accent-coloured outline.
@@ -179,27 +244,100 @@ namespace Theme
         const auto face = r.reduced (ring);
         if (face.isEmpty()) return;
         juce::Path clip;
-        clip.addRoundedRectangle (face, juce::jmax (2.0f, juce::jmin (7.0f, r.getHeight() * 0.3f) - ring * 0.6f));
+        const float ro = juce::jmax (2.0f, juce::jmin (7.0f, r.getHeight() * 0.3f) - ring * 0.6f);
+        clip.addRoundedRectangle (face, ro);
         g.reduceClipRegion (clip);
-        const float strength = ! enabled ? 0.18f : down ? 0.28f : 0.65f;
-        g.setGradientFill (juce::ColourGradient (bassControlLight().withAlpha (strength * 0.4f), face.getX(), face.getY(),
-                                                fill.withAlpha (0.0f), face.getRight(), face.getBottom(), false));
-        g.fillPath (clip);
+        const float strength = ! enabled ? 0.25f : down ? 0.50f : over ? 1.15f : 1.0f;
+        const auto light = bassControlLight();
+        // The small library arrows get edge light only, not a face wash.
+        if (r.getHeight() >= 18.0f)
+        {
+            g.setGradientFill (juce::ColourGradient (light.withAlpha (0.11f * strength), face.getX(), face.getY(),
+                                                    light.withAlpha (0.0f), face.getX(), face.getY() + face.getHeight() * 0.30f, false));
+            g.fillPath (clip);
+        }
+        juce::Path bevel;
+        bevel.addRoundedRectangle (face.reduced (0.65f), juce::jmax (1.0f, ro - 0.65f));
         g.setGradientFill (juce::ColourGradient (bassControlContact().withAlpha (0.0f), face.getX(), face.getCentreY(),
-                                                bassControlContact(), face.getX(), face.getBottom(), false));
-        g.strokePath (clip, juce::PathStrokeType (1.4f));
-        g.setGradientFill (juce::ColourGradient (bassControlLight().withAlpha (focus && enabled ? 1.0f : strength),
-                                                face.getX() + 2.0f, face.getY(),
-                                                bassControlLight().withAlpha (0.0f), face.getRight(), face.getBottom(), false));
-        g.strokePath (clip, juce::PathStrokeType (1.0f));
-        g.setGradientFill (juce::ColourGradient (bassControlLight().withAlpha (strength * 0.45f), face.getX() + 5.0f, face.getY(),
-                                                bassControlLight().withAlpha (0.0f), face.getRight() - 3.0f, face.getY(), false));
-        g.fillRect (face.getX() + 4.0f, face.getY() + 1.5f, juce::jmax (0.0f, face.getWidth() - 8.0f), 0.7f);
+                                                bassControlContact().withAlpha (0.85f), face.getX(), face.getBottom(), false));
+        g.strokePath (bevel, juce::PathStrokeType (1.3f));
+        // A closed contour has no bright end-cap. Only the light field fades,
+        // along the top edge and down the left side of the same rounded face.
+        {
+            juce::Graphics::ScopedSaveState highlightState (g);
+            juce::Path contour, highlight;
+            contour.addRoundedRectangle (face.reduced (0.5f), juce::jmax (1.0f, ro - 0.5f));
+            juce::PathStrokeType (1.0f).createStrokedPath (highlight, contour);
+            const auto origin = juce::Point<float> (face.getX() + ro, face.getY() + 0.5f);
+            const float reach = juce::jmax (1.0f, face.getWidth() - ro);
+            const auto stretch = juce::AffineTransform::scale (1.0f, face.getHeight() * 0.65f / reach, origin.x, origin.y);
+            highlight.applyTransform (stretch.inverted());
+            g.addTransform (stretch);
+            g.setGradientFill (juce::ColourGradient (light.withAlpha ((focus && enabled ? 0.85f : 0.75f) * strength),
+                                                    origin.x, origin.y, light.withAlpha (0.0f), origin.x + reach, origin.y, true));
+            g.fillPath (highlight);
+        }
+        juce::ColourGradient reflection (light.withAlpha (0.0f), face.getX() + ro, face.getBottom(),
+                                         light.withAlpha (0.0f), face.getCentreX(), face.getBottom(), false);
+        reflection.addColour (0.20, light.withAlpha (0.20f * strength));
+        g.setGradientFill (reflection);
+        g.fillRect (face.getX() + ro, face.getBottom() - 2.0f, juce::jmax (0.0f, face.getWidth() * 0.5f - ro), 0.7f);
     }
 
     // P1 Bass material only: derive every layer from the live theme, not a fixed orange palette.
     inline juce::Colour bassRim() { return accent.interpolatedWith (cyan, 0.35f); }
-    inline void bassEnclosure (juce::Graphics& g, juce::Rectangle<float> r, bool tab = false)
+    inline juce::Colour bassFocusLight() { return bassRim().interpolatedWith (orange, 0.65f); }
+    inline juce::Colour bassFocusCore() { return bassFocusLight().interpolatedWith (bassControlLight(), 0.30f).withBrightness (1.0f); }
+    inline juce::Colour bassLeftRibbon() { return cyan; }
+    inline juce::Colour bassTabRibbon() { return accent.interpolatedWith (orange, 0.25f).withBrightness (1.0f); }
+
+    // v0.80 two-source lighting proof only. No palette or other knob changes.
+    inline juce::Colour bassSubSpecular() { return bassKnobGlint().interpolatedWith (text, 0.35f); }
+    inline juce::Colour bassSubCore() { return bassArcCore (cyan).interpolatedWith (text, 0.20f); }
+    struct BassSubGeometry
+    {
+        juce::Point<float> centre;
+        float radius;
+        juce::Path valueArc;
+        static BassSubGeometry make (juce::Rectangle<float> slider, float proportion,
+                                     float start, float end, bool unipolar)
+        {
+            const auto b = slider.reduced (4.0f);
+            BassSubGeometry result { b.getCentre(), juce::jmin (b.getWidth(), b.getHeight()) * 0.5f, {} };
+            const float from = unipolar ? start : 0.5f * (start + end);
+            const float to = start + proportion * (end - start);
+            if (from != to)
+                result.valueArc.addCentredArc (result.centre.x, result.centre.y, result.radius - 2.6f,
+                                              result.radius - 2.6f, 0.0f, from, to, true);
+            return result;
+        }
+    };
+
+    // Local material contours, not layout radii. A 12px centred stroke on a
+    // radius-6 path collapses its inner radius to zero. Keep a real curved hole
+    // even at the deepest halo inset; neither the outer edge nor bounds move.
+    inline juce::Path bassEnclosureBand (juce::Rectangle<float> edge, float depth, bool tab)
+    {
+        juce::Path band;
+        band.setUsingNonZeroWinding (false);
+        band.addRoundedRectangle (edge.getX(), edge.getY(), edge.getWidth(), edge.getHeight(),
+                                  radiusLg, radiusLg, true, true, ! tab, ! tab);
+        const auto inner = edge.reduced (depth);
+        const float innerRadius = juce::jmax (3.0f, radiusLg - depth);
+        band.addRoundedRectangle (inner.getX(), inner.getY(), inner.getWidth(), inner.getHeight(),
+                                  innerRadius, innerRadius, true, true, ! tab, ! tab);
+        return band;
+    }
+    // The straight 4px ribbon stays opaque; only its inner endpoint corners
+    // turn through radius 2. The enclosure supplies the outer radius-6 clip.
+    inline juce::Path bassStripePath (juce::Rectangle<float> edge)
+    {
+        juce::Path p;
+        p.addRoundedRectangle (edge.getX(), edge.getY(), 4.0f, edge.getHeight(),
+                               2.0f, 2.0f, false, true, false, true);
+        return p;
+    }
+    inline void bassEnclosure (juce::Graphics& g, juce::Rectangle<float> r, bool tab = false, bool lightPoc = false)
     {
         juce::Graphics::ScopedSaveState ss (g);
         juce::Path shape;
@@ -216,33 +354,198 @@ namespace Theme
         g.setGradientFill (face);
         g.fillPath (shape);
 
-        // Contact bevel beside the lit rim, rather than a uniformly glowing outline.
-        g.setColour (dark);
-        g.strokePath (shape, juce::PathStrokeType (8.0f));
-        juce::ColourGradient light (rim.interpolatedWith (text, 0.38f), edge.getX(), edge.getY(),
-                                    rim.darker (0.65f), edge.getRight(), edge.getBottom(), false);
-        light.addColour (0.16, rim);
-        light.addColour (0.55, rim.interpolatedWith (border, 0.70f));
-        g.setGradientFill (light);
-        g.strokePath (shape, juce::PathStrokeType (4.0f));
+        // Explicit rounded outer/inner edges for the 2.5px contact bevel.
+        g.setColour (dark.withAlpha (0.85f));
+        g.fillPath (bassEnclosureBand (edge, 2.5f, tab));
+        juce::Path core;
+        const auto inset = edge.reduced (0.75f);
+        core.addRoundedRectangle (inset.getX(), inset.getY(), inset.getWidth(), inset.getHeight(),
+                                  radiusLg - 0.75f, radiusLg - 0.75f, true, true, ! tab, ! tab);
+        // Keep the live theme contour, but let far edges recede.
+        g.setColour (rim.withAlpha (0.30f));
+        g.strokePath (core, juce::PathStrokeType (1.0f));
 
-        // Top-left grazing light is bounded to the bevel, with a weaker lower contact edge.
-        g.setGradientFill (juce::ColourGradient (rim.withAlpha (0.95f), r.getX() + 5.0f, r.getY() + 5.0f,
-                                                rim.withAlpha (0.0f), r.getX() + (tab ? 110.0f : 320.0f), r.getY() + 85.0f, true));
-        g.strokePath (shape, juce::PathStrokeType (6.0f));
-        g.setGradientFill (juce::ColourGradient (dark.withAlpha (0.0f), r.getX(), r.getY() + r.getHeight() * 0.35f,
-                                                dark.withAlpha (0.65f), r.getX(), r.getBottom(), false));
-        g.strokePath (shape, juce::PathStrokeType (2.0f));
-
-        // A short exposed-edge glint and its smaller reflection, separated by the dark bevel.
-        const float reach = juce::jmin (180.0f, r.getWidth() * 0.7f);
-        g.setGradientFill (juce::ColourGradient (rim.interpolatedWith (text, 0.72f), r.getX() + 12.0f, r.getY(),
-                                                rim.withAlpha (0.0f), r.getX() + reach, r.getY() + 12.0f, true));
-        g.strokePath (shape, juce::PathStrokeType (1.5f));
-        g.setGradientFill (juce::ColourGradient (rim.withAlpha (0.38f), r.getX() + 16.0f, r.getY() + 3.5f,
-                                                rim.withAlpha (0.0f), r.getX() + reach, r.getY() + 3.5f, false));
-        g.fillRoundedRectangle (r.getX() + 16.0f, r.getY() + 3.5f, reach - 16.0f, 1.0f, 0.5f);
+        const float reach = tab ? r.getWidth() * 0.70f : 180.0f;
+        const float vertical = tab ? 18.0f : 70.0f;
+        const auto origin = edge.getTopLeft().translated (6.0f, 2.0f);
+        // Elliptical, bounded radial light. Transform the filled geometry inversely
+        // so its physical width stays constant while only the gradient stretches.
+        auto localLight = [&] (juce::Path band, juce::Colour colour)
+        {
+            juce::Graphics::ScopedSaveState local (g);
+            if (tab)
+            {
+                // Full-width top ribbon; the rounded band carries its ends down
+                // into the transparent field instead of ending in bright caps.
+                juce::ColourGradient top (colour, edge.getX(), edge.getY(),
+                                          colour.withAlpha (0.0f), edge.getX(), edge.getY() + 9.0f, false);
+                top.addColour (0.15, colour);
+                g.setGradientFill (top);
+                g.fillPath (band);
+                return;
+            }
+            const auto stretch = juce::AffineTransform::scale (1.0f, vertical / reach, origin.x, origin.y);
+            band.applyTransform (stretch.inverted());
+            g.addTransform (stretch);
+            juce::ColourGradient glow (colour, origin.x, origin.y,
+                                       colour.withAlpha (0.0f), origin.x + reach, origin.y, true);
+            glow.addColour (0.20, colour);
+            glow.addColour (0.55, colour.withMultipliedAlpha (0.55f));
+            g.setGradientFill (glow);
+            g.fillPath (band);
+        };
+        // Nested curved bands taper the last 3.5px of the halo in half-pixel
+        // steps. Combined peak opacity stays ~0.32, with the same spatial light.
+        if (tab)
+        {
+            // One continuous light field: nested band coverage multiplied by
+            // a second fade used to extinguish the halo just below the core.
+            juce::ColourGradient top (bassTabRibbon().withAlpha (0.58f), edge.getX(), edge.getY(),
+                                      bassTabRibbon().withAlpha (0.0f), edge.getX(), edge.getY() + 10.0f, false);
+            top.addColour (0.25, bassTabRibbon().withAlpha (0.42f));
+            top.addColour (0.60, bassTabRibbon().withAlpha (0.12f));
+            g.setGradientFill (top);
+            g.fillPath (shape);
+        }
+        else if (! lightPoc)
+            for (int layer = 0; layer < 8; ++layer)
+                localLight (bassEnclosureBand (edge, 2.5f + layer * 0.5f, false),
+                            bassFocusLight().withAlpha (0.047f));
+        // Full 1.5px exposed core, immediately beside the dark contact stripe.
+        juce::Path coreStroke;
+        juce::PathStrokeType (1.5f).createStrokedPath (coreStroke, core);
+        localLight (coreStroke, (tab ? bassTabRibbon() : bassFocusCore()).withAlpha (0.95f));
+        if (! tab)
+        {
+            // Solid 4px fill with softened inner ends and rounded-card clipping.
+            // Keep Bass's existing inset and live Accent role (Neo-Retro yellow).
+            // Paint last over the local rim; no separate attenuated left halo.
+            g.setColour (bassLeftRibbon());
+            g.fillPath (bassStripePath (edge));
+            juce::ColourGradient reflection (bassFocusLight().withAlpha (0.0f), edge.getX() + 12.0f, edge.getBottom(),
+                                             bassFocusLight().withAlpha (0.0f), edge.getX() + r.getWidth() * 0.23f, edge.getBottom(), false);
+            reflection.addColour (0.04, bassFocusLight().withAlpha (0.07f));
+            reflection.addColour (0.08, bassFocusLight().withAlpha (0.21f));
+            reflection.addColour (0.12, bassFocusLight().withAlpha (0.28f));
+            g.setGradientFill (reflection);
+            g.fillRect (edge.getX() + 12.0f, edge.getBottom() - 3.3f, r.getWidth() * 0.23f - 12.0f, 0.85f);
+        }
     }
+
+    // Bass only; exactly the existing 3px well extent, never a grid overlay.
+    inline void bassWellRim (juce::Graphics& g, juce::Rectangle<float> well)
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        wellRing (g, well, 3.0f);
+        g.setColour (deep.darker (0.65f));
+        g.fillRoundedRectangle (well.expanded (1.5f), radiusLg);
+        const auto light = bassControlLight();
+        g.setGradientFill (juce::ColourGradient (light.withAlpha (0.78f), well.getX(), well.getY(),
+                                                light.withAlpha (0.0f), well.getX(), well.getBottom(), false));
+        g.drawRoundedRectangle (well.expanded (2.5f), radiusLg + 1.0f, 1.0f);
+        g.setColour (bassControlContact());
+        g.drawRoundedRectangle (well.expanded (1.0f), radius, 1.0f);
+        g.setGradientFill (juce::ColourGradient (light.withAlpha (0.28f), well.getX() + 8.0f, well.getBottom(),
+                                                light.withAlpha (0.0f), well.getX() + well.getWidth() * 0.35f, well.getBottom(), false));
+        g.fillRect (well.getX() + 8.0f, well.getBottom() + 1.7f, juce::jmax (0.0f, well.getWidth() * 0.35f - 8.0f), 0.8f);
+    }
+
+    // v0.77 local material roles. Accent/cyan is gold in Neo-Retro, not a
+    // cool light source. Keep these live, independent of the frozen mixer roles.
+    inline juce::Colour materialCoolLight() { return juce::Colour (0xffa9c9ed).interpolatedWith (text, 0.12f); }
+    inline juce::Colour materialContact() { return deep.darker (0.65f); }
+    inline bool materialControl (const juce::Component& c)
+    {
+        const auto& p = c.getProperties();
+        return (bool) p.getWithDefault ("bassControl", false)
+            || (bool) p.getWithDefault ("drumControl", false);
+    }
+
+    // Only explicit button/combo opt-ins, once in their actual parent before
+    // children. LibraryCounter owns its arrow shadows (not its blue housing).
+    inline void materialControlShadows (juce::Graphics& g, juce::Component& parent)
+    {
+        for (auto* c : parent.getChildren())
+        {
+            if (! c->isVisible() || ! materialControl (*c)) continue;
+            auto* button = dynamic_cast<juce::Button*> (c);
+            auto* combo = dynamic_cast<juce::ComboBox*> (c);
+            if (button != nullptr || combo != nullptr)
+                bassControlShadow (g, parent.getLocalArea (c, c->getLocalBounds()).toFloat(), c->isEnabled(),
+                                   button != nullptr ? button->isDown() : combo->isPopupActive());
+        }
+    }
+
+    // Narrow exposed bevel; no extra filled face, and no changed hit geometry.
+    inline void materialBevel (juce::Graphics& g, juce::Rectangle<float> r, float cornerRadius,
+                               juce::Colour light, float strength = 1.0f)
+    {
+        g.setGradientFill (juce::ColourGradient (materialContact().withAlpha (0.0f), r.getX(), r.getCentreY(),
+                                                materialContact().withAlpha (0.85f * strength), r.getX(), r.getBottom(), false));
+        g.drawRoundedRectangle (r.reduced (0.6f), cornerRadius, 1.2f);
+        g.setGradientFill (juce::ColourGradient (light.withAlpha (0.65f * strength), r.getX(), r.getY(),
+                                                light.withAlpha (0.0f), r.getX() + r.getWidth() * 0.60f,
+                                                r.getY() + juce::jmin (18.0f, r.getHeight()), false));
+        g.drawRoundedRectangle (r.reduced (0.5f), cornerRadius, 1.0f);
+    }
+
+    inline void drumEnclosure (juce::Graphics& g, juce::Rectangle<float> r)
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        juce::Path shape;
+        shape.addRoundedRectangle (r, radiusLg);
+        g.reduceClipRegion (shape);
+        g.setGradientFill (juce::ColourGradient (panel.interpolatedWith (raised, 0.18f), r.getX(), r.getY(),
+                                                panel.interpolatedWith (deep, 0.48f), r.getRight(), r.getBottom(), false));
+        g.fillPath (shape);
+        materialBevel (g, r, radiusLg, materialCoolLight(), 0.35f);
+        g.setColour (orange.withAlpha (0.22f));
+        g.drawRoundedRectangle (r.reduced (0.5f), radiusLg, 1.0f);
+        // Drums remains edge-painted, not Bass's 1px inset. The same solid
+        // width and mild inner end rounding keep mixer alignment unchanged.
+        g.setColour (orange);
+        g.fillPath (bassStripePath (r));
+    }
+
+    inline void drumTab (juce::Graphics& g, juce::Rectangle<float> r)
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        juce::Path tab;
+        tab.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight() + 6.0f,
+                                 radiusLg, radiusLg, true, true, false, false);
+        g.reduceClipRegion (tab);
+        g.setGradientFill (juce::ColourGradient (panel, r.getTopLeft(), panel.interpolatedWith (deep, 0.45f),
+                                                r.getBottomRight(), false));
+        g.fillPath (tab);
+        g.setGradientFill (juce::ColourGradient (orange.withAlpha (0.42f), r.getX(), r.getY(),
+                                                orange.withAlpha (0.0f), r.getX(), r.getY() + 9.0f, false));
+        g.fillPath (tab);
+        g.setGradientFill (juce::ColourGradient (orange, r.getX(), r.getY() + 1.0f,
+                                                orange.withAlpha (0.0f), r.getX(), r.getY() + 8.0f, false));
+        g.drawRoundedRectangle (r.withTrimmedBottom (-6.0f).reduced (0.75f), radiusLg, 1.5f);
+        // No reflection beneath either tab caption.
+    }
+
+    // Only the existing 3px Drums surround. Clip the new layers to the
+    // outside: the original cells and inter-lane gutters survive.
+    inline void materialWellRim (juce::Graphics& g, juce::Rectangle<float> well)
+    {
+        wellRing (g, well, 3.0f);
+        juce::Graphics::ScopedSaveState ss (g);
+        g.excludeClipRegion (well.toNearestInt());
+        const auto light = materialCoolLight();
+        g.setColour (materialContact());
+        g.fillRoundedRectangle (well.expanded (1.4f), radiusLg);
+        g.setGradientFill (juce::ColourGradient (light.withAlpha (0.72f), well.getX(), well.getY(),
+                                                light.withAlpha (0.08f), well.getRight(), well.getBottom(), false));
+        g.drawRoundedRectangle (well.expanded (2.5f), radiusLg + 1.0f, 1.0f);
+        juce::ColourGradient reflection (light.withAlpha (0.0f), well.getX() + 8.0f, well.getBottom(),
+                                         light.withAlpha (0.0f), well.getX() + well.getWidth() * 0.4f, well.getBottom(), false);
+        reflection.addColour (0.16, light.withAlpha (0.24f));
+        g.setGradientFill (reflection);
+        g.fillRect (well.getX() + 8.0f, well.getBottom() + 1.7f, juce::jmax (0.0f, well.getWidth() * 0.4f - 8.0f), 0.8f);
+    }
+
 }
 class RiffLookAndFeel : public juce::LookAndFeel_V4
 {
@@ -300,10 +603,13 @@ public:
     void drawComboBox (juce::Graphics& g, int w, int h, bool down, int, int, int, int, juce::ComboBox& box) override
     {
         const auto b = juce::Rectangle<float> ((float) w, (float) h);
-        const bool bass = (bool) box.getProperties().getWithDefault ("bassControl", false);
+        const bool bass = Theme::materialControl (box);
         if (bass)
+        {
+            Theme::bassShadowState (box, down);
             Theme::bassControlTile (g, b, box.findColour (juce::ComboBox::backgroundColourId), 2.0f,
                                     box.isEnabled(), box.isMouseOver (true), down, box.hasKeyboardFocus (true));
+        }
         else
             Theme::framedTile (g, b, box.findColour (juce::ComboBox::backgroundColourId).brighter (box.isMouseOver (true) ? 0.08f : 0.0f), 2.0f);
         juce::Path arrow;
@@ -322,8 +628,11 @@ public:
         if (down) c = c.darker (0.15f); else if (over) c = c.brighter (0.12f);
         const auto r = b.getLocalBounds().toFloat();
         const float ring = r.getHeight() < 26.0f ? 2.0f : 2.5f;
-        if ((bool) b.getProperties().getWithDefault ("bassControl", false))
+        if (Theme::materialControl (b))
+        {
+            Theme::bassShadowState (b, down);
             Theme::bassControlTile (g, r, bgc, ring, b.isEnabled(), over, down, b.hasKeyboardFocus (true));
+        }
         else
             Theme::framedTile (g, r, c, ring);
         if (b.getProperties().contains ("outline"))
@@ -417,8 +726,22 @@ public:
             g.setColour (accent.withAlpha (s.isEnabled() ? 0.9f : 0.3f));
             g.fillRoundedRectangle (groove.withTop (pos), 1.0f);
 
-            g.setColour (Theme::text);
-            g.fillEllipse (cx - 7.0f, pos - 7.0f, 14.0f, 14.0f);
+            if ((bool) s.getProperties().getWithDefault ("masterOutputFader", false))
+            {
+                const juce::Rectangle<float> cap (cx - 7.0f, pos - 7.0f, 14.0f, 14.0f);
+                g.setGradientFill (juce::ColourGradient (Theme::masterFaceLight(), cx - 4.0f, pos - 5.0f,
+                                                        Theme::masterFaceShade(), cx + 4.0f, pos + 7.0f, false));
+                g.fillEllipse (cap);
+                // Inset contact and glint: no extra shadow or change to diameter/travel.
+                g.setGradientFill (juce::ColourGradient (Theme::masterFaceLight().withAlpha (0.75f), cx, pos - 6.5f,
+                                                        Theme::mixerContact().withAlpha (0.60f), cx, pos + 6.5f, false));
+                g.drawEllipse (cap.reduced (0.5f), 1.0f);
+            }
+            else
+            {
+                g.setColour (Theme::text);
+                g.fillEllipse (cx - 7.0f, pos - 7.0f, 14.0f, 14.0f);
+            }
         }
         else
         {
@@ -442,11 +765,29 @@ public:
         const float ang = startA + prop * (endA - startA);
         const float mid = 0.5f * (startA + endA);
         const auto accent = s.findColour (juce::Slider::rotarySliderFillColourId);
+        const bool bass = (bool) s.getProperties().getWithDefault ("bassSoundKnob", false)
+                       || (bool) s.getProperties().getWithDefault ("bassVolumeKnob", false);
+        const bool material = bass || (bool) s.getProperties().getWithDefault ("drumKnob", false);
+        const bool smallDrum = (bool) s.getProperties().getWithDefault ("drumKnob", false) && juce::jmin (w, h) <= 26;
+        const bool subPoc = bass && (bool) s.getProperties().getWithDefault ("bassSubLightPoc", false);
 
-        g.setColour (Theme::frame);                               // dark ring around every knob, like the buttons
-        g.fillEllipse (c.x - r, c.y - r, 2 * r, 2 * r);
-        if ((bool) s.getProperties().getWithDefault ("bassSoundKnob", false)
-            || (bool) s.getProperties().getWithDefault ("bassVolumeKnob", false))
+        if (material && ! subPoc)
+        {
+            const float strength = ! s.isEnabled() ? 0.35f : s.isMouseButtonDown() ? 0.5f : 1.0f;
+            for (int layer = 3; layer >= 0; --layer)
+            {
+                const float spread = layer * 0.6f;
+                g.setColour (Theme::bassShadow().withAlpha (0.055f * strength));
+                g.fillEllipse (c.x - r - spread, c.y - r * 0.84f + 1.5f - spread,
+                               2.0f * (r + spread), 2.0f * (r * 0.84f + spread));
+            }
+        }
+        if (! subPoc) // Sub's parent supplies this base before its Gaussian near halo.
+        {
+            g.setColour (Theme::frame);                           // unchanged ring for all other knobs
+            g.fillEllipse (c.x - r, c.y - r, 2 * r, 2 * r);
+        }
+        if (material)
         {
             // Only the existing face is restyled; ring, geometry and input stay untouched.
             juce::Graphics::ScopedSaveState ss (g);
@@ -480,6 +821,21 @@ public:
             const float edgeR = r - 6.2f;
             reflection.addCentredArc (c.x, c.y, edgeR, edgeR, 0.0f, -1.15f, 0.95f, true);
             g.strokePath (reflection, juce::PathStrokeType (0.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            if (subPoc)
+            {
+                // Narrow raised metal bevel and inner reflection, never a centre wash.
+                const float light = ! enabled ? 0.22f : down ? 0.42f : over ? 1.0f : 0.85f;
+                g.setGradientFill (juce::ColourGradient (Theme::bassSubSpecular().withAlpha (light),
+                    face.getX() + 2.0f, face.getY(), Theme::bassSubSpecular().withAlpha (0.0f),
+                    face.getRight(), face.getBottom() - 2.0f, false));
+                g.drawEllipse (face.reduced (0.5f), 0.8f);
+                g.setGradientFill (juce::ColourGradient (Theme::bassKnobContact().withAlpha (0.0f),
+                    c.x, c.y, Theme::bassKnobContact().withAlpha (0.90f), c.x, face.getBottom(), false));
+                g.drawEllipse (face.reduced (1.15f), 0.7f);
+                g.setGradientFill (juce::ColourGradient (accent.withAlpha (0.13f * light),
+                    face.getX(), c.y, accent.withAlpha (0.0f), c.x, c.y, false));
+                g.drawEllipse (face.reduced (1.9f), 0.7f);
+            }
         }
         else
         {
@@ -494,13 +850,46 @@ public:
         g.setColour (Theme::border.brighter (0.25f));
         g.strokePath (bgArc, juce::PathStrokeType (2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        valArc.addCentredArc (c.x, c.y, ar, ar, 0.0f, (bool) s.getProperties().getWithDefault ("uni", false) ? startA : mid, ang, true);
+        const float valueStart = (bool) s.getProperties().getWithDefault ("uni", false) ? startA : mid;
+        // A zero-length JUCE arc still contains a line with coincident endpoints;
+        // rounded strokes can turn that into a dot. Bass zero must stay empty.
+        if (! material || valueStart != ang)
+            valArc.addCentredArc (c.x, c.y, ar, ar, 0.0f, valueStart, ang, true);
+        if (subPoc)
+            valArc = Theme::BassSubGeometry::make (juce::Rectangle<int> (x, y, w, h).toFloat(),
+                prop, startA, endA, (bool) s.getProperties().getWithDefault ("uni", false)).valueArc;
+        if (material && ! subPoc)
+        {
+            juce::Graphics::ScopedSaveState haloState (g);
+            // Exclude the unchanged metallic face, not the surrounding ring.
+            // Most of the old 4/6px halo was covered by the 2.6px value stroke.
+            juce::Path haloClip;
+            haloClip.setUsingNonZeroWinding (false);
+            haloClip.addRectangle (juce::Rectangle<int> (x, y, w, h).toFloat());
+            haloClip.addEllipse (c.x - r + 5.5f, c.y - r + 5.5f, 2 * r - 11.0f, 2 * r - 11.0f);
+            g.reduceClipRegion (haloClip);
+            const float strength = (s.isEnabled() ? (! bass && s.isMouseButtonDown() ? 0.5f : 1.0f) : 0.35f)
+                                 * (smallDrum ? 0.45f : 1.0f);
+            for (int layer = 0; layer < 6; ++layer)
+            {
+                g.setColour (accent.withAlpha ((0.045f + layer * 0.026f) * strength));
+                g.strokePath (valArc, juce::PathStrokeType (smallDrum ? 6.0f - layer * 0.5f : 9.0f - layer,
+                                                          juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            }
+        }
         g.setColour (accent);
         g.strokePath (valArc, juce::PathStrokeType (2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        if (material)
+        {
+            g.setColour ((subPoc ? Theme::bassSubCore() : Theme::bassArcCore (accent))
+                         .withAlpha (s.isEnabled() ? (subPoc ? 0.70f : 0.48f) : 0.17f));
+            g.strokePath (valArc, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
 
         juce::Path tick;
         tick.addRoundedRectangle (-1.25f, -(r - 7.0f), 2.5f, r * 0.36f, 1.0f);
-        g.setColour (Theme::text);
+        g.setColour (subPoc && s.isEnabled() ? Theme::text.interpolatedWith (juce::Colours::white, 0.55f)
+                                            : Theme::text);
         g.fillPath (tick, juce::AffineTransform::rotation (ang).translated (c.x, c.y));
     }
 };

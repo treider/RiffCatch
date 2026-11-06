@@ -78,6 +78,7 @@ public:
     explicit MixerPanel (AudioEngine& e);
 
     int preferredHeight() const { return panelH; }
+    juce::Rectangle<float> enclosureBounds() const { return getLocalBounds().toFloat().reduced (1.0f); }
     void refreshFromEngine() { master.syncFromEngine(); }
     void tick();
     void paint (juce::Graphics&) override;

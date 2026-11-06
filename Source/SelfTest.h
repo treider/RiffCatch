@@ -11,6 +11,11 @@
 #include "ui/ThemeStore.h"
 #include "ui/TunerCard.h"
 #include "project/ProjectIO.h"
+#include "ui/SeqTabs.h"
+#include "ui/MixerPanel.h"
+#include "MainComponent.h"
+#include "DrumMaterialSelfTest.h"
+#include "BassLightPocSelfTest.h"
 
 // kept out of runEngineSelfTest: that function's stack frame is already large
 inline void patternSelfTest (const std::function<void (bool, const juce::String&)>& check)
@@ -196,11 +201,11 @@ inline void bassKnobSelfTest (BassPanel& panel, const std::function<void (bool, 
     s.getProperties().set ("uni", true);
     int callbacks = 0;
     s.onValueChange = [&] { ++callbacks; };
-    auto render = [&]
+    auto render = [&] (float proportion = 0.5f)
     {
         juce::Image image (juce::Image::ARGB, 38, 38, true);
         juce::Graphics g (image);
-        laf.drawRotarySlider (g, 0, 0, 38, 38, 0.5f,
+        laf.drawRotarySlider (g, 0, 0, 38, 38, proportion,
                               juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, s);
         return image;
     };
@@ -227,12 +232,35 @@ inline void bassKnobSelfTest (BassPanel& panel, const std::function<void (bool, 
                 const bool differs = plain.getPixelAt (x, y) != metal.getPixelAt (x, y);
                 faceDiffers |= differs;
                 disabledDiffers |= disabled.getPixelAt (x, y) != metal.getPixelAt (x, y);
-                // Leave one antialiasing pixel around the unchanged 19px-diameter face.
-                if (juce::Point<float> (x + 0.5f, y + 0.5f).getDistanceFrom ({ 19.0f, 19.0f }) > 10.5f)
+                // v0.71 deliberately lights the value arc and adds a bounded shadow.
+                if (juce::Point<float> (x + 0.5f, y + 0.5f).getDistanceFrom ({ 19.0f, 19.0f }) > 18.5f)
                     outsideOK &= ! differs;
             }
         check (legacyOK && outsideOK && faceDiffers && disabledDiffers && metal.getPixelAt (19, 13) == Theme::text,
-               "bass knob rendering: opt-out, ring/arc, face, disabled state and pointer - " + preset.name);
+               "bass knob rendering: opt-out, bounded halo/shadow, face, disabled state and pointer - " + preset.name);
+        const auto zero = render (0.0f);
+        s.setColour (juce::Slider::rotarySliderFillColourId, Theme::red);
+        const auto zeroOtherColour = render (0.0f);
+        bool zeroOK = true;
+        for (int y = 0; y < 38; ++y)
+            for (int x = 0; x < 38; ++x)
+                zeroOK &= zero.getPixelAt (x, y) == zeroOtherColour.getPixelAt (x, y);
+        s.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
+        s.getProperties().remove ("bassSoundKnob");
+        s.getProperties().set ("bassVolumeKnob", true);
+        const auto volume = render();
+        bool volumeOK = true;
+        for (int y = 0; y < 38; ++y)
+            for (int x = 0; x < 38; ++x)
+                volumeOK &= volume.getPixelAt (x, y) == metal.getPixelAt (x, y);
+        s.getProperties().remove ("bassVolumeKnob");
+        check (zeroOK, "bass arcs: no fabricated zero arc - " + preset.name);
+        check (volumeOK, "bass arcs: volume shares sound-knob glow - " + preset.name);
+        check (metal.getPixelAt (31, 19) == plain.getPixelAt (31, 19)
+               && metal.getPixelAt (19, 3).getAlpha() >= 20
+               && metal.getPixelAt (19, 3).getAlpha() > plain.getPixelAt (19, 3).getAlpha() + 15
+               && metal.getPixelAt (19, 3).getSaturation() > 0.20f,
+               "bass arcs: unlit arc retained; visible coloured halo outside solid stroke - " + preset.name);
         check (Theme::bassKnobLight().getPerceivedBrightness() > Theme::bassKnobShade().getPerceivedBrightness()
                && std::abs (Theme::bassKnobLabel().getPerceivedBrightness() - Theme::panel.getPerceivedBrightness())
                   > std::abs (Theme::dim.getPerceivedBrightness() - Theme::panel.getPerceivedBrightness())
@@ -240,6 +268,208 @@ inline void bassKnobSelfTest (BassPanel& panel, const std::function<void (bool, 
                && Theme::panel.getARGB() == preset.surface && Theme::text.getARGB() == preset.text
                && Theme::current == selected && s.getValue() == 0.5 && callbacks == 0,
                "bass knob roles: live theme/label contrast, palette and value preserved - " + preset.name);
+    }
+    Theme::applyPreset (saved, legacy);
+}
+
+inline void bassLightingSelfTest (const std::function<void (bool, const juce::String&)>& check)
+{
+    const Theme::Preset saved { "live", Theme::blue.getARGB(), Theme::purple.getARGB(), Theme::cyan.getARGB(),
+                               Theme::bg.getARGB(), Theme::panel.getARGB(), Theme::text.getARGB() };
+    const bool legacy = Theme::legacyTracks;
+    auto grey = [] (juce::Colour c) { return (c.getRed() * 299 + c.getGreen() * 587 + c.getBlue() * 114) / 1000; };
+    const Theme::Preset lightingThemes[] {
+        Theme::presets[3], Theme::presets[0],
+        { "Neo-Retro", 0xffff780a, 0xfff2ab24, 0xfff6c343, 0xff0b1018, 0xff202630, 0xffdce3ec }
+    };
+    for (const auto& preset : lightingThemes)
+    {
+        Theme::applyPreset (preset, preset.name == "Tokyo Night");
+        const auto name = preset.name;
+        for (bool tab : { false, true })
+        {
+            const int width = tab ? 124 : 608, height = tab ? 28 : 236;
+            juce::Image image (juce::Image::ARGB, width, height, true);
+            {
+                juce::Graphics g (image);
+                Theme::bassEnclosure (g, { 0.0f, 0.0f, (float) width, (float) height }, tab);
+            } // Flush the native renderer before sampling.
+            const int hot = grey (image.getPixelAt (12, 1));
+            const int contact = grey (image.getPixelAt (12, 3));
+            const int far = grey (image.getPixelAt (width - 16, 1));
+            check (hot - contact >= 40 && (tab ? std::abs (hot - far) <= 3 : hot - far >= 40),
+                   "bass lighting: core/contact >=40, tab sustained / panel far subdued - " + name + (tab ? " tab " : " panel ")
+                   + juce::String (hot) + "/" + juce::String (contact) + "/" + juce::String (far));
+            check (image.getPixelAt (0, height / 2).getAlpha() == 0,
+                   "bass lighting: enclosure retains outer bounds - " + name + (tab ? " tab" : " panel"));
+            // Check the actual halo band hole, not just a difference from an old
+            // image. Its inset-6 corner must curve between (6,6) and (9,9).
+            const auto edge = juce::Rectangle<float> (0, 0, (float) width, (float) height);
+            const auto band = Theme::bassEnclosureBand (edge, 6.0f, tab);
+            check (band.contains (6.25f, 6.25f) && band.contains (6.5f, 7.0f)
+                   && ! band.contains (8.5f, 8.5f) && ! band.contains (12.0f, 6.25f)
+                   && band.contains (12.0f, 5.75f) && ! band.contains (0.25f, 0.25f),
+                   "bass corners: rounded halo hole, straight-edge depth and outer radius - " + name + (tab ? " tab" : " panel"));
+            juce::Image mask (juce::Image::ARGB, width, height, true);
+            {
+                juce::Graphics mg (mask);
+                mg.setColour (juce::Colours::white);
+                mg.fillPath (band);
+            }
+            const auto curveAlpha = mask.getPixelAt (6, 7).getAlpha();
+            check (mask.getPixelAt (5, 7).getAlpha() == 255 && curveAlpha > 0 && curveAlpha < 255
+                   && mask.getPixelAt (9, 9).getAlpha() == 0 && mask.getPixelAt (12, 5).getAlpha() == 255,
+                   "bass corners: antialiased curved inner transition, not square/blurred - " + name + (tab ? " tab" : " panel"));
+            if (! tab)
+            {
+                bool solid = Theme::bassLeftRibbon() == Theme::cyan;
+                for (int y = 8; y < height - 8; ++y)
+                    for (int x = 1; x < 5; ++x)
+                        solid &= image.getPixelAt (x, y) == Theme::cyan;
+                check (solid && image.getPixelAt (5, height / 2) != Theme::cyan
+                       && grey (image.getPixelAt (4, height / 2)) - grey (image.getPixelAt (5, height / 2)) >= 40
+                       && std::abs (grey (image.getPixelAt (8, height / 2))
+                                    - grey (image.getPixelAt (14, height / 2))) <= 3,
+                       "bass stripe: tuner-style 4px full-opacity live Accent, full height and no left halo - " + name);
+                juce::Image stripeMask (juce::Image::ARGB, width, height, true);
+                {
+                    juce::Graphics g (stripeMask);
+                    juce::Path card;
+                    const auto b = image.getBounds().toFloat().reduced (1.0f);
+                    card.addRoundedRectangle (b, Theme::radiusLg);
+                    g.reduceClipRegion (card);
+                    g.setColour (Theme::cyan);
+                    g.fillPath (Theme::bassStripePath (b));
+                }
+                bool corners = true;
+                for (int y : { 1, 2, 3, 4, 5, height - 6, height - 5, height - 4, height - 3, height - 2 })
+                    for (int x = 1; x < 5; ++x)
+                    {
+                        const auto coverage = stripeMask.getPixelAt (x, y).getAlpha();
+                        const auto pixel = image.getPixelAt (x, y);
+                        // Existing material beneath the stripe also contributes
+                        // at antialiased pixels; compare footprint and solid interior.
+                        if (coverage == 255) corners &= pixel == Theme::cyan;
+                    }
+                const auto stripe = Theme::bassStripePath (image.getBounds().toFloat().reduced (1.0f));
+                corners &= ! stripe.contains (4.9f, 1.1f) && stripe.contains (4.9f, 3.1f)
+                           && ! stripe.contains (4.9f, height - 1.1f) && stripe.contains (4.9f, height - 3.1f)
+                           && stripe.contains (4.99f, 7.0f) && ! stripe.contains (5.01f, 7.0f);
+                check (corners && image.getPixelAt (0, 1).getAlpha() == 0
+                       && stripeMask.getPixelAt (4, 1).getAlpha() < stripeMask.getPixelAt (4, 3).getAlpha(),
+                       "bass stripe: tangent radius-2 inner ends, outer radius-6 clip, unchanged 4px middle - " + name);
+                const int y = height - 4;
+                const int peakX = juce::roundToInt (13.0f + (width * 0.23f - 12.0f) * 0.12f);
+                int largestStep = 0;
+                for (int x = 11; x <= peakX + 2; ++x)
+                    largestStep = juce::jmax (largestStep, std::abs (grey (image.getPixelAt (x, y))
+                                                                   - grey (image.getPixelAt (x - 1, y))));
+                const int start = grey (image.getPixelAt (12, y));
+                const int peak = grey (image.getPixelAt (peakX, y));
+                const int end = grey (image.getPixelAt (juce::roundToInt (width * 0.23f), y));
+                check (largestStep <= 4 && peak - start >= 10 && peak - end >= 10,
+                       "bass reflection: gradual dark/light start and preserved fading highlight - " + name
+                       + " step/start/peak/end=" + juce::String (largestStep) + "/" + juce::String (start)
+                       + "/" + juce::String (peak) + "/" + juce::String (end));
+            }
+            else
+            {
+                check (grey (image.getPixelAt (width / 2, 4)) > grey (image.getPixelAt (width / 2, 12)) + 25
+                       && grey (image.getPixelAt (width / 2, 7)) > grey (image.getPixelAt (width / 2, 12)) + 8,
+                       "bass tab: visible top halo beyond the solid core, bounded before caption - " + name);
+            }
+            auto shadow = [&] (bool enabled, bool down)
+            {
+                juce::Image image (juce::Image::ARGB, 80, 48, true);
+                juce::Graphics g (image);
+                Theme::bassControlShadow (g, { 8.0f, 8.0f, 64.0f, 28.0f }, enabled, down);
+                return image;
+            };
+            const auto normalShadow = shadow (true, false), pressedShadow = shadow (true, true), disabledShadow = shadow (false, false);
+            check (normalShadow.getPixelAt (40, 36).getAlpha() > pressedShadow.getPixelAt (40, 36).getAlpha()
+                   && pressedShadow.getPixelAt (40, 36).getAlpha() > disabledShadow.getPixelAt (40, 36).getAlpha()
+                   && normalShadow.getPixelAt (40, 36).getAlpha() > normalShadow.getPixelAt (40, 39).getAlpha()
+                   && normalShadow.getPixelAt (40, 41).getAlpha() == 0,
+                   "bass shadows: downward falloff, weaker pressed/disabled, bounded extent - " + name);
+        }
+        SeqTabs activeBass (1, Theme::cyan);
+        activeBass.setSize (251, 28);
+        juce::Image actualTab (juce::Image::ARGB, 251, 28, true);
+        juce::Image bareTab (juce::Image::ARGB, 251, 28, true);
+        {
+            juce::Graphics g (actualTab), base (bareTab);
+            activeBass.paint (g);
+            Theme::bassEnclosure (base, { 127.0f, 0.0f, 124.0f, 28.0f }, true);
+        }
+        bool noReflection = true;
+        for (int y = 24; y <= 26; ++y)
+            for (int x = 162; x <= 216; ++x)
+                noReflection &= actualTab.getPixelAt (x, y) == bareTab.getPixelAt (x, y);
+        check (noReflection, "bass tab: no separate reflection beneath label in actual SeqTabs paint - " + name);
+        auto tile = [&] (bool enabled, bool over, bool down, bool focus, int width = 104)
+        {
+            juce::Image image (juce::Image::ARGB, width, 28, true);
+            juce::Graphics g (image);
+            Theme::bassControlTile (g, { 0.0f, 0.0f, (float) width, 28.0f }, Theme::raised, 2.0f, enabled, over, down, focus);
+            return image;
+        };
+        const auto normal = tile (true, false, false, false);
+        const int hot = grey (normal.getPixelAt (10, 2)), contact = grey (normal.getPixelAt (10, 1));
+        check (hot - contact >= 40 && hot > grey (normal.getPixelAt (88, 2)) + 40
+               && grey (tile (true, true, false, false).getPixelAt (10, 2)) > hot
+               && grey (tile (true, false, true, false).getPixelAt (10, 2)) < hot
+               && grey (tile (false, false, false, false).getPixelAt (10, 2)) < grey (tile (true, false, true, false).getPixelAt (10, 2))
+               && grey (tile (true, false, false, true).getPixelAt (10, 2)) > hot,
+               "bass lighting: control contrast/taper and hover/pressed/disabled/focus ordering - " + name
+               + " core/contact=" + juce::String (hot) + "/" + juce::String (contact));
+        check (normal.getPixelAt (52, 14) == Theme::raised
+               && Theme::bassControlLight().getSaturation() < 0.10f
+               && Theme::bassControlLight().getBrightness() >= 0.80f,
+               "bass lighting: semantic centre fill preserved, neutral high-value metal - " + name);
+        for (int width : { 44, 52, 104 })
+        {
+            const auto image = tile (true, false, false, false, width);
+            int largestStep = 0;
+            bool fading = true;
+            for (int y = 9; y <= 19; ++y)
+            {
+                const int previous = grey (image.getPixelAt (2, y - 1));
+                const int current = grey (image.getPixelAt (2, y));
+                largestStep = juce::jmax (largestStep, std::abs (current - previous));
+                fading &= current <= previous + 1;
+            }
+            const int upper = grey (image.getPixelAt (2, 9));
+            const int middle = grey (image.getPixelAt (2, 13));
+            const int lower = grey (image.getPixelAt (2, 19));
+            check (fading && largestStep <= 16 && upper > middle + 10 && middle > lower + 10,
+                   "bass controls: left highlight fades through old end-cap, width=" + juce::String (width)
+                   + " - " + name + " step/upper/middle/lower=" + juce::String (largestStep)
+                   + "/" + juce::String (upper) + "/" + juce::String (middle) + "/" + juce::String (lower));
+        }
+
+        juce::Image well (juce::Image::ARGB, 220, 180, true);
+        {
+            juce::Graphics wg (well);
+            Theme::bassWellRim (wg, { 10.0f, 10.0f, 200.0f, 160.0f });
+        }
+        bool bounded = true;
+        for (int y = 0; y < 180; ++y)
+            for (int x = 0; x < 220; ++x)
+                if (x < 7 || x >= 213 || y < 7 || y >= 173)
+                    bounded &= well.getPixelAt (x, y).getAlpha() == 0;
+        check (bounded && grey (well.getPixelAt (30, 7)) - grey (well.getPixelAt (30, 9)) >= 40
+               && well.getPixelAt (100, 80) == Theme::deep.darker (0.65f),
+               "bass lighting: well 3px extent, >=40 top/inner contrast and untouched dark interior - " + name);
+
+        // These paths must remain legacy tiles, not opt into the warm enclosure.
+        SeqTabs tabs (0, Theme::cyan);
+        tabs.setSize (251, 28);
+        const auto image = tabs.createComponentSnapshot (tabs.getLocalBounds());
+        juce::Image drumTop (juce::Image::ARGB, 124, 28, true);
+        { juce::Graphics dg (drumTop); Theme::drumTab (dg, { 0, 0, 124, 28 }); }
+        check (image.getPixelAt (12, 1) == drumTop.getPixelAt (12, 1)
+               && image.getPixelAt (139, 1) == Theme::panel.darker (0.14f),
+               "bass lighting: active Drums uses scoped material; inactive Bass stays exact - " + name);
     }
     Theme::applyPreset (saved, legacy);
 }
@@ -389,7 +619,9 @@ inline void bassControlSelfTest (const std::function<void (bool, const juce::Str
         bool displaySame = true, arrowsDiffer = false;
         for (int y = 0; y < bassCounter.getHeight(); ++y)
             for (int x = 0; x < bassCounter.getWidth(); ++x)
-                if (x < 72) displaySame &= plainCounter.getPixelAt (x, y) == bassCounter.getPixelAt (x, y);
+                // Display housing ends at x=70 even for shared counters.
+                // Arrow shadow may occupy the previously empty 2px gap.
+                if (x < 70) displaySame &= plainCounter.getPixelAt (x, y) == bassCounter.getPixelAt (x, y);
                 else arrowsDiffer |= plainCounter.getPixelAt (x, y) != bassCounter.getPixelAt (x, y);
         check (displaySame && arrowsDiffer && Theme::bassNoteLabel().getPerceivedBrightness() > Theme::dim.getPerceivedBrightness(),
                "bass material: blue library display unchanged, arrows opt in, note label contrast - " + Theme::presets[(size_t) theme].name);
@@ -433,13 +665,526 @@ inline void bassControlSelfTest (const std::function<void (bool, const juce::Str
     }
 }
 
+inline void bottomRowSelfTest (const std::function<void (bool, const juce::String&)>& check)
+{
+    auto engine = std::make_unique<AudioEngine>();
+    engine->prepareForTest (44100.0, 2);
+    RiffLookAndFeel laf;
+    juce::Component host;
+    DrumPanel drums (*engine);
+    BassPanel bass (*engine);
+    MixerPanel mixer (*engine);
+    host.addChildComponent (drums); host.addChildComponent (bass); host.addChildComponent (mixer);
+    drums.setLookAndFeel (&laf); bass.setLookAndFeel (&laf); mixer.setLookAndFeel (&laf);
+    bass.setView (8.0, 2.0, 0.0, 8.0);
+    int width = 1484, height = 941, tab = 1, layoutCalls = 0;
+    juce::Rectangle<int> remaining;
+    auto layout = [&]
+    {
+        remaining = juce::Rectangle<int> (width, height).reduced (12).withTrimmedTop (110);
+        MainComponent::layoutBottomRow (remaining, drums, bass, mixer, tab);
+        ++layoutCalls;
+    };
+    // Same collapse/page and tab routing as the real parent, without settings or devices.
+    drums.onLayoutChanged = [&]
+    {
+        if (bass.isExpanded() != drums.isExpanded()) bass.setExpanded (drums.isExpanded());
+        else layout();
+    };
+    bass.onLayoutChanged = [&]
+    {
+        if (drums.isExpanded() != bass.isExpanded()) drums.setExpanded (bass.isExpanded());
+        else layout();
+    };
+    drums.onSelectTab = bass.onSelectTab = [&] (int t)
+    {
+        tab = t;
+        drums.setVisible (tab == 0); bass.setVisible (tab == 1);
+        drums.seqTabs().setVisible (tab == 0); bass.seqTabs().setVisible (tab == 1);
+        layout();
+    };
+    auto paintedEdges = [] (juce::Component& c)
+    {
+        juce::Image image (juce::Image::ARGB, c.getWidth(), c.getHeight(), true);
+        {
+            juce::Graphics g (image);
+            c.paint (g); // actual production enclosure paint, excluding parent shadow
+        } // flush the Windows renderer before reading pixels
+        int top = -1, bottom = -1;
+        for (int y = 0; y < image.getHeight(); ++y)
+            if (image.getPixelAt (100, y).getAlpha() != 0)
+            {
+                if (top < 0) top = y;
+                bottom = y;
+            }
+        return std::pair<int, int> { c.getY() + top, c.getY() + bottom };
+    };
+    for (int w : { 1484, 1084, 1473, 1474, 1607, 1608, 1484 })
+        for (bool expanded : { true, false })
+            for (bool paged : { false, true })
+              for (bool drumPaged : { false, true })
+                for (int selected : { 0, 1 })
+                {
+                    width = w; height = w == 1084 ? 581 : 941;
+                    layout();
+                    const int before = layoutCalls;
+                    bass.setExpanded (expanded);
+                    check (layoutCalls > before, "bottom row: collapse/expand callback relayout");
+                    engine->bass.bars = paged ? 8 : 1;
+                    bass.refreshFromEngine();
+                    engine->drums.bars = drumPaged ? 8 : 1;
+                    drums.refreshFromEngine();
+                    bass.onSelectTab (selected);
+                    auto& left = selected == 1 ? static_cast<juce::Component&> (bass)
+                                               : static_cast<juce::Component&> (drums);
+                    const int extra = bass.headerHeight() - BassPanel::headerH;
+                    const juce::String context = " width=" + juce::String (w) + " tab=" + juce::String (selected)
+                        + " expanded=" + juce::String ((int) expanded) + " paged=" + juce::String ((int) paged)
+                        + " drumPaged=" + juce::String ((int) drumPaged);
+                    const auto leftEdges = paintedEdges (left), rightEdges = paintedEdges (mixer);
+                    const juce::Rectangle<int> normalMixer (width - 12 - MixerPanel::panelW,
+                                                           height - 12 - MixerPanel::panelH,
+                                                           MixerPanel::panelW, MixerPanel::panelH);
+                    const std::pair<int, int> normalMixerEdges { normalMixer.getY() + 1, normalMixer.getBottom() - 2 };
+                    check (expanded ? leftEdges == rightEdges
+                                    : mixer.getBounds() == normalMixer && rightEdges == normalMixerEdges
+                                      && leftEdges.second < rightEdges.second,
+                           (expanded ? "bottom row: expanded painted top AND bottom equal"
+                                     : "bottom row: folded left ends early; full normal mixer position/inset retained") + context
+                           + " left=" + juce::String (leftEdges.first) + "," + juce::String (leftEdges.second)
+                           + " right=" + juce::String (rightEdges.first) + "," + juce::String (rightEdges.second));
+                    const int budget = 208 + extra;
+                    check (expanded
+                               ? remaining.getBottom() == height - 12 - 28 - budget
+                                 && bass.getHeight() == budget && drums.getHeight() == budget - 2
+                                 && bass.getBounds().reduced (1) == drums.getBounds()
+                                 && bass.seqTabs().getBounds() == drums.seqTabs().getBounds()
+                                 && bass.seqTabs().getBottom() == bass.getY()
+                                 && mixer.getY() == bass.getY() && mixer.getHeight() == budget
+                               : remaining.getBottom() == height - 12 - 234 - extra
+                                 && bass.getHeight() == bass.preferredHeight (bass.getWidth())
+                                 && drums.getHeight() == bass.getHeight() - 2
+                                 && bass.getHeight() == BassPanel::headerH + extra
+                                 && bass.getY() == normalMixer.getY() - extra && drums.getY() == bass.getY() + 1,
+                           "bottom row: shared budget/contours/tab baseline; folded header-only/full mixer retained" + context);
+                    bool commonEqual = true, controlsFit = true, controlsSeparate = true;
+                    const auto bc = bass.headerControls(), dc = drums.headerControls();
+                    for (size_t i = 0; i < bc.size(); ++i)
+                    {
+                        commonEqual &= host.getLocalArea (bc[i], bc[i]->getLocalBounds())
+                                    == host.getLocalArea (dc[i], dc[i]->getLocalBounds());
+                    }
+                    for (auto* panel : std::initializer_list<juce::Component*> { &bass, &drums })
+                        for (auto* c : panel->getChildren())
+                        {
+                            if (! c->isVisible() || c->getBounds().isEmpty()) continue;
+                            controlsFit &= panel->getLocalBounds().contains (c->getBounds());
+                            for (auto* other : panel->getChildren())
+                                if (other != c && other->isVisible() && ! other->getBounds().isEmpty())
+                                    controlsSeparate &= ! c->getBounds().intersects (other->getBounds());
+                        }
+                    check (commonEqual && controlsFit && controlsSeparate,
+                           "shared header: ALL 11 parent-coordinate bounds equal, visible children contained/non-overlapping" + context);
+                    check (bass.headerHeight() == SeqHeaderLayout::height (bass.getWidth(), expanded && (paged || drumPaged))
+                           && drums.headerHeight() == bass.headerHeight()
+                           && (int) bass.hasPages() == (int) (expanded && paged)
+                           && (int) drums.hasPages() == (int) (expanded && drumPaged),
+                           "shared header: wrap uses BOTH paging states without changing own page visibility" + context);
+                    {
+                        std::array<juce::Rectangle<int>, SeqHeaderLayout::numCommon> anchors;
+                        for (size_t i = 0; i < bc.size(); ++i) anchors[i] = host.getLocalArea (bc[i], bc[i]->getLocalBounds());
+                        const auto foldedOrExpandedRemaining = remaining, foldedOrExpandedMixer = mixer.getBounds();
+                        drums.onSelectTab (1 - selected);
+                        bool stable = remaining == foldedOrExpandedRemaining && mixer.getBounds() == foldedOrExpandedMixer;
+                        for (size_t i = 0; i < bc.size(); ++i)
+                            stable &= anchors[i] == host.getLocalArea (bc[i], bc[i]->getLocalBounds())
+                                   && anchors[i] == host.getLocalArea (dc[i], dc[i]->getLocalBounds());
+                        bass.onSelectTab (selected);
+                        check (stable, "shared header: actual tab callback preserves all common anchors, folded/expanded" + context);
+                    }
+                    if (expanded)
+                    {
+                        const auto frameBefore = bass.getBounds().reduced (1);
+                        const auto tabsBefore = bass.seqTabs().getBounds(), mixerBefore = mixer.getBounds(), tracksBefore = remaining;
+                        const auto bassBounds = bass.getBounds(), drumsBounds = drums.getBounds();
+                        // Exercise each panel's actual onSelectTab callback, not a
+                        // separately copied formula. Then return through the other.
+                        drums.onSelectTab (1 - selected);
+                        check (frameBefore == bass.getBounds().reduced (1) && frameBefore == drums.getBounds()
+                               && tabsBefore == bass.seqTabs().getBounds() && tabsBefore == drums.seqTabs().getBounds()
+                               && mixerBefore == mixer.getBounds() && tracksBefore == remaining
+                               && bassBounds == bass.getBounds() && drumsBounds == drums.getBounds()
+                               && paintedEdges (bass) == paintedEdges (drums) && paintedEdges (drums) == paintedEdges (mixer),
+                               "bottom row: actual tab switch has ZERO frame/tab/mixer/track-reservation movement" + context);
+                        bass.onSelectTab (selected);
+                        check (mixerBefore == mixer.getBounds() && tracksBefore == remaining
+                               && tabsBefore == bass.seqTabs().getBounds() && tabsBefore == drums.seqTabs().getBounds(),
+                               "bottom row: return tab callback restores identical geometry" + context);
+                        if (! paged && ! drumPaged && (w == 1484 || w == 1084))
+                        {
+                            const auto name = juce::String (selected == 0 ? "Drums" : "Bass") + "-layout-width-" + juce::String (w);
+                            DrumMaterialTest::artifact (left.createComponentSnapshot (left.getLocalBounds()), name);
+                            if (selected == 0)
+                                DrumMaterialTest::artifact (drums.seqTabs().createComponentSnapshot (drums.seqTabs().getLocalBounds()),
+                                                            "active-tab-width-" + juce::String (w));
+                        }
+                    }
+                    bool contained = true;
+                    for (auto* child : mixer.getChildren())
+                        contained &= mixer.getLocalBounds().contains (child->getBounds()) && child->getHeight() >= 196;
+                    for (auto* child : bass.getChildren())
+                        if (child->isVisible()) contained &= bass.getLocalBounds().contains (child->getBounds());
+                    for (auto* child : drums.getChildren())
+                        if (child->isVisible() && ! child->getBounds().isEmpty())
+                            contained &= drums.getLocalBounds().contains (child->getBounds());
+                    mixer.setEnabled (false); drums.setEnabled (false); bass.setEnabled (false);
+                    check (contained && paintedEdges (left) == leftEdges && paintedEdges (mixer) == rightEdges,
+                           "bottom row: disabled paint and all visible children contained" + context);
+                    mixer.setEnabled (true); drums.setEnabled (true); bass.setEnabled (true);
+                }
+    // Page visibility alone must resize an expanded Bass at the normal window width.
+    width = 1484; tab = 0; bass.setExpanded (true);
+    engine->drums.bars = 1; drums.refreshFromEngine();
+    engine->bass.bars = 1; bass.refreshFromEngine(); layout();
+    const int beforePages = layoutCalls;
+    engine->bass.bars = 8; bass.refreshFromEngine();
+    check (layoutCalls > beforePages && mixer.getHeight() == 240
+           && paintedEdges (bass) == paintedEdges (mixer) && paintedEdges (drums) == paintedEdges (mixer),
+           "bottom row: hidden Bass page callback updates shared wrapped row/mixer to 240px while Drums selected");
+    engine->bass.bars = 1; bass.refreshFromEngine();
+    check (mixer.getHeight() == 208 && bass.getHeight() == 208 && drums.getHeight() == 206,
+           "bottom row: hidden Bass unpaging restores common 208px budget, intact 206px Drums content");
+    for (bool collapseViaDrums : { true, false })
+    {
+        if (collapseViaDrums) drums.setExpanded (false); else bass.setExpanded (false);
+        check (! drums.isExpanded() && ! bass.isExpanded() && drums.getHeight() == 40
+               && bass.getHeight() == bass.preferredHeight() && mixer.getHeight() == 206,
+               "bottom row: collapse from either panel synchronizes original preferred-height frames");
+        if (collapseViaDrums) drums.setExpanded (true); else bass.setExpanded (true);
+        check (drums.isExpanded() && bass.isExpanded() && paintedEdges (drums) == paintedEdges (bass)
+               && bass.seqTabs().getBounds() == drums.seqTabs().getBounds(),
+               "bottom row: expand from either panel restores shared frame/tab baseline");
+    }
+
+    // Real gestures in the shared parent layout, including hidden-other-panel
+    // paging forcing a wrap. No screen input, settings, devices or project I/O.
+    for (int w : { 1084, 1473, 1474, 1484, 1607, 1608 })
+        for (bool bp : { false, true })
+            for (bool dp : { false, true })
+            {
+                width = w; bass.setExpanded (true);
+                engine->drums.clearPattern(); engine->bass.clearPattern();
+                engine->drums.bars = dp ? 8 : 1; engine->bass.bars = bp ? 8 : 1;
+                drums.refreshFromEngine(); bass.refreshFromEngine(); layout();
+                const juce::String tag = " width=" + juce::String (w) + " bassPage=" + juce::String ((int) bp)
+                    + " drumPage=" + juce::String ((int) dp);
+                juce::UndoManager undo;
+                auto push = [&] (const juce::String& name, std::function<void()> apply, std::function<void()> revert)
+                { undo.beginNewTransaction (name); undo.perform (new LambdaAction (std::move (apply), std::move (revert))); };
+                drums.onUndoable = push; bass.onUndoable = push;
+                auto pageButton = [] (juce::Component* c) { dynamic_cast<juce::TextButton*> (c)->onClick(); };
+                // Return to page one first, then exercise the real page callback.
+                if (dp) { pageButton (drums.headerControls()[SeqHeaderLayout::Previous]); pageButton (drums.headerControls()[SeqHeaderLayout::Next]); }
+                if (bp) { pageButton (bass.headerControls()[SeqHeaderLayout::Previous]); pageButton (bass.headerControls()[SeqHeaderLayout::Next]); }
+                auto event = [] (juce::Component& c, juce::Point<float> pos, int modifiers, bool drag = false)
+                {
+                    return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), pos,
+                        juce::ModifierKeys (modifiers), 1, 0, 0, 0, 0, &c, &c,
+                        juce::Time::getCurrentTime(), pos, juce::Time::getCurrentTime(), 1, drag);
+                };
+                const int left = juce::ModifierKeys::leftButtonModifier, right = juce::ModifierKeys::rightButtonModifier;
+                const float dw = (float) (drums.getWidth() - TrackRow::waveLeft - TrackRow::waveRightInset) / 64.0f;
+                auto point = [&] (int cell, int voice)
+                { return juce::Point<float> (TrackRow::waveLeft + (cell + 0.5f) * dw, (float) drums.bodyTop() + voice * 26 + 13); };
+                const auto empty = drums.createComponentSnapshot (drums.getLocalBounds());
+                bool cells = true, laneHeaders = true;
+                for (int voice = 0; voice < 6; ++voice)
+                {
+                    const int base = dp ? 64 : 0;
+                    const auto a = point (1, voice), b = point (4, voice);
+                    drums.mouseDown (event (drums, a, left));
+                    drums.mouseDrag (event (drums, b, left, true));
+                    drums.mouseUp (event (drums, b, left, true));
+                    cells &= engine->drums.steps[voice][base + 1] == 1 && engine->drums.steps[voice][base + 4] == 1;
+                    const auto drawn = engine->drums.snapshot();
+                    undo.undo();
+                    cells &= engine->drums.steps[voice][base + 1] == 0 && engine->drums.steps[voice][base + 4] == 0;
+                    undo.redo(); cells &= engine->drums.snapshot() == drawn;
+                    drums.mouseDown (event (drums, a, right)); drums.mouseUp (event (drums, a, right));
+                    cells &= engine->drums.steps[voice][base + 1] == 2;
+                    drums.mouseDown (event (drums, a, left | juce::ModifierKeys::shiftModifier));
+                    drums.mouseUp (event (drums, a, left | juce::ModifierKeys::shiftModifier));
+                    cells &= engine->drums.steps[voice][base + 1] == 1;
+                    if (! dp)
+                    {
+                        // Repeated display cell 17 maps back to pattern step 1.
+                        const auto repeated = point (17, voice);
+                        drums.mouseDown (event (drums, repeated, right)); drums.mouseUp (event (drums, repeated, right));
+                        cells &= engine->drums.steps[voice][1] == 2;
+                    }
+                    const bool mute = engine->drums.voiceMute[voice].load();
+                    drums.mouseDown (event (drums, { 25, a.y }, left));
+                    laneHeaders &= engine->drums.voiceMute[voice].load() != mute;
+                    drums.mouseDown (event (drums, { 25, a.y }, left));
+                    laneHeaders &= engine->drums.voiceMute[voice].load() == mute;
+                    engine->drums.audition[voice] = false;
+                    drums.mouseDown (event (drums, { 65, a.y }, left));
+                    laneHeaders &= engine->drums.audition[voice].exchange (false);
+                }
+                const auto populated = drums.createComponentSnapshot (drums.getLocalBounds());
+                bool layers = true;
+                for (int voice = 0; voice < 6; ++voice)
+                {
+                    const auto p = point (1, voice).toInt();
+                    layers &= empty.getPixelAt (p.x, p.y) != populated.getPixelAt (p.x, p.y);
+                }
+                const auto patternBeforeHeader = engine->drums.snapshot();
+                drums.mouseDown (event (drums, { point (1, 0).x, (float) drums.bodyTop() - 1 }, left));
+                drums.mouseUp (event (drums, { point (1, 0).x, (float) drums.bodyTop() - 1 }, left));
+                check (cells && layers && patternBeforeHeader == engine->drums.snapshot(),
+                       "shared header gestures: six Drum lanes, drag, accents, repeat/page mapping, undo/redo, paint and header exclusion" + tag);
+                check (laneHeaders, "shared header gestures: all six shifted lane mute/audition hit areas" + tag);
+
+                undo.clearUndoHistory();
+                const float bw = (float) (bass.getWidth() - TrackRow::waveLeft - TrackRow::waveRightInset) / 64.0f;
+                const juce::Point<float> start (TrackRow::waveLeft + bw * 0.5f,
+                    (float) bass.headerHeight() + BassPanel::shiftH + 5 * BassPanel::rowH + 6);
+                const auto finish = start.translated (bw * 3, 0);
+                bass.mouseDown (event (bass, start, left));
+                bass.mouseDrag (event (bass, finish, left, true)); bass.mouseUp (event (bass, finish, left, true));
+                const int step = bp ? 64 : 0;
+                const auto note = engine->bass.steps[step].load();
+                bool notes = BassMachine::isNote (note) && BassMachine::lenOf (note) == 4;
+                undo.undo(); notes &= ! engine->bass.hasAnySteps();
+                undo.redo(); notes &= engine->bass.steps[step].load() == note;
+                bass.mouseDown (event (bass, start, right)); bass.mouseUp (event (bass, start, right));
+                notes &= BassMachine::accentOf (engine->bass.steps[step].load());
+                bass.mouseDown (event (bass, start, left | juce::ModifierKeys::ctrlModifier));
+                bass.mouseUp (event (bass, start, left | juce::ModifierKeys::ctrlModifier));
+                notes &= BassMachine::slideOf (engine->bass.steps[step].load());
+                const auto bassBeforeHeader = engine->bass.snapshot();
+                bass.mouseDown (event (bass, { start.x, (float) bass.headerHeight() - 1 }, left));
+                bass.mouseUp (event (bass, { start.x, (float) bass.headerHeight() - 1 }, left));
+                check (notes && bassBeforeHeader == engine->bass.snapshot(),
+                       "shared header gestures: Bass fixed-grid note/length/accent/slide/page mapping, undo/redo and header exclusion" + tag);
+                drums.onUndoable = {}; bass.onUndoable = {};
+            }
+
+    // Outside silhouette coverage and a fully faded extent, without a shadow gutter/hit-area change.
+    juce::Image shadow (juce::Image::ARGB, 160, 100, true);
+    {
+        juce::Graphics g (shadow);
+        Theme::tunerShadow (g, { 20, 20, 120, 60 });
+    }
+    check (shadow.getPixelAt (80, 80).getAlpha() > shadow.getPixelAt (80, 82).getAlpha()
+           && shadow.getPixelAt (80, 82).getAlpha() > 0
+           && shadow.getPixelAt (80, 84).getAlpha() == 0
+           && shadow.getPixelAt (16, 50).getAlpha() == 0,
+           "tuner shadow: real outside pixels, downward taper ends inside existing 4px padding");
+    juce::Image outer (juce::Image::ARGB, 500, 280, true);
+    {
+        juce::Graphics g (outer);
+        Theme::cardShadow (g, { 20, 20, 440, 238 });
+    }
+    check (outer.getPixelAt (240, 260).getAlpha() > 0
+           && outer.getPixelAt (240, 271).getAlpha() == 0,
+           "mixer outer shadow: outside silhouette, fully faded within parent bottom margin");
+    drums.onLayoutChanged = {}; bass.onLayoutChanged = {};
+    drums.setLookAndFeel (nullptr); bass.setLookAndFeel (nullptr); mixer.setLookAndFeel (nullptr);
+}
+
+inline void mixerMaterialSelfTest (const std::function<void (bool, const juce::String&)>& check)
+{
+    const Theme::Preset saved { "live", Theme::blue.getARGB(), Theme::purple.getARGB(), Theme::cyan.getARGB(),
+                               Theme::bg.getARGB(), Theme::panel.getARGB(), Theme::text.getARGB() };
+    const bool legacy = Theme::legacyTracks;
+    auto themes = Theme::presets;
+    themes.push_back ({ "Neo-Retro", 0xffff780a, 0xfff2ab24, 0xfff6c343, 0xff0b1018, 0xff202630, 0xffdce3ec });
+    for (const auto& theme : themes)
+    {
+        Theme::applyPreset (theme, theme.name == "Tokyo Night");
+        RiffLookAndFeel laf;
+        juce::Slider fader;
+        fader.setColour (juce::Slider::trackColourId, Theme::purple);
+        for (bool enabled : { true, false })
+            for (bool vertical : { true, false })
+                for (float pos : { 12.0f, 50.0f, 88.0f })
+                {
+                    fader.setEnabled (enabled);
+                    auto render = [&] (bool marked, bool old)
+                    {
+                        juce::Image image (juce::Image::ARGB, 100, 100, true);
+                        juce::Graphics g (image);
+                        fader.getProperties().set ("masterOutputFader", marked);
+                        if (! old)
+                            laf.drawLinearSlider (g, 12, 12, vertical ? 24 : 76, vertical ? 76 : 24, pos, 0, 0,
+                                                  vertical ? juce::Slider::LinearVertical : juce::Slider::LinearHorizontal, fader);
+                        else
+                        {
+                            const juce::Rectangle<float> groove = vertical ? juce::Rectangle<float> (22, 12, 4, 76)
+                                                                          : juce::Rectangle<float> (12, 22, 76, 4);
+                            g.setColour (Theme::deep); g.fillRoundedRectangle (groove, 1.0f);
+                            g.setColour (vertical ? Theme::purple.withAlpha (enabled ? 0.9f : 0.3f) : Theme::purple);
+                            g.fillRoundedRectangle (vertical ? groove.withTop (pos) : groove.withRight (pos), 1.0f);
+                            g.setColour (Theme::text);
+                            g.fillEllipse (vertical ? 17.0f : pos - 7, vertical ? pos - 7 : 17.0f, 14, 14);
+                        }
+                        return image;
+                    };
+                    const auto plain = render (false, false), old = render (false, true), marked = render (true, false);
+                    bool unchanged = true, bounded = true, different = false;
+                    for (int y = 0; y < 100; ++y)
+                        for (int x = 0; x < 100; ++x)
+                        {
+                            unchanged &= plain.getPixelAt (x, y) == old.getPixelAt (x, y);
+                            const bool diff = marked.getPixelAt (x, y) != plain.getPixelAt (x, y);
+                            different |= diff;
+                            if (! vertical || x < 17 || x >= 31 || y < pos - 7 || y >= pos + 7) bounded &= ! diff;
+                        }
+                    check (unchanged && bounded && (different == vertical),
+                           "master fader: opt-in only, legacy exact, 14px cap/4px slot/travel retained - " + theme.name
+                           + (vertical ? " vertical " : " horizontal ") + juce::String (pos) + (enabled ? " enabled" : " disabled"));
+                }
+        check (Theme::mixerCoolLight().getBlue() > Theme::mixerCoolLight().getRed(),
+               "mixer material: live cool role independent of Accent hue - " + theme.name);
+    }
+    Theme::applyPreset (saved, legacy);
+
+    auto engine = std::make_unique<AudioEngine>();
+    engine->prepareForTest (44100.0, 2);
+    const int slot = engine->addTrack();
+    RiffLookAndFeel laf;
+    MixerPanel panel (*engine);
+    panel.setLookAndFeel (&laf);
+    panel.setVisible (true);
+    panel.setSize (440, 206);
+    ChannelStrip* master = nullptr;
+    TunerCard* tuner = nullptr;
+    for (auto* child : panel.getChildren())
+    {
+        if (auto* c = dynamic_cast<ChannelStrip*> (child)) master = c;
+        if (auto* c = dynamic_cast<TunerCard*> (child)) tuner = c;
+    }
+    juce::Slider* fader = nullptr;
+    juce::Label* db = nullptr;
+    if (master != nullptr)
+        for (auto* child : master->getChildren())
+        {
+            if (auto* c = dynamic_cast<juce::Slider*> (child)) fader = c;
+            if (auto* c = dynamic_cast<juce::Label*> (child)) db = c;
+        }
+    check (master != nullptr && master->getBounds() == juce::Rectangle<int> (331, 5, 104, 196)
+           && tuner != nullptr && tuner->getBounds() == juce::Rectangle<int> (13, 5, 310, 196),
+           "mixer geometry: 440x206, pad5, master104 and tuner310 unchanged");
+    if (fader != nullptr && db != nullptr)
+    {
+        check ((bool) fader->getProperties()["masterOutputFader"] && fader->getBounds() == juce::Rectangle<int> (61, 30, 24, 133)
+               && db->getBounds() == juce::Rectangle<int> (14, 168, 76, 20)
+               && fader->getMinimum() == 0 && fader->getMaximum() == 1 && fader->getInterval() == 0
+               && fader->getDoubleClickReturnValue() == gainToFader (1.0f) && ! fader->getWantsKeyboardFocus()
+               && db->getText() == "0.0 dB", "master: range/default/unity/focus/bounds unchanged");
+        std::function<void()> undo, redo;
+        int commits = 0;
+        panel.onUndoable = [&] (const juce::String&, std::function<void()> r, std::function<void()> u)
+        { ++commits; redo = std::move (r); undo = std::move (u); };
+        fader->onDragStart();
+        fader->setValue (0, juce::sendNotificationSync);
+        check (engine->masterVolume == 0 && db->getText() == "-inf dB" && commits == 0,
+               "master: drag updates gain/dB, defers undo commit");
+        fader->onDragEnd();
+        check (commits == 1 && undo && redo, "master: drag end commits one undo");
+        if (undo && redo)
+        {
+            undo();
+            check (engine->masterVolume == 1 && db->getText() == "0.0 dB", "master: undo restores unity");
+            redo();
+            check (engine->masterVolume == 0 && db->getText() == "-inf dB", "master: redo restores silence");
+        }
+        fader->setValue (1, juce::sendNotificationSync);
+        check (std::abs (engine->masterVolume.load() - faderToGain (1)) < 0.0001f && commits == 2,
+               "master: non-drag value commits, full-range gain mapping unchanged");
+        panel.onUndoable = {};
+    }
+    ChannelStrip track (*engine, slot, 0);
+    bool unmarked = true;
+    for (auto* child : track.getChildren())
+        if (auto* s = dynamic_cast<juce::Slider*> (child))
+            unmarked &= ! s->getProperties().contains ("masterOutputFader");
+    check (unmarked, "master opt-in: track fader and pan remain unmarked");
+    if (tuner != nullptr)
+    {
+        tuner->setRef (429); check (tuner->getRef() == 430, "tuner: reference lower clamp unchanged");
+        tuner->setRef (451); check (tuner->getRef() == 450, "tuner: reference upper clamp unchanged");
+        tuner->setRef (440);
+        const auto image = tuner->createComponentSnapshot (tuner->getLocalBounds());
+        check (image.getPixelAt (20, 5) == Theme::deep
+               && image.getPixelAt (20, 190) == Theme::deep
+               && image.getPixelAt (20, 0) != image.getPixelAt (20, 195),
+               "tuner production paint: deep well unchanged, light confined to 3px directional surround");
+        std::array<float, 4096> samples;
+        auto feed = [&] (float hz)
+        {
+            for (int i = 0; i < (int) samples.size(); ++i)
+                samples[(size_t) i] = hz == 0 ? 0.0f : 0.4f * std::sin (juce::MathConstants<float>::twoPi * hz * i / 44100.0f);
+            engine->pushTunerSamples (samples.data(), (int) samples.size());
+            for (int i = 0; i < 40; ++i) tuner->tick();
+            return tuner->createComponentSnapshot (tuner->getLocalBounds());
+        };
+        const auto tuned = feed (440.0f), sharp = feed (448.0f), silent = feed (0);
+        check (tuned.getPixelAt (155, 100) == Theme::green
+               && sharp.getPixelAt (155, 100) == Theme::accent
+               && silent.getPixelAt (155, 100) == Theme::dim,
+               "tuner production paint via real detector: in-tune, sharp and timed silence marker states");
+        bool sameRim = true;
+        for (int x = 0; x < 310; ++x)
+            for (int y : { 0, 1, 2, 193, 194, 195 })
+                sameRim &= image.getPixelAt (x, y) == tuned.getPixelAt (x, y)
+                           && image.getPixelAt (x, y) == sharp.getPixelAt (x, y)
+                           && image.getPixelAt (x, y) == silent.getPixelAt (x, y);
+        check (sameRim, "tuner production paint: material independent of active/inactive content");
+    }
+    if (master != nullptr && tuner != nullptr && fader != nullptr && db != nullptr)
+        for (int h : { 238, 208, 206 })
+        {
+            panel.setSize (440, h);
+            const int fh = h - 73;
+            check (master->getBounds() == juce::Rectangle<int> (331, 5, 104, h - 10)
+                   && tuner->getBounds() == juce::Rectangle<int> (13, 5, 310, h - 10)
+                   && fader->getBounds() == juce::Rectangle<int> (61, 30, 24, fh)
+                   && db->getBounds() == juce::Rectangle<int> (14, h - 38, 76, 20)
+                   && fader->getPositionOfValue (0) > fader->getPositionOfValue (1)
+                   && fader->getPositionOfValue (0) <= fh && fader->getPositionOfValue (1) >= 0,
+                   "mixer resized: actual fader travel/readout and tuner bounds h=" + juce::String (h));
+            auto hit = panel.getLocalPoint (fader, fader->getLocalBounds().getCentre());
+            check (panel.getComponentAt (hit) == fader
+                   && panel.getComponentAt (tuner->getBounds().getTopLeft().translated (260, 16)) == tuner,
+                   "mixer resized: real master and tuner-reference hit targets h=" + juce::String (h));
+            for (double value : { 0.0, 0.5, 1.0 })
+            {
+                fader->setValue (value, juce::sendNotificationSync);
+                check (std::abs (engine->masterVolume.load() - faderToGain ((float) value)) < 0.0001f,
+                       "mixer resized: real gain callback mapping h=" + juce::String (h) + " value=" + juce::String (value));
+            }
+            const auto image = tuner->createComponentSnapshot (tuner->getLocalBounds());
+            check (image.getPixelAt (155, 100) == Theme::dim && tuner->getRef() == 440
+                   && image.getPixelAt (20, h - 16) == Theme::deep,
+                   "mixer resized: tuner marker/reference retained, full-height well h=" + juce::String (h));
+        }
+    panel.setLookAndFeel (nullptr);
+}
+
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
 {
     juce::String log;
     bool ok = true;
     auto check = [&] (bool c, const juce::String& what) { log << (c ? "PASS " : "FAIL ") << what << "\n"; ok &= c; };
+    bassLightingSelfTest (check);
+    drumMaterialSelfTest (check);
+    BassLightPocTest::run (check);
     bassControlSelfTest (check);
+    mixerMaterialSelfTest (check);
+    bottomRowSelfTest (check);
 
     auto eng = std::make_unique<AudioEngine>();
     const double sr = 48000.0;
@@ -1374,24 +2119,76 @@ inline juce::String runEngineSelfTest()
     patternSelfTest (check);
     songSelfTest (check);
     {   // custom themes
-        const auto dk = Theme::generate ("selftest-theme", juce::Colour (0xffea580c), juce::Colour (0xfffbbf24), true);
+        const Theme::Preset saved { "live", Theme::blue.getARGB(), Theme::purple.getARGB(), Theme::cyan.getARGB(),
+                                   Theme::bg.getARGB(), Theme::panel.getARGB(), Theme::text.getARGB() };
+        const bool legacy = Theme::legacyTracks;
+        const auto selectedName = Theme::presets[(size_t) Theme::current].name;
+        ThemeStore::reload();
+        const auto baseline = Theme::presets;
+        const auto files = ThemeStore::dir().findChildFiles (juce::File::findFiles, false, "*.json");
+        std::vector<juce::MemoryBlock> contents;
+        for (const auto& f : files)
+        {
+            juce::MemoryBlock bytes;
+            f.loadFileAsData (bytes);
+            contents.push_back (std::move (bytes));
+        }
+        juce::String testName;
+        do { testName = "selftest-theme-" + juce::Uuid().toString(); }
+        while (ThemeStore::fileFor (testName).exists() || ThemeStore::indexOf (testName) >= 0);
+        const auto dk = Theme::generate (testName, juce::Colour (0xffea580c), juce::Colour (0xfffbbf24), true);
         const auto lt = Theme::generate ("selftest-light", juce::Colour (0xff2563eb), juce::Colour (0xff06b6d4), false);
         auto contrast = [] (juce::uint32 a, juce::uint32 b) { return std::abs (juce::Colour (a).getPerceivedBrightness() - juce::Colour (b).getPerceivedBrightness()); };
         check (contrast (dk.background, dk.text) > 0.6f, "generated dark theme: text contrasts with background");
         check (contrast (lt.background, lt.text) > 0.6f, "generated light theme: text contrasts with background");
         check (juce::Colour (dk.background).getPerceivedBrightness() < juce::Colour (lt.background).getPerceivedBrightness(), "dark base is darker than light base");
-        check (ThemeStore::save (dk), "custom theme saved to disk");
+        // Six explicit Neo-Retro roles exercise the real store even on machines
+        // without the optional installed preset. Never write to its user file.
+        const Theme::Preset fixture { testName, 0xffff780a, 0xfff2ab24, 0xfff6c343, 0xff0b1018, 0xff202630, 0xffdce3ec };
+        auto same = [] (const Theme::Preset& a, const Theme::Preset& b)
+        {
+            return a.name == b.name && a.primary == b.primary && a.secondary == b.secondary && a.accent == b.accent
+                && a.background == b.background && a.surface == b.surface && a.text == b.text;
+        };
+        auto paletteMatches = [] (const Theme::Preset& p)
+        {
+            return Theme::blue.getARGB() == p.primary && Theme::accent.getARGB() == p.primary
+                && Theme::purple.getARGB() == p.secondary && Theme::cyan.getARGB() == p.accent
+                && Theme::bg.getARGB() == p.background && Theme::panel.getARGB() == p.surface && Theme::text.getARGB() == p.text
+                && Theme::red.getARGB() == 0xfff7768e && Theme::green.getARGB() == 0xff9ece6a;
+        };
+        check (ThemeStore::save (fixture), "custom theme saved to disk");
         ThemeStore::reload();
-        const int idx = ThemeStore::indexOf ("selftest-theme");
-        check (idx >= Theme::builtinCount, "custom theme found after reload");
+        const int idx = ThemeStore::indexOf (testName);
+        check (idx >= Theme::builtinCount && Theme::numPresets() == (int) baseline.size() + 1, "only test custom theme added after reload");
         if (idx >= 0)
         {
-            const auto& r = Theme::presets[(size_t) idx];
-            check (r.primary == dk.primary && r.accent == dk.accent && r.background == dk.background && r.surface == dk.surface && r.text == dk.text,
-                   "custom theme round-trips through JSON");
-            check (ThemeStore::remove (idx) && ThemeStore::indexOf ("selftest-theme") < 0, "custom theme deleted");
+            check (same (Theme::presets[(size_t) idx], fixture), "custom theme: all six Neo-Retro roles round-trip through JSON");
+            Theme::apply (idx);
+            check (Theme::current == idx && paletteMatches (fixture) && ! Theme::legacyTracks,
+                   "custom theme: Neo-Retro selection, six-role mapping and fixed transport colours");
+            check (ThemeStore::remove (idx) && ThemeStore::indexOf (testName) < 0, "only test custom theme deleted");
         }
-        check (Theme::numPresets() == Theme::builtinCount, "only built-in themes remain");
+        bool preserved = Theme::presets.size() == baseline.size();
+        for (size_t i = 0; i < baseline.size() && i < Theme::presets.size(); ++i)
+            preserved &= same (baseline[i], Theme::presets[i]);
+        for (size_t i = 0; i < contents.size(); ++i)
+        {
+            juce::MemoryBlock bytes;
+            preserved &= files[(int) i].loadFileAsData (bytes) && bytes == contents[i];
+        }
+        check (preserved, "existing built-in/custom themes survive reload and cleanup byte-for-byte");
+        // Includes the actual installed Neo-Retro when present; no install-file
+        // dependency, no settings writes, no save/delete of any existing theme.
+        bool selectionOK = true;
+        for (int i = Theme::builtinCount; i < Theme::numPresets(); ++i)
+        {
+            Theme::apply (i);
+            selectionOK &= Theme::current == i && paletteMatches (Theme::presets[(size_t) i]);
+        }
+        check (selectionOK, "installed custom themes: reload/selection/palette preserved (" + juce::String (Theme::numPresets() - Theme::builtinCount) + ")");
+        Theme::current = ThemeStore::indexOf (selectedName);
+        Theme::applyPreset (saved, legacy);
     }
 
     log << (ok ? "ALL OK" : "FAILURES") << "\n";
