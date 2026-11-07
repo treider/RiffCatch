@@ -2,7 +2,7 @@
 #include "Theme.h"
 
 // User themes: one small JSON file per theme in %APPDATA%\RiffCatch\themes.
-// They are appended to Theme::presets after the nine built-ins.
+// They are appended to Theme::presets after the seven built-ins.
 namespace ThemeStore
 {
     inline juce::File dir()
@@ -46,6 +46,12 @@ namespace ThemeStore
             if (o == nullptr) continue;
             const auto name = o->getProperty ("name").toString();
             if (name.isEmpty()) continue;
+            // A user file with a built-in name (for example an older installed
+            // Neo-Retro) must not duplicate the built-in entry.
+            bool builtin = false;
+            for (int i = 0; i < Theme::builtinCount; ++i)
+                if (Theme::presets[(size_t) i].name == name) { builtin = true; break; }
+            if (builtin) continue;
             Theme::presets.push_back ({ name,
                 parse (o->getProperty ("primary"), 0xff7aa2f7),   parse (o->getProperty ("secondary"), 0xffbb9af7),
                 parse (o->getProperty ("accent"), 0xff7dcfff),    parse (o->getProperty ("background"), 0xff1a1b26),

@@ -9,11 +9,10 @@ namespace Seg
 {
     // ---- the look of all seven-segment displays (counter in the cards, clock): adjust here ----
     inline juce::Colour digitColour   { 0xff8fd0ff };   // lit segments: ice blue / electric cyan (the base of the shading)
-    inline juce::Colour candyTop      { 0xff3a86ea };   // the casing: candy dark blue lacquer, top ...
-    inline juce::Colour candyMid      { 0xff1550b4 };   // ... middle ...
-    inline juce::Colour candyBottom   { 0xff061c4a };   // ... and bottom
-    inline juce::Colour specular      { 0xffd8f0ff };   // specular highlight along the top edge of the casing
-    inline juce::Colour rimLight      { 0xff3f8cff };   // blue rim light along the bottom edge
+    inline juce::Colour bezelTop      { 0xff0a1c3e };   // the recessed bezel: dark blue, top ...
+    inline juce::Colour bezelMid      { 0xff06122c };   // ... middle ...
+    inline juce::Colour bezelBottom   { 0xff020814 };   // ... and bottom
+    inline juce::Colour rimLight      { 0xff3f8cff };   // blue reflected light on the lower lip of the recess
     inline juce::Colour wellTop       { 0xff010610 };   // the recessed display: midnight blue, almost black
     inline juce::Colour wellBottom    { 0xff04163a };
     inline juce::Colour shadowColour  { 0xff000410 };   // inner shadow along all edges of the well
@@ -56,38 +55,51 @@ namespace Seg
         g.drawImageAt (it->second, (int) std::floor (r.getX()), (int) std::floor (r.getY()));
     }
 
-    // The whole display housing inside `outer`: glossy candy-blue lacquer casing with bevel and specular edges around a
-    // recessed well. Returns the well, where the digits go.
+    // The whole display housing inside `outer`: a matte dark-blue bezel sunk into
+    // the panel, with a shadowed upper lip and blue reflected light on the lower
+    // lip around the recessed well. Returns the well, where the digits go.
     inline juce::Rectangle<float> paintDisplayHousing (juce::Graphics& g, juce::Rectangle<float> outer, float radius)
     {
+        if (outer.isEmpty()) return outer;
         g.setColour (Theme::frame);                                           // thin black line against the card
         g.fillRoundedRectangle (outer, radius);
         const auto c = outer.reduced (1.0f);
         const float cr = radius - 1.0f;
         {
-            juce::ColourGradient lacquer (candyTop, 0.0f, c.getY(), candyBottom, 0.0f, c.getBottom(), false);
-            lacquer.addColour (0.38, candyMid);
-            g.setGradientFill (lacquer);
+            juce::ColourGradient bezel (bezelTop, 0.0f, c.getY(), bezelBottom, 0.0f, c.getBottom(), false);
+            bezel.addColour (0.55f, bezelMid);
+            g.setGradientFill (bezel);
             g.fillRoundedRectangle (c, cr);
-            juce::ColourGradient gloss (juce::Colours::white.withAlpha (0.16f), 0.0f, c.getY(), juce::Colours::transparentWhite, 0.0f, c.getY() + c.getHeight() * 0.5f, false);
-            g.setGradientFill (gloss);                                        // lacquer sheen on the upper half
-            g.fillRoundedRectangle (c, cr);
+            g.setGradientFill (juce::ColourGradient (juce::Colours::black.withAlpha (0.45f), 0.0f, c.getY(),
+                                                    juce::Colours::transparentBlack, 0.0f, c.getY() + c.getHeight() * 0.55f, false));
+            g.fillRoundedRectangle (c, cr);                                   // upper lip in shadow: light comes from above
         }
         {
-            juce::ColourGradient edge (specular.withAlpha (0.85f), 0.0f, c.getY(), rimLight.withAlpha (0.55f), 0.0f, c.getBottom(), false);
-            edge.addColour (0.35, specular.withAlpha (0.0f));
-            edge.addColour (0.72, rimLight.withAlpha (0.0f));
-            g.setGradientFill (edge);                                         // specular on top, blue rim light below
+            juce::ColourGradient edge (juce::Colours::black.withAlpha (0.70f), 0.0f, c.getY(),
+                                       rimLight.withAlpha (0.55f), 0.0f, c.getBottom(), false);
+            edge.addColour (0.62f, juce::Colours::black.withAlpha (0.10f));
+            g.setGradientFill (edge);                                         // dark upper contour, lit lower lip
             g.drawRoundedRectangle (c.reduced (0.5f), cr - 0.5f, 1.0f);
         }
         const auto well = outer.reduced (ringWidth);
         const float wr = juce::jmax (2.5f, radius - ringWidth * 0.7f);
         {
-            juce::ColourGradient lip (juce::Colours::black.withAlpha (0.75f), 0.0f, well.getY(), rimLight.withAlpha (0.5f), 0.0f, well.getBottom(), false);
-            g.setGradientFill (lip);                                          // bevel: shadowed upper lip, lit lower lip
-            g.drawRoundedRectangle (well.expanded (0.75f), wr + 0.75f, 1.5f);
+            juce::ColourGradient lip (juce::Colours::black.withAlpha (0.85f), 0.0f, well.getY(),
+                                      rimLight.withAlpha (0.42f), 0.0f, well.getBottom(), false);
+            lip.addColour (0.70f, juce::Colours::black.withAlpha (0.30f));
+            g.setGradientFill (lip);                                          // the bezel rolls into the hole
+            g.drawRoundedRectangle (well.expanded (0.9f), wr + 0.9f, 1.6f);
         }
         paintDisplayBackground (g, well, wr);
+        {
+            juce::Graphics::ScopedSaveState ss (g);
+            juce::Path clip;
+            clip.addRoundedRectangle (well, wr);
+            g.reduceClipRegion (clip);
+            g.setGradientFill (juce::ColourGradient (rimLight.withAlpha (0.0f), 0.0f, well.getBottom() - 5.0f,
+                                                    rimLight.withAlpha (0.14f), 0.0f, well.getBottom(), false));
+            g.fillRect (well);                                                // blue light caught inside the lower lip
+        }
         return well;
     }
 

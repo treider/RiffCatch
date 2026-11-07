@@ -146,7 +146,7 @@ inline void drumMaterialSelfTest (const std::function<void (bool, const juce::St
         const auto before = engine->drums.snapshot();
         const auto empty = drums.createComponentSnapshot (drums.getLocalBounds());
         check (controls == 8 && knobs == 14 && ranges && geometry && before == engine->drums.snapshot()
-               && empty.getPixelAt (2, 100) == Theme::orange,
+               && empty.getPixelAt (2, 100) == Theme::drumAccent(),
                "Drums production: 8 control opt-ins/14 knobs, bounds/ranges/defaults, edge stripe, paint-only invariant" + tag);
         drums.counter().getProperties().set ("drumControl", false);
         const auto oldCounter = drums.counter().createComponentSnapshot (drums.counter().getLocalBounds());
@@ -185,14 +185,14 @@ inline void drumMaterialSelfTest (const std::function<void (bool, const juce::St
         cursor (0); engine->drums.voiceMute[0] = false;
         drums.setExpanded (false); drums.setSize (1008, 42);
         const auto folded = drums.createComponentSnapshot (drums.getLocalBounds());
-        check (folded.getPixelAt (2, 20) == Theme::orange && Theme::materialControl (drums.counter()) && drums.preferredHeight() == 42,
+        check (folded.getPixelAt (2, 20) == Theme::drumAccent() && Theme::materialControl (drums.counter()) && drums.preferredHeight() == 42,
                "Drums folded: original 42px collapse, header opt-ins before early return" + tag);
         drums.setExpanded (true); drums.setSize (608, 238);
         const auto minimum = drums.createComponentSnapshot (drums.getLocalBounds());
         bool bounds = true;
         for (auto* c : drums.getChildren())
             if (c->isVisible() && ! c->getBounds().isEmpty()) bounds &= drums.getLocalBounds().contains (c->getBounds());
-        check (bounds && drums.preferredHeight() == 238 && minimum.getPixelAt (2, 100) == Theme::orange,
+        check (bounds && drums.preferredHeight() == 238 && minimum.getPixelAt (2, 100) == Theme::drumAccent(),
                "Drums minimum: shared wrapped header, intact 26px lanes and contained children" + tag);
         if (theme.name == "Neo-Retro") artifact (minimum, "Neo-Retro-minimum-populated");
 

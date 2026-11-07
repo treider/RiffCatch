@@ -109,7 +109,7 @@ DrumPanel::DrumPanel (AudioEngine& e) : engine (e)
     volume.setDoubleClickReturnValue (true, 0.8);
     volume.getProperties().set ("uni", true);
     volume.getProperties().set ("drumKnob", true);
-    volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::orange);
+    volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::drumAccent());
     volume.setWantsKeyboardFocus (false);
     volume.setTooltip ("Drum volume");
     volume.onValueChange = [this] { engine.drums.volume = (float) volume.getValue(); info ("Drums volume", dbText ((float) volume.getValue())); };

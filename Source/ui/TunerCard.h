@@ -56,14 +56,28 @@ public:
         const auto b = getLocalBounds().toFloat();
         const float w = b.getWidth();
         const float cx = w * 0.5f;
-        Theme::mixerWellSurround (g, b, Theme::radiusLg, b.reduced (3.0f), Theme::radiusLg - 1.0f);
+        Theme::mixerWellSurround (g, b, Theme::radiusLg, b.reduced (3.0f), Theme::radiusLg - 1.0f, Theme::purple);
         g.setColour (Theme::deep);
         g.fillRoundedRectangle (b.reduced (3.0f), Theme::radiusLg - 1.0f);
 
         const int midiNote = (int) std::lround (shown);
         const float cents = (shown - (float) midiNote) * 100.0f;
         const bool inTune = active && std::abs (cents) <= 5.0f;
-        const auto live = inTune ? Theme::green : Theme::accent;
+        const auto live = inTune ? Theme::green : Theme::orange;      // in tune: green, otherwise orange
+
+        // Backlight behind the note: the glow takes the note colour, so the state
+        // reads before the cents text does.
+        if (active)
+        {
+            juce::Graphics::ScopedSaveState ss (g);
+            juce::Path clip;
+            clip.addRoundedRectangle (b.reduced (3.0f), Theme::radiusLg - 1.0f);
+            g.reduceClipRegion (clip);
+            const juce::Point<float> centre (cx, 52.0f);
+            g.setGradientFill (juce::ColourGradient (live.withAlpha (0.14f), centre.x, centre.y,
+                                                    live.withAlpha (0.0f), centre.x, centre.y + 92.0f, true));
+            g.fillRoundedRectangle (b.reduced (3.0f), Theme::radiusLg - 1.0f);
+        }
 
         // header
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
@@ -76,11 +90,23 @@ public:
         const juce::Rectangle<int> noteArea (10, 26, getWidth() - 20, 50);
         if (active)
         {
-            g.setColour (live);
             g.setFont (juce::FontOptions (46.0f, juce::Font::bold));
             const auto nm = noteName (midiNote);
             const int nw = juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), nm);
-            g.drawText (nm, noteArea.withWidth (nw + 4).withCentre (noteArea.getCentre().translated (-8, 0)), juce::Justification::centred);
+            const auto noteRect = noteArea.withWidth (nw + 4).withCentre (noteArea.getCentre().translated (-8, 0));
+            g.setColour (live.withAlpha (0.20f));                 // soft halo in the same colour as the note
+            for (auto d : { juce::Point<int> (-1, 0), juce::Point<int> (1, 0), juce::Point<int> (0, -1), juce::Point<int> (0, 1) })
+                g.drawText (nm, noteRect.translated (d.x, d.y), juce::Justification::centred);
+            juce::GlyphArrangement glyphs;
+            glyphs.addCurtailedLineOfText (g.getCurrentFont(), nm, 0.0f, 0.0f, (float) noteRect.getWidth(), true);
+            glyphs.justifyGlyphs (0, glyphs.getNumGlyphs(), (float) noteRect.getX(), (float) noteRect.getY(),
+                                  (float) noteRect.getWidth(), (float) noteRect.getHeight(), juce::Justification::centred);
+            juce::Path glyphPath;
+            glyphs.createPath (glyphPath);
+            g.setColour (juce::Colours::black.withAlpha (0.90f));  // thin black outline around the letter
+            g.strokePath (glyphPath, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour (live);
+            g.fillPath (glyphPath);
             g.setFont (juce::FontOptions (16.0f));
             g.setColour (live.withAlpha (0.8f));
             g.drawText (juce::String (octaveOf (midiNote)), (int) cx + nw / 2 - 2, noteArea.getBottom() - 24, 24, 18, juce::Justification::left);

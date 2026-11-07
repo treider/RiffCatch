@@ -21,9 +21,27 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.setColour (Theme::panel.darker (0.30f));
-        g.fillRect (0, getHeight() - 3, getWidth(), 3);
         const auto& bank = engine.patterns;
+        const int used = bank.numUsed();
+        const bool plus = used < PatternBank::maxPatterns;
+        const int slots = used + (plus ? 1 : 0);
+
+        // The rail hugs its tabs and ends in a rounded cap, so it no longer runs
+        // as an empty strip into the Song button with hard 90-degree corners.
+        const float barW = slots > 0 ? (float) juce::jmin (getWidth(), tabRect (slots - 1).getRight()) : 0.0f;
+        if (barW > 0.0f)
+        {
+            juce::Path bar;
+            bar.addRoundedRectangle (0.0f, 0.0f, barW, (float) getHeight(),
+                                     Theme::radiusLg, Theme::radiusLg, false, false, true, true);
+            juce::Graphics::ScopedSaveState barState (g);
+            g.reduceClipRegion (bar);
+            g.setColour (Theme::panel.darker (0.30f));
+            g.fillRect (getLocalBounds());
+            g.setColour (Theme::panel.darker (0.45f));
+            g.fillRect (0, getHeight() - 3, (int) std::ceil (barW), 3);
+        }
+
         int pos = 0;
         for (int i = 0; i < PatternBank::maxPatterns; ++i)
         {
@@ -31,12 +49,9 @@ public:
             const auto r = tabRect (pos++).toFloat();
             const bool on = i == bank.current;
             const auto col = Theme::trackColour (bank.pats[i].colour);
-            juce::Path tab;
-            tab.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight(), Theme::radiusLg, Theme::radiusLg, true, true, false, false);
-            g.setColour (on ? Theme::raised : (hover == i ? Theme::panel.brighter (0.05f) : Theme::panel.darker (0.14f)));
-            g.fillPath (tab);
-            g.setColour (col.withAlpha (on ? 1.0f : 0.55f));
-            g.fillRect (r.getX() + 6.0f, r.getY() + 1.0f, r.getWidth() - 12.0f, 2.0f);
+            // Every tab shares one material; only the active tab carries its
+            // pattern colour and the single glint.
+            Theme::tabFace (g, r, on ? col : Theme::dim, on, hover == i);
 
             const bool data = bank.hasContent (engine, i);
             g.setFont (juce::Font (juce::FontOptions (13.0f, on ? juce::Font::bold : juce::Font::plain)));
@@ -46,13 +61,15 @@ public:
             g.setColour (on ? Theme::text : (data ? Theme::text.withAlpha (0.8f) : Theme::dim));
             g.drawText (bank.pats[i].name, tr, juce::Justification::centredLeft, true);
         }
-        if (bank.numUsed() < PatternBank::maxPatterns)
+        if (plus)
         {
             const auto r = tabRect (pos).toFloat();
             juce::Path tab;
             tab.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight(), Theme::radiusLg, Theme::radiusLg, true, true, false, false);
-            g.setColour (hover == -2 ? Theme::panel.brighter (0.05f) : Theme::panel.darker (0.14f));
-            g.fillPath (tab);
+            // No solid fill and no colour in the outline: the rail shows through
+            // and a grey outline gives the plus the same material as the tabs.
+            g.setColour (hover == -2 ? Theme::text.withAlpha (0.75f) : Theme::dim);
+            g.strokePath (tab, juce::PathStrokeType (1.0f));
             g.setColour (Theme::accent);
             g.setFont (juce::Font (juce::FontOptions (16.0f, juce::Font::bold)));
             g.drawText ("+", r.toNearestInt().withTrimmedTop (2), juce::Justification::centred);

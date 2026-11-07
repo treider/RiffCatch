@@ -210,7 +210,7 @@ void ChannelStrip::paint (juce::Graphics& g)
     {   // one dark well holds VU, dB scale and fader; the read-out sits right under it, same width
         const auto well = wellArea.toFloat();
         if (isMaster())
-            Theme::mixerWellSurround (g, well.expanded (2.5f), Theme::radiusLg + 1.25f, well, Theme::radius);
+            Theme::mixerWellSurround (g, well.expanded (2.5f), Theme::radiusLg + 1.25f, well, Theme::radius, Theme::purple);
         else
             Theme::wellRing (g, well, 2.5f);
         g.setColour (Theme::deep);
@@ -234,7 +234,7 @@ void ChannelStrip::paint (juce::Graphics& g)
         if (isMaster())
         {
             g.setGradientFill (juce::ColourGradient (Theme::mixerContact(), db.getX(), db.getY(),
-                                                    Theme::mixerCoolLight().withAlpha (0.15f), db.getX(), db.getBottom(), false));
+                                                    Theme::purple.withAlpha (0.15f), db.getX(), db.getBottom(), false));
             g.drawRoundedRectangle (db.reduced (0.5f), 5.5f, 1.0f);
         }
     }    g.setColour (onHeader);
@@ -296,7 +296,7 @@ void MixerPanel::paint (juce::Graphics& g)
         g.reduceClipRegion (card);
         g.setColour (Theme::panel);
         g.fillRect (b);
-        const auto light = Theme::mixerCoolLight();
+        const auto light = Theme::purple;
         g.setGradientFill (juce::ColourGradient (light.withAlpha (0.08f), 4.0f, 0.0f,
                                                 light.withAlpha (0.0f), b.getWidth() * 0.45f, 36.0f, false));
         g.fillRect (b);
@@ -316,8 +316,9 @@ void MixerPanel::paint (juce::Graphics& g)
         g.setColour (accent);
         g.fillRect (b.withWidth (4.0f));
     }
-    g.setColour (accent.withAlpha (0.22f));
-    g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);
+    // v0.86: directional exposed edge replaces the uniform purple outline;
+    // the purple left stripe keeps the panel's identity.
+    Theme::panelExposedEdge (g, b, Theme::radiusLg, Theme::purple, Theme::mixerContact());
 }
 
 void MixerPanel::resized()

@@ -32,8 +32,15 @@ public:
             ThemeStore::reload();
             if (auto* f = tmp.getUserSettings())
             {
-                const int byName = ThemeStore::indexOf (f->getValue ("themeName"));
-                Theme::apply (byName >= 0 ? byName : f->getIntValue ("theme", 3));
+                const auto savedName = f->getValue ("themeName");
+                int themeIndex = ThemeStore::indexOf (savedName);
+                if (themeIndex < 0) // old selection of a removed theme falls back to the default
+                {
+                    themeIndex = savedName.isNotEmpty() ? ThemeStore::indexOf ("Neo-Retro")
+                                                       : f->getIntValue ("theme", Theme::current);
+                    if (themeIndex < 0) themeIndex = Theme::current;
+                }
+                Theme::apply (themeIndex);
             }
             laf.applyColours();
         }

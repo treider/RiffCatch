@@ -146,7 +146,7 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
     volume.setDoubleClickReturnValue (true, 0.8);
     volume.getProperties().set ("uni", true);
     volume.getProperties().set ("bassVolumeKnob", true);
-    volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
+    volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::bassAccent());
     volume.setWantsKeyboardFocus (false);
     volume.setTooltip ("Bass volume");
     volume.onValueChange = [this] { engine.bass.volume = (float) volume.getValue(); info ("Bass volume", dbText ((float) volume.getValue())); };
@@ -251,7 +251,7 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
         s.setDoubleClickReturnValue (true, d.def);
         s.getProperties().set ("uni", d.lo >= 0.0);
         s.getProperties().set ("bassSoundKnob", true);
-        s.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
+        s.setColour (juce::Slider::rotarySliderFillColourId, Theme::bassAccent());
         s.setWantsKeyboardFocus (false);
         s.setTooltip (d.name);
         const juce::String unit (d.unit);
@@ -275,9 +275,9 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
 
 void BassPanel::lookAndFeelChanged()
 {
-    if (! knobs.isEmpty()) knobs[0]->s.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
+    if (! knobs.isEmpty()) knobs[0]->s.setColour (juce::Slider::rotarySliderFillColourId, Theme::bassAccent());
     if (auto* parent = getParentComponent()) parent->repaint (getBounds().expanded (12));
-    volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
+    volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::bassAccent());
     pageLabel.setColour (juce::Label::textColourId, Theme::dim);
     liveBtn.setColour (juce::TextButton::buttonOnColourId, Theme::red);
     for (auto* b : { &muteBtn, &soloBtn, (juce::TextButton*) &echoBtn, (juce::TextButton*) &reverbBtn })
@@ -538,12 +538,14 @@ void BassPanel::paintOuterLight (juce::Graphics& g, juce::Component& paintOwner)
 
 void BassPanel::paint (juce::Graphics& g)
 {
-    const auto accent = Theme::cyan;
+    const auto accent = Theme::bassAccent();
     const auto b = getLocalBounds().toFloat();
     // The parent already supplies the cached Theme::cardShadow at these unchanged bounds.
     frameLight.ensure (b, g.getInternalContext().getPhysicalPixelScaleFactor());
     Theme::bassEnclosure (g, b, false, true);
     frameLight.drawInner (g);
+    Theme::panelExposedEdge (g, b.reduced (1.0f), Theme::radiusLg - 1.0f,
+                             Theme::bassTabRibbon(), Theme::bassControlContact(), 1.0f, 5);
     if (expanded && ! knobs.isEmpty())
     {
         auto& s = knobs[0]->s;
@@ -616,7 +618,7 @@ void BassPanel::paint (juce::Graphics& g)
             const int s = page * vs + c, bar = s / bs;
             if (bar >= bm.bars.load()) continue;
             const int sh = bm.shift[bar].load();
-            g.setColour (sh == 0 ? Theme::dim : Theme::cyan);
+            g.setColour (sh == 0 ? Theme::dim : Theme::bassAccent());
             g.drawText (BassTemplates::shiftName (sh), (int) (xOrigin + c * cellW) + 4, headerHeight(), 60, shiftH, juce::Justification::centredLeft);
         }
         g.restoreState();

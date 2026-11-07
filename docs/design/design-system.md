@@ -4,7 +4,7 @@
 
 The user-approved redesign target is [RiffCatch Retro-Tech DAW Interface](../screenshots/RiffCatch%20Retro-Tech%20DAW%20Interface.png). Open the image, not just this description, before visual design/review. If it is unavailable, ask the user to provide it. Existing app screenshots are baseline evidence, not replacement targets.
 
-This document is a specification, not a claim that the target has shipped. At framework setup, `main` is v0.63: mostly flat themed controls, dark frames, lighter well rings, cached card shadows and blue seven-segment displays. There are nine built-in themes with Sunset as default. The discarded redesign is not an approved baseline. No GUI changes are authorized by installing this framework.
+This document is a specification, not a claim that the target has shipped. At framework setup, `main` is v0.63: mostly flat themed controls, dark frames, lighter well rings, cached card shadows and blue seven-segment displays. There are seven built-in themes with Sunset as default. The discarded redesign is not an approved baseline. No GUI changes are authorized by installing this framework.
 
 ## Visual language
 
@@ -76,6 +76,152 @@ caption/tab/neighbor spill, geometry/state/zero-arc and silent-repaint checks,
 and cache-cost measurements. Synthetic 144-DPI/theme/state fixtures are not
 actual GUI interaction or alternate-monitor evidence. Visual inspection and
 user acceptance remain separate; **no rollout before explicit POC approval**.
+
+### v0.87 meters, tuner glow, pattern rail and recessed displays
+
+User-selected scope: VU effects, tuner note glow, the Song button, the pattern
+tab rail and all seven-segment housings. Meter behaviour, smoothing, peak hold,
+zones and dB mapping are unchanged; `LevelMeter` now draws a recessed well with
+faint unlit ticks, cylindrical zone gradients, a bounded leading-edge bloom and a
+soft peak-hold marker. The tuner keeps its green in-tune state and uses orange
+out of tune, with a note-coloured backlight and text halo clipped to the well;
+the note letter also gets a thin black outline. The Song button opts into the
+existing `toolbarControl` material. All pattern and Drums/Bass tabs share one
+material (`Theme::tabFace`): the same flat face and dark contact line for active
+and inactive tabs, a crisp rim in the tab colour on the active tab and grey on
+inactive tabs, plus one localized glint on the active tab only. The active
+Drums tab uses orange and the active Bass tab its ribbon colour. The `+` has no
+solid fill and a grey outline, with the accent reserved for the glyph. The rail
+now hugs its tabs and ends exactly at the `+` right edge in a rounded cap instead
+of running as an empty strip into the Song button with hard corners. The tuner
+rim glint follows the live theme accent instead of the fixed cool mixer light.
+Track close buttons get a recessed dark tile, a slightly brighter cross and a
+subtle outline. The seven-segment housing is now a matte dark-blue
+recessed bezel with a shadowed upper lip and blue reflected light on the lower
+lip; `Seg::digitColour` stays blue in every theme, the clock's separate raised
+shadow/bloom is removed, and the Drums/Bass library counters use the same
+brightness. `Theme::panelTopGlints` scales its glint count with panel width
+instead of always drawing 8, so the mixer uses 3 and narrow cards stay clean;
+the wide Drums/Bass panels cap at 5 and their glints follow the active tab
+colour (orange for Drums, the Bass ribbon colour for Bass).
+
+No geometry, hit area, callback, shortcut, transport state, parameter
+range/default, undo, persistence, audio or display-digit colour changes. The
+tuner selftest expectation is updated from accent to orange for the out-of-tune
+marker, and the armed track-rim check scans for the strongest red glint instead
+of a fixed position. Verification covers Neo-Retro, Sunset and Tokyo Night at
+1500x980 and 1100x620, active meters, pattern tabs with `+`, Song on/off, clock
+and library counters, plus a fresh Release selftest. No live input signal was
+available for a window capture of the in-tune/out-of-tune tuner backlight; those
+states are covered by the tuner selftest and offscreen paint checks.
+
+Follow-up in the same iteration: Drums now uses the live **Primary** role and
+Bass the live **Secondary** role for tab, enclosure and identity glints, so both
+panels follow the selected theme instead of fixed orange/cyan. Bass's left
+ribbon and tab ribbon both use Secondary, and the tuner/mixer rim glints use the
+same Secondary ribbon colour. The Drums/Bass tab row is translated by `(1,1)` so
+the active tab's bottom edge overlaps the 1px-inset panel frame and closes the
+visible seam; the panel geometry and hit areas are unchanged. Neo-Retro is now
+the eighth built-in preset and the default theme; a user theme JSON with a
+built-in name is skipped, and a removed saved theme falls back to Neo-Retro.
+Verification: Release selftest 1796 PASS / 0 FAIL, plus 1500x980 and 1100x620
+captures with Drums and Bass active and 8x tab/panel and 4x/6x tuner crops.
+
+### v0.86 exposed panel edges
+
+User-selected scope: the four outer panel frames only, including the Bass frame.
+Track cards, Drums, Mixer and Bass reuse the v0.85 toolbar material instead of a
+uniform accent outline: a pale upper rim that fades before the lower half, a
+dark inner neighbour, localized top glints and a faint reflection band. Drums'
+orange 1px outline and Mixer's purple outline are replaced by that directional
+edge; their accent stripes, tabs, titles, content and the Bass warm focus core
+remain. Track cards keep their semantic track-colour rim, including the red
+armed state, now with a slightly stronger exposed top contour and glints.
+
+`Theme::panelExposedEdge` is the shared helper and calls
+`Theme::panelTopGlints`; `toolbarEnclosure` uses the same glint function. Rim and
+contact colours are live theme roles per panel (`trackRimLight`/`trackRimShade`,
+`materialCoolLight`/`materialContact`, `mixerCoolLight`/`mixerContact`,
+`bassFocusCore`/`bassControlContact`). No geometry, hit area, callback,
+shortcut, transport state, parameter range/default, undo, persistence, audio or
+display painting changes. The selftest keeps its track-rim checks on the
+semantic right edge and the armed red glint peak.
+
+Verification covers Neo-Retro, Sunset and Tokyo Night at 1500x980 with Drums and
+Bass expanded, an armed track, Neo-Retro at 1100x620 and 2x/4x/6x edge crops,
+plus a fresh Release selftest. The reference shows no recorded-clip state and no
+hover/pressed panel frames, so those remain stated coverage gaps.
+
+### v0.85 toolbar and transport material
+
+Toolbar only, including the settings row. The merged top panel becomes a
+rounded enclosure with a pale cool upper rim, localized glints along the exposed
+top edge, a fainter reflection beneath it, a dark inner neighbour and a deeper
+settings row. Transport `IconButton`s, `ToolButton`s, text buttons and combo
+boxes opt into the existing material tile via `toolbarControl`, with an outside
+contact shadow from the parent. The BPM readout becomes a recessed dark well and
+the clock display housing gets a bounded contact shadow and cool rim bloom;
+segment colours, text drawing and the display's own paint are unchanged.
+
+No geometry, hit area, callback, shortcut, transport state, parameter
+range/default, undo, persistence or audio behaviour changes. Roles are live
+theme colours, so all built-ins and custom palettes are supported. Verification
+covers the enclosure rim/glints/row separation, BPM well, transport and tool
+opt-in, the full toolbar at 1500x980 and 1100x620 in Sunset, Tokyo Night and
+Neo-Retro, and a fresh Release selftest. Hover/pressed states are verified only
+offscreen, not by screenshot.
+
+### v0.84 track panel material completion
+
+Tracks only. The card and header block get a restrained top-to-bottom face
+shading; the header controls and take/Hits controls opt into the existing
+`trackControl` material used by Drums/Bass; pan and volume opt into the
+existing `trackKnob` metallic face and value arc; the input meter gets a
+narrow recessed housing; the grip dots get a light/contact pair. The v0.82 rim
+and raised nameplate stay unchanged, as do clip body, waveform, grid, ruler,
+selection and playhead painting.
+
+No geometry, hit area, callback, parameter range/default, shortcut, undo,
+persistence or audio behaviour changes. The material roles are live theme
+roles, so built-in and custom palettes keep their behaviour. Verification uses
+all seven built-in themes plus Neo-Retro at 1500x980, Sunset and Tokyo Night
+at 1100x620 with empty, recorded and armed rows, a fresh Release/selftest and
+the visual checklist. The reference has no recorded-clip state, so clip-body
+material remains a stated coverage gap rather than an invented target.
+
+### v0.83 built-in theme set
+
+Ocean and Midnight are removed; seven built-ins remain in this order: Tokyo
+Night, Forest, Sunset, Rose, Lavender, Coral and Mint. Sunset stays the
+default. Saved theme selections continue to resolve by name, so custom themes
+and unaffected built-ins keep their selection; a saved name that no longer
+exists falls back to Sunset instead of reusing a now-shifted numeric index.
+Theme cycling, the theme menu separator and custom-theme storage use the
+updated built-in count. Verification checks the full cycle and a Release
+selftest.
+
+### v0.82 track rim and raised nameplate
+
+Only each track card's outer rim and its nameplate change; the v0.81 Bass POC
+is untouched. Geometry, `waveLeft=394`, `clipStripH=14`, hit areas, meters,
+take controls, tick-driven repaint and every callback remain unchanged.
+
+The rim is a bounded directional treatment in the live track colour, not a
+uniform neon outline: a crisp top glint fading before both rounded corners, a
+short upper-left return, a faint upper-right return and a low-alpha full
+contour. A dark rounded neighbour sits immediately inside the bright edge.
+Armed and recording cards keep the semantic red through the existing `glow`
+choice; selected cards retain their accent outline.
+
+The nameplate keeps its existing bounds and text colour but becomes a raised
+face: a dark contact shadow below, a top-to-bottom track-colour gradient,
+a crisp top highlight with a short reflected light beneath it, and a thin dark
+lower contact edge. All effects are layered fills/strokes clipped to the
+existing plate and card; no blur, bloom, image cache or new timer is added.
+Palette roles are derived from the live track colour, so custom and built-in
+themes retain their behaviour. Verification uses Sunset and Tokyo Night at
+1500x980 and 1100x620 with empty, recorded and armed rows, plus a fresh
+Release/selftest and the visual checklist. User acceptance remains separate.
 
 ### v0.65 implementation scope
 

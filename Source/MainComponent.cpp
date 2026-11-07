@@ -126,6 +126,7 @@ MainComponent::MainComponent()
     songBar.onOpenPattern = [this] (int i) { switchPattern (i); };
     songBtn.setClickingTogglesState (false);
     songBtn.setWantsKeyboardFocus (false);
+    songBtn.getProperties().set ("toolbarControl", true);      // same raised material and contact shadow as the transport
     songBtn.setTooltip ("Song mode: Play plays the patterns of the song one after the other. Click again to go back to editing one pattern");
     songBtn.onClick = [this] { setSongMode (! engine.patterns.songMode); };
     addAndMakeVisible (songBtn);
@@ -408,6 +409,10 @@ MainComponent::MainComponent()
     barLabel.setColour (juce::Label::textColourId, Theme::accent);
     addAndMakeVisible (barLabel);
 
+    for (auto* c : std::initializer_list<juce::Component*> { &notesBtn, &tapBtn, &clickBtn, &punchBtn, &catchBtn,
+                                                             &looperBtn, &barsBox, &timeSigBox, &countInBox, &catchLenBox })
+        c->getProperties().set ("toolbarControl", true);
+
     engine.addTrack();
     engine.addTrack();
     changeListenerCallback (nullptr);
@@ -591,7 +596,7 @@ void MainComponent::fileMenu()
                     const int idx = id - 500, cur = Theme::current;
                     const auto name = Theme::presets[(size_t) idx].name;
                     ThemeStore::remove (idx);
-                    applyTheme (cur == idx ? 3 : ThemeStore::indexOf (Theme::presets[(size_t) juce::jlimit (0, Theme::numPresets() - 1, cur)].name));
+                    applyTheme (cur == idx ? ThemeStore::indexOf ("Neo-Retro") : ThemeStore::indexOf (Theme::presets[(size_t) juce::jlimit (0, Theme::numPresets() - 1, cur)].name));
                     setStatus ("Deleted theme: " + name, 60);
                 }
                 break;
@@ -1295,25 +1300,13 @@ void MainComponent::paint (juce::Graphics& g)
     if (seqTab == 1) bassPanel.paintOuterLight (g, *this);
     {
         const auto f = barArea.getUnion (settingsArea).toFloat();     // one merged top panel, settings row slightly darker
-        g.setColour (Theme::panel);
-        g.fillRoundedRectangle (f, Theme::radiusLg);
-        {
-            juce::Graphics::ScopedSaveState ss (g);
-            juce::Path p;
-            p.addRoundedRectangle (f, Theme::radiusLg);
-            g.reduceClipRegion (p);
-            g.setColour (Theme::panel.darker (0.28f));
-            g.fillRect (settingsArea);
-        }
-        g.setColour (Theme::border.withAlpha (0.55f));
-        g.drawRoundedRectangle (f.reduced (0.5f), Theme::radiusLg, 1.0f);
+        Theme::toolbarEnclosure (g, f, settingsArea.toFloat());
     }
-    g.setColour (Theme::raised);
-    g.fillRoundedRectangle (bpmLabel.getBounds().toFloat(), Theme::radius);
-    {   // clock in the same display as the drum / bass counter: black line, lighter ring, dark inside
+    Theme::materialControlShadows (g, *this);
+    Theme::toolbarReadoutWell (g, bpmLabel.getBounds().toFloat(), Theme::radius);
+    {   // clock in the same recessed display as the drum / bass counter
         const auto d = timeLabel.getBounds().toFloat().reduced (3.0f);
         Seg::paintDisplayHousing (g, d.expanded (3.0f), Theme::radiusLg + 1.5f);
-
     }
 }
 
@@ -1409,7 +1402,7 @@ void MainComponent::layoutBottomRow (juce::Rectangle<int>& remaining, DrumPanel&
         // preferred content height inside that common visible frame.
         const int height = juce::jmax (bass.preferredHeight (leftWidth), drums.preferredHeight() + 2);
         auto row = remaining.removeFromBottom (tabsH + height);
-        const auto tabs = row.removeFromTop (tabsH).withWidth (250);
+        const auto tabs = row.removeFromTop (tabsH).withWidth (250).translated (1, 1);
         right.setBounds (row.removeFromRight (MixerPanel::panelW));
         row.removeFromRight (10);
         bass.setBounds (row);
@@ -1429,7 +1422,7 @@ void MainComponent::layoutBottomRow (juce::Rectangle<int>& remaining, DrumPanel&
     const int extra = bass.headerHeight (row.getWidth()) - BassPanel::headerH;
     bass.setBounds (row.getX(), row.getY() - extra, row.getWidth(), bass.preferredHeight (row.getWidth()));
     drums.setBounds (bass.getBounds().reduced (1));
-    bass.seqTabs().setBounds (tabsRow.withWidth (250).translated (0, -extra));
+    bass.seqTabs().setBounds (tabsRow.withWidth (250).translated (1, 1 - extra));
     drums.seqTabs().setBounds (bass.seqTabs().getBounds());
     remaining.removeFromBottom (extra);
 

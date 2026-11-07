@@ -38,11 +38,16 @@ static void styleToggle (juce::TextButton& b, juce::Colour on)
 
 void TrackRow::Grip::paint (juce::Graphics& g)
 {
-    g.setColour (Theme::dim);
     auto b = getLocalBounds().toFloat().withSizeKeepingCentre (8.0f, 22.0f);
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 2; ++c)
-            g.fillEllipse (b.getX() + c * 6.0f, b.getY() + r * 6.0f, 2.5f, 2.5f);
+        {
+            const float x = b.getX() + c * 6.0f, y = b.getY() + r * 6.0f;
+            g.setColour (Theme::trackPlateContact().withAlpha (0.55f));
+            g.fillEllipse (x, y + 0.6f, 2.5f, 2.5f);
+            g.setColour (Theme::dim.brighter (0.28f));
+            g.fillEllipse (x, y, 2.5f, 2.5f);
+        }
 }
 
 TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent (Theme::trackColour (slot))
@@ -96,8 +101,9 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     arm.setTooltip ("Arm for recording / input monitoring");
     addAndMakeVisible (arm); addAndMakeVisible (mute); addAndMakeVisible (solo);
 
-    del.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-    del.setColour (juce::TextButton::textColourOffId, Theme::dim);
+    del.setColour (juce::TextButton::buttonColourId, Theme::deep);
+    del.setColour (juce::TextButton::textColourOffId, Theme::dim.brighter (0.30f));
+    del.getProperties().set ("outline", (int) Theme::dim.withAlpha (0.30f).getARGB());
     del.setWantsKeyboardFocus (false);
     del.setTooltip ("Delete track");
     del.onClick = [this] { if (onDelete) onDelete (this); };
@@ -167,6 +173,13 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     takeLabel.setColour (juce::Label::textColourId, Theme::text);
     takeLabel.setInterceptsMouseClicks (false, false);
     addChildComponent (takeLabel);
+
+    juce::Component* trackControlComponents[] { &arm, &mute, &solo, &input,
+                                               &hitsBtn, &prevTake, &nextTake };
+    for (auto* c : trackControlComponents)
+        c->getProperties().set ("trackControl", true);
+    pan.getProperties().set ("trackKnob", true);
+    fader.getProperties().set ("trackKnob", true);
 
     setInputChoices (2);
     refreshFromTrack();
@@ -256,7 +269,8 @@ void TrackRow::restyle()
     input.setColour (juce::ComboBox::outlineColourId, accent.withAlpha (0.55f));
     input.setColour (juce::ComboBox::arrowColourId, accent);
     input.setColour (juce::ComboBox::textColourId, Theme::text);
-    del.setColour (juce::TextButton::textColourOffId, Theme::dim);
+    del.setColour (juce::TextButton::textColourOffId, Theme::dim.brighter (0.30f));
+    del.getProperties().set ("outline", (int) Theme::dim.withAlpha (0.30f).getARGB());
     pan.setColour (juce::Slider::rotarySliderFillColourId, accent);
     fader.setColour (juce::Slider::rotarySliderFillColourId, accent);       // (the volume is a knob: only the colour changes with the theme)
     dbLabel.setColour (juce::Label::textColourId, Theme::dim);
@@ -388,25 +402,80 @@ void TrackRow::paint (juce::Graphics& g)
     card.addRoundedRectangle (b, Theme::radiusLg);
     g.reduceClipRegion (card);                                          // everything below is clipped to a rounded card
     const bool picked = hasSelection();                                 // the row being edited stands out
-    g.setColour (picked ? Theme::panel.brighter (0.10f) : Theme::panel);
+    const auto faceHigh = picked ? Theme::trackFaceHigh().brighter (0.06f) : Theme::trackFaceHigh();
+    const auto faceLow = picked ? Theme::trackFaceLow().brighter (0.06f) : Theme::trackFaceLow();
+    g.setGradientFill (juce::ColourGradient (faceHigh, b.getX(), b.getY(),
+                                            faceLow, b.getX(), b.getBottom(), false));
     g.fillRect (b);
-    g.setColour (Theme::panel.brighter (picked ? 0.14f : 0.05f));
-    g.fillRect (b.withRight ((float) meter.getX() - 3.0f));            // header block
-    g.setColour (accent.withAlpha (0.92f));
-    g.fillRoundedRectangle (nameBar.toFloat(), Theme::radius);          // coloured name bar
-    g.setColour (accent);
-    g.fillRect (b.withWidth (picked ? 7.0f : 4.0f));                    // track colour stripe
+    const auto headerBlock = b.withRight ((float) meter.getX() - 3.0f);
+    const auto headerHigh = picked ? Theme::trackHeaderHigh().brighter (0.06f) : Theme::trackHeaderHigh();
+    const auto headerLow = picked ? Theme::trackHeaderLow().brighter (0.06f) : Theme::trackHeaderLow();
+    g.setGradientFill (juce::ColourGradient (headerHigh, headerBlock.getX(), headerBlock.getY(),
+                                            headerLow, headerBlock.getX(), headerBlock.getBottom(), false));
+    g.fillRect (headerBlock);                                          // header block
+    {   // recessed input meter: dark well with a narrow top light
+        const auto meterBounds = inMeter.getBounds().toFloat();
+        const auto mr = meterBounds.expanded (1.0f);
+        g.setColour (Theme::trackPlateContact().withAlpha (0.55f));
+        g.fillRoundedRectangle (mr, 2.5f);
+        g.setColour (Theme::deep);
+        g.fillRoundedRectangle (meterBounds, 1.8f);
+        juce::ColourGradient meterLight (Theme::bassControlLight().withAlpha (0.0f), mr.getX(), mr.getY(),
+                                         Theme::bassControlLight().withAlpha (0.0f), mr.getRight(), mr.getY(), false);
+        meterLight.addColour (0.5, Theme::bassControlLight().withAlpha (0.45f));
+        g.setGradientFill (meterLight);
+        g.fillRect (mr.getX() + 2.0f, mr.getY() + 0.4f, mr.getWidth() - 4.0f, 0.8f);
+    }
+    {   // raised nameplate: dark contact, shaded face, crisp top light and short reflection
+        const auto plate = nameBar.toFloat();
+        juce::Graphics::ScopedSaveState plateState (g);
+        g.setColour (Theme::trackPlateContact().withAlpha (0.70f));
+        g.fillRoundedRectangle (plate.translated (0.0f, 1.4f).expanded (0.5f), Theme::radius + 0.5f);
+        juce::Path platePath;
+        platePath.addRoundedRectangle (plate, Theme::radius);
+        g.reduceClipRegion (platePath);
+        g.setGradientFill (juce::ColourGradient (Theme::trackPlateHigh (accent), plate.getX(), plate.getY(),
+                                                Theme::trackPlateLow (accent), plate.getX(), plate.getBottom(), false));
+        g.fillRect (plate);
+        g.setColour (Theme::trackPlateContact().withAlpha (0.35f));
+        g.drawRoundedRectangle (plate.reduced (0.5f), Theme::radius, 1.0f);
+        juce::ColourGradient topLight (juce::Colours::white.withAlpha (0.0f), plate.getX(), plate.getY(),
+                                       juce::Colours::white.withAlpha (0.0f), plate.getRight(), plate.getY(), false);
+        topLight.addColour (0.28, juce::Colours::white.withAlpha (0.62f));
+        topLight.addColour (0.72, juce::Colours::white.withAlpha (0.38f));
+        g.setGradientFill (topLight);
+        g.fillRect (plate.getX(), plate.getY() + 0.75f, plate.getWidth(), 1.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.10f));
+        g.fillRect (plate.getX() + 3.0f, plate.getY() + 2.25f, plate.getWidth() - 6.0f, 1.4f);
+        g.setColour (Theme::trackPlateContact().withAlpha (0.55f));
+        g.fillRect (plate.getX() + 3.0f, plate.getBottom() - 1.15f, plate.getWidth() - 6.0f, 1.0f);
+    }
+    Theme::materialControlShadows (g, *this);   // header controls get their contact shadow outside the lane clip
     if (picked)
     {
         g.setColour (accent.withAlpha (0.75f));
         g.drawRoundedRectangle (b.reduced (0.75f), Theme::radiusLg, 1.5f);
     }
-    {   // line along the top edge: strongest in the middle, fading out to both sides
-        juce::ColourGradient line (glow.withAlpha (0.0f), b.getX(), b.getY(), glow.withAlpha (0.0f), b.getRight(), b.getY(), false);
-        line.addColour (0.5, glow.withAlpha (0.9f));
-        g.setGradientFill (line);
-        g.fillRect (b.getX(), b.getY(), b.getWidth(), 1.0f);
+    {   // localized track-colour rim: exposed edge with a dark neighbour inside
+        const float strength = recNow ? 1.0f : armedNow ? 0.92f : 0.78f;
+        const auto rimLight = Theme::trackRimLight (glow);
+        g.setColour (Theme::trackRimShade().withAlpha (0.75f * strength));
+        g.drawRoundedRectangle (b.reduced (2.0f), Theme::radiusLg - 2.0f, 1.6f);
+        g.setGradientFill (juce::ColourGradient (rimLight.withAlpha (0.60f * strength), b.getX(), b.getY(),
+                                                glow.withAlpha (0.14f * strength), b.getX(), b.getBottom(), false));
+        g.drawRoundedRectangle (b.reduced (0.85f), Theme::radiusLg - 0.85f, 1.15f);
+        Theme::panelTopGlints (g, b, Theme::radiusLg, rimLight, Theme::trackRimShade(), strength);
+        juce::ColourGradient left (rimLight.withAlpha (0.82f * strength), b.getX(), b.getY(),
+                                   rimLight.withAlpha (0.0f), b.getX(), b.getY() + b.getHeight() * 0.58f, false);
+        g.setGradientFill (left);
+        g.fillRect (b.getX() + 0.7f, b.getY() + 5.0f, 1.2f, b.getHeight() * 0.58f - 5.0f);
+        juce::ColourGradient right (rimLight.withAlpha (0.42f * strength), b.getRight(), b.getY(),
+                                    rimLight.withAlpha (0.0f), b.getRight(), b.getY() + b.getHeight() * 0.32f, false);
+        g.setGradientFill (right);
+        g.fillRect (b.getRight() - 1.9f, b.getY() + 5.0f, 1.2f, b.getHeight() * 0.32f - 5.0f);
     }
+    g.setColour (accent);
+    g.fillRect (b.withWidth (picked ? 7.0f : 4.0f));                    // solid track colour stripe over the rim
     // ---- clip lane
     auto w = wave.toFloat();
     Theme::wellRing (g, w, 3.0f);
@@ -553,6 +622,8 @@ void TrackRow::paint (juce::Graphics& g)
         g.drawText (armed ? "Armed - press R to record" : "Empty", wave, juce::Justification::centred);
     }
 
+    Theme::materialControlShadows (g, *this);   // take/Hits controls sit above the clip body
+
     if (copying && len > 0)   // ghost of the copy being dragged out
     {
         const float gx = sampleToX (copyOffset), gx1 = sampleToX ((juce::int64) copyOffset + len);
@@ -605,8 +676,6 @@ void TrackRow::paint (juce::Graphics& g)
         g.fillRect (px, w.getY(), 1.5f, w.getHeight());
     }
     g.restoreState();
-    g.setColour (glow.withAlpha (recNow ? 0.8f : armedNow ? 0.55f : 0.22f));
-    g.drawRoundedRectangle (b.reduced (0.5f), Theme::radiusLg, 1.0f);              // solid 1 px border, low opacity
 }
 
 // ---------------------------------------------------------------- hit editing

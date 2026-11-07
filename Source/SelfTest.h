@@ -279,7 +279,7 @@ inline void bassLightingSelfTest (const std::function<void (bool, const juce::St
     const bool legacy = Theme::legacyTracks;
     auto grey = [] (juce::Colour c) { return (c.getRed() * 299 + c.getGreen() * 587 + c.getBlue() * 114) / 1000; };
     const Theme::Preset lightingThemes[] {
-        Theme::presets[3], Theme::presets[0],
+        Theme::presets[2], Theme::presets[0],
         { "Neo-Retro", 0xffff780a, 0xfff2ab24, 0xfff6c343, 0xff0b1018, 0xff202630, 0xffdce3ec }
     };
     for (const auto& preset : lightingThemes)
@@ -322,15 +322,15 @@ inline void bassLightingSelfTest (const std::function<void (bool, const juce::St
                    "bass corners: antialiased curved inner transition, not square/blurred - " + name + (tab ? " tab" : " panel"));
             if (! tab)
             {
-                bool solid = Theme::bassLeftRibbon() == Theme::cyan;
+                bool solid = Theme::bassLeftRibbon() == Theme::bassAccent();
                 for (int y = 8; y < height - 8; ++y)
                     for (int x = 1; x < 5; ++x)
-                        solid &= image.getPixelAt (x, y) == Theme::cyan;
-                check (solid && image.getPixelAt (5, height / 2) != Theme::cyan
+                        solid &= image.getPixelAt (x, y) == Theme::bassAccent();
+                check (solid && image.getPixelAt (5, height / 2) != Theme::bassAccent()
                        && grey (image.getPixelAt (4, height / 2)) - grey (image.getPixelAt (5, height / 2)) >= 40
                        && std::abs (grey (image.getPixelAt (8, height / 2))
                                     - grey (image.getPixelAt (14, height / 2))) <= 3,
-                       "bass stripe: tuner-style 4px full-opacity live Accent, full height and no left halo - " + name);
+                       "bass stripe: tuner-style 4px full-opacity live Secondary, full height and no left halo - " + name);
                 juce::Image stripeMask (juce::Image::ARGB, width, height, true);
                 {
                     juce::Graphics g (stripeMask);
@@ -338,7 +338,7 @@ inline void bassLightingSelfTest (const std::function<void (bool, const juce::St
                     const auto b = image.getBounds().toFloat().reduced (1.0f);
                     card.addRoundedRectangle (b, Theme::radiusLg);
                     g.reduceClipRegion (card);
-                    g.setColour (Theme::cyan);
+                    g.setColour (Theme::bassAccent());
                     g.fillPath (Theme::bassStripePath (b));
                 }
                 bool corners = true;
@@ -349,7 +349,7 @@ inline void bassLightingSelfTest (const std::function<void (bool, const juce::St
                         const auto pixel = image.getPixelAt (x, y);
                         // Existing material beneath the stripe also contributes
                         // at antialiased pixels; compare footprint and solid interior.
-                        if (coverage == 255) corners &= pixel == Theme::cyan;
+                        if (coverage == 255) corners &= pixel == Theme::bassAccent();
                     }
                 const auto stripe = Theme::bassStripePath (image.getBounds().toFloat().reduced (1.0f));
                 corners &= ! stripe.contains (4.9f, 1.1f) && stripe.contains (4.9f, 3.1f)
@@ -399,7 +399,7 @@ inline void bassLightingSelfTest (const std::function<void (bool, const juce::St
         {
             juce::Graphics g (actualTab), base (bareTab);
             activeBass.paint (g);
-            Theme::bassEnclosure (base, { 127.0f, 0.0f, 124.0f, 28.0f }, true);
+            Theme::tabFace (base, { 127.0f, 0.0f, 124.0f, 28.0f }, Theme::bassTabRibbon(), true);
         }
         bool noReflection = true;
         for (int y = 24; y <= 26; ++y)
@@ -461,15 +461,18 @@ inline void bassLightingSelfTest (const std::function<void (bool, const juce::St
                && well.getPixelAt (100, 80) == Theme::deep.darker (0.65f),
                "bass lighting: well 3px extent, >=40 top/inner contrast and untouched dark interior - " + name);
 
-        // These paths must remain legacy tiles, not opt into the warm enclosure.
+        // Unified tab material: the active Drums tab uses the orange rim, the
+        // inactive Bass tab stays grey with the same face.
         SeqTabs tabs (0, Theme::cyan);
         tabs.setSize (251, 28);
         const auto image = tabs.createComponentSnapshot (tabs.getLocalBounds());
         juce::Image drumTop (juce::Image::ARGB, 124, 28, true);
-        { juce::Graphics dg (drumTop); Theme::drumTab (dg, { 0, 0, 124, 28 }); }
+        { juce::Graphics dg (drumTop); Theme::tabFace (dg, { 0, 0, 124, 28 }, Theme::drumAccent(), true); }
+        juce::Image bassTop (juce::Image::ARGB, 124, 28, true);
+        { juce::Graphics bg (bassTop); Theme::tabFace (bg, { 0, 0, 124, 28 }, Theme::dim, false); }
         check (image.getPixelAt (12, 1) == drumTop.getPixelAt (12, 1)
-               && image.getPixelAt (139, 1) == Theme::panel.darker (0.14f),
-               "bass lighting: active Drums uses scoped material; inactive Bass stays exact - " + name);
+               && image.getPixelAt (139, 1) == bassTop.getPixelAt (12, 1),
+               "bass lighting: active Drums uses the tab colour; inactive Bass is grey - " + name);
     }
     Theme::applyPreset (saved, legacy);
 }
@@ -578,7 +581,7 @@ inline void bassControlSelfTest (const std::function<void (bool, const juce::Str
                 if (a.getPixelAt (x, y) != b.getPixelAt (x, y)) return false;
         return true;
     };
-    for (int theme : { 3, 0 }) // new visual scope: Sunset and Tokyo Night only
+    for (int theme : { 2, 0 }) // new visual scope: Sunset and Tokyo Night only
     {
         Theme::applyPreset (Theme::presets[(size_t) theme], theme == 0);
         laf.applyColours();
@@ -759,7 +762,7 @@ inline void bottomRowSelfTest (const std::function<void (bool, const juce::Strin
                                  && bass.getHeight() == budget && drums.getHeight() == budget - 2
                                  && bass.getBounds().reduced (1) == drums.getBounds()
                                  && bass.seqTabs().getBounds() == drums.seqTabs().getBounds()
-                                 && bass.seqTabs().getBottom() == bass.getY()
+                                 && bass.seqTabs().getBottom() == bass.getY() + 1
                                  && mixer.getY() == bass.getY() && mixer.getHeight() == budget
                                : remaining.getBottom() == height - 12 - 234 - extra
                                  && bass.getHeight() == bass.preferredHeight (bass.getWidth())
@@ -1132,9 +1135,9 @@ inline void mixerMaterialSelfTest (const std::function<void (bool, const juce::S
         };
         const auto tuned = feed (440.0f), sharp = feed (448.0f), silent = feed (0);
         check (tuned.getPixelAt (155, 100) == Theme::green
-               && sharp.getPixelAt (155, 100) == Theme::accent
+               && sharp.getPixelAt (155, 100) == Theme::orange
                && silent.getPixelAt (155, 100) == Theme::dim,
-               "tuner production paint via real detector: in-tune, sharp and timed silence marker states");
+               "tuner production paint via real detector: in-tune green, out-of-tune orange and timed silence marker states");
         bool sameRim = true;
         for (int x = 0; x < 310; ++x)
             for (int y : { 0, 1, 2, 193, 194, 195 })
@@ -1173,6 +1176,146 @@ inline void mixerMaterialSelfTest (const std::function<void (bool, const juce::S
     panel.setLookAndFeel (nullptr);
 }
 
+inline void trackMaterialSelfTest (const std::function<void (bool, const juce::String&)>& check)
+{
+    const Theme::Preset saved { "live", Theme::blue.getARGB(), Theme::purple.getARGB(), Theme::cyan.getARGB(),
+                               Theme::bg.getARGB(), Theme::panel.getARGB(), Theme::text.getARGB() };
+    const bool legacy = Theme::legacyTracks;
+    for (int theme : { 2, 0 }) // Sunset and Tokyo Night
+    {
+        Theme::applyPreset (Theme::presets[(size_t) theme], theme == 0);
+        auto engine = std::make_unique<AudioEngine>();
+        engine->prepareForTest (48000.0, 2);
+        const int slot = engine->addTrack();
+        RiffLookAndFeel laf;
+        TrackRow row (*engine, slot);
+        row.setLookAndFeel (&laf);
+        row.setSize (900, 96);
+        int trackControls = 0, trackKnobs = 0;
+        for (auto* c : row.getChildren())
+        {
+            if (c->getProperties().getWithDefault ("trackControl", false)) ++trackControls;
+            if (c->getProperties().getWithDefault ("trackKnob", false)) ++trackKnobs;
+        }
+        check (trackControls == 7 && trackKnobs == 2,
+               "track panel: header and take controls opt into material - " + Theme::presets[(size_t) theme].name);
+        auto render = [&] { return row.createComponentSnapshot (row.getLocalBounds()); };
+        const auto image = render();
+        const int rimX = image.getWidth() - 1;
+        const auto rim = image.getPixelAt (rimX, 10);
+        const auto dark = image.getPixelAt (rimX - 2, 10);
+        const auto plateTop = image.getPixelAt (180, 11);
+        const auto plateBottom = image.getPixelAt (180, 35);
+        const auto plateShadow = image.getPixelAt (180, 37);
+        const auto header = image.getPixelAt (180, 41);
+        check (rim.getPerceivedBrightness() > dark.getPerceivedBrightness()
+               && rim.getPerceivedBrightness() > header.getPerceivedBrightness(),
+               "track rim: localized track-colour edge with darker neighbour - " + Theme::presets[(size_t) theme].name);
+        check (plateTop.getPerceivedBrightness() > plateBottom.getPerceivedBrightness()
+               && plateShadow.getPerceivedBrightness() < header.getPerceivedBrightness(),
+               "track nameplate: top highlight and contact shadow - " + Theme::presets[(size_t) theme].name);
+        check (image.getPixelAt (30, 15).getPerceivedBrightness() > image.getPixelAt (30, 80).getPerceivedBrightness(),
+               "track panel: card face keeps a restrained top-to-bottom shading - " + Theme::presets[(size_t) theme].name);
+        check (image.getPixelAt (83, 53).getPerceivedBrightness() > image.getPixelAt (83, 77).getPerceivedBrightness(),
+               "track controls: raised top bevel and lower contact - " + Theme::presets[(size_t) theme].name);
+        check (image.getPixelAt (154, 56).getPerceivedBrightness() > image.getPixelAt (170, 74).getPerceivedBrightness(),
+               "track knobs: metallic face with directional light - " + Theme::presets[(size_t) theme].name);
+        if (theme == 0) // Tokyo Night track 1 is blue, so armed red is unambiguous
+        {
+            check (rim.getBlue() > rim.getRed(), "track rim: unarmed uses the live track colour - Tokyo Night");
+            engine->tracks[slot].armed = true;
+            row.syncArm();
+            const auto armed = render();
+            juce::Colour armedRim = juce::Colours::black;
+            float redDest = -1.0f;
+            for (int x = 8; x < armed.getWidth() - 8; ++x)     // glint positions follow the panel width
+            {
+                const auto c = armed.getPixelAt (x, 6);
+                const float d = (float) c.getRed() - (float) c.getBlue();
+                if (d > redDest) { redDest = d; armedRim = c; }
+            }
+            check (redDest > 20.0f && armedRim != rim,
+                   "track rim: armed card keeps the semantic red - Tokyo Night");
+            engine->tracks[slot].armed = false;
+        }
+        row.setLookAndFeel (nullptr);
+    }
+    Theme::applyPreset (saved, legacy);
+}
+
+inline void toolbarMaterialSelfTest (const std::function<void (bool, const juce::String&)>& check)
+{
+    const Theme::Preset saved { "live", Theme::blue.getARGB(), Theme::purple.getARGB(), Theme::cyan.getARGB(),
+                               Theme::bg.getARGB(), Theme::panel.getARGB(), Theme::text.getARGB() };
+    const bool legacy = Theme::legacyTracks;
+    for (int theme : { 2, 0 }) // Sunset and Tokyo Night
+    {
+        Theme::applyPreset (Theme::presets[(size_t) theme], theme == 0);
+        const auto name = Theme::presets[(size_t) theme].name;
+        juce::Image image (juce::Image::ARGB, 600, 130, true);
+        {
+            juce::Graphics g (image);
+            Theme::toolbarEnclosure (g, { 10.0f, 10.0f, 580.0f, 110.0f }, { 10.0f, 58.0f, 580.0f, 62.0f });
+            Theme::toolbarReadoutWell (g, { 30.0f, 22.0f, 64.0f, 24.0f }, 5.0f);
+        }
+        const auto topEdge = image.getPixelAt (300, 11);
+        const auto face = image.getPixelAt (300, 40);
+        const auto row = image.getPixelAt (300, 75);
+        check (topEdge.getPerceivedBrightness() > face.getPerceivedBrightness()
+               && face.getPerceivedBrightness() > row.getPerceivedBrightness(),
+               "toolbar: pale upper rim, lit face and darker settings row - " + name);
+        float glintMin = 1.0f, glintMax = 0.0f;
+        for (int x = 14; x <= 586; ++x)
+        {
+            const float v = image.getPixelAt (x, 11).getPerceivedBrightness();
+            glintMin = juce::jmin (glintMin, v);
+            glintMax = juce::jmax (glintMax, v);
+        }
+        check (glintMax - glintMin > 0.08f && glintMax > face.getPerceivedBrightness(),
+               "toolbar: localized glints instead of a uniform top line - " + name);
+        check (Theme::toolbarRim().getBlue() >= Theme::toolbarRim().getRed()
+               && Theme::toolbarRim().getPerceivedBrightness() > Theme::toolbarContact().getPerceivedBrightness() + 0.25f,
+               "toolbar: cool exposed rim is separated from the dark contact - " + name);
+        check (image.getPixelAt (62, 34).getPerceivedBrightness() < face.getPerceivedBrightness(),
+               "toolbar: BPM readout is a recessed dark well - " + name);
+
+        RiffLookAndFeel laf;
+        IconButton play (IconButton::Play, Theme::green);
+        play.setLookAndFeel (&laf);
+        play.setSize (44, 40);
+        const auto off = play.createComponentSnapshot (play.getLocalBounds());
+        play.setToggleState (true, juce::dontSendNotification);
+        const auto on = play.createComponentSnapshot (play.getLocalBounds());
+        check (Theme::materialControl (play)
+               && off.getPixelAt (22, 3).getPerceivedBrightness() > off.getPixelAt (22, 37).getPerceivedBrightness(),
+               "toolbar transport: material opt-in with raised top bevel and lower contact - " + name);
+        check (on.getPixelAt (34, 20).getGreen() > on.getPixelAt (34, 20).getRed() + 40
+               && on.getPixelAt (34, 20) != off.getPixelAt (34, 20),
+               "toolbar transport: active fill keeps its semantic colour - " + name);
+
+        ToolButton undo (ToolButton::Undo);
+        undo.setLookAndFeel (&laf);
+        undo.setSize (32, 28);
+        const auto undoShot = undo.createComponentSnapshot (undo.getLocalBounds());
+        check (Theme::materialControl (undo)
+               && undoShot.getPixelAt (16, 2).getPerceivedBrightness() > undoShot.getPixelAt (16, 26).getPerceivedBrightness(),
+               "toolbar tools: material opt-in with directional light - " + name);
+
+        juce::TextButton tap ("Tap");
+        tap.getProperties().set ("toolbarControl", true);
+        tap.setLookAndFeel (&laf);
+        tap.setSize (48, 28);
+        const auto tapShot = tap.createComponentSnapshot (tap.getLocalBounds());
+        check (Theme::materialControl (tap)
+               && tapShot.getPixelAt (24, 2).getPerceivedBrightness() > tapShot.getPixelAt (24, 26).getPerceivedBrightness(),
+               "toolbar text buttons: material opt-in with directional light - " + name);
+        tap.setLookAndFeel (nullptr);
+        undo.setLookAndFeel (nullptr);
+        play.setLookAndFeel (nullptr);
+    }
+    Theme::applyPreset (saved, legacy);
+}
+
 // Headless engine check, run with: RiffCatch.exe --selftest   (writes selftest.txt next to the exe)
 inline juce::String runEngineSelfTest()
 {
@@ -1181,6 +1324,8 @@ inline juce::String runEngineSelfTest()
     auto check = [&] (bool c, const juce::String& what) { log << (c ? "PASS " : "FAIL ") << what << "\n"; ok &= c; };
     bassLightingSelfTest (check);
     drumMaterialSelfTest (check);
+    trackMaterialSelfTest (check);
+    toolbarMaterialSelfTest (check);
     BassLightPocTest::run (check);
     bassControlSelfTest (check);
     mixerMaterialSelfTest (check);

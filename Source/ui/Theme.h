@@ -36,21 +36,20 @@ namespace Theme
     inline constexpr int   shadowOffsetY = 2;       // how far the shadow falls downwards
 
     struct Preset { juce::String name; juce::uint32 primary, secondary, accent, background, surface, text; };
-    inline std::vector<Preset> presets =   // the nine built-ins first, then user themes loaded from disk
+    inline std::vector<Preset> presets =   // the eight built-ins first, then user themes loaded from disk
     {
         { "Tokyo Night", 0xff7aa2f7, 0xffbb9af7, 0xff7dcfff, 0xff1a1b26, 0xff1f2133, 0xffc0caf5 },
-        { "Ocean",       0xff2563eb, 0xff0ea5e9, 0xff06b6d4, 0xff0f172a, 0xff1e293b, 0xfff1f5f9 },
         { "Forest",      0xff059669, 0xff10b981, 0xff34d399, 0xff022c22, 0xff064e3b, 0xffd1fae5 },
         { "Sunset",      0xffea580c, 0xfff59e0b, 0xfffbbf24, 0xff1c1917, 0xff292524, 0xfffef3c7 },
-        { "Midnight",    0xff6366f1, 0xff8b5cf6, 0xffa78bfa, 0xff0c0a1d, 0xff1e1b4b, 0xffe0e7ff },
         { "Rose",        0xffbe123c, 0xffe11d48, 0xfffb7185, 0xff1c1917, 0xff3f1f1f, 0xffffe4e6 },
         { "Lavender",    0xff8b5cf6, 0xffa78bfa, 0xffc4b5fd, 0xff1e1b4b, 0xff312e81, 0xffe9d5ff },
         { "Coral",       0xfff43f5e, 0xfffb7185, 0xfffda4af, 0xff451a1a, 0xff7f1d1d, 0xffffe4e6 },
         { "Mint",        0xff14b8a6, 0xff2dd4bf, 0xff5eead4, 0xff134e4a, 0xff0f766e, 0xffccfbf1 },
+        { "Neo-Retro",   0xffff780a, 0xfff2ab24, 0xfff6c343, 0xff0b1018, 0xff202630, 0xffdce3ec },
     };
-    inline constexpr int builtinCount = 9;
+    inline constexpr int builtinCount = 8;
     inline int numPresets() { return (int) presets.size(); }
-    inline int current = 3;   // Sunset
+    inline int current = 7;   // Neo-Retro
 
     inline void applyPreset (const Preset& p, bool legacy)
     {
@@ -154,6 +153,18 @@ namespace Theme
         g.fillRoundedRectangle (r.expanded (grow), radiusLg + grow * 0.5f);
     }
 
+    // Track cards only: a localized rim in the live track colour, and a raised
+    // nameplate. Armed cards pass Theme::red, so the red state is preserved.
+    inline juce::Colour trackRimLight (juce::Colour family) { return family.interpolatedWith (juce::Colours::white, 0.22f); }
+    inline juce::Colour trackRimShade() { return deep.darker (0.55f); }
+    inline juce::Colour trackPlateHigh (juce::Colour family) { return family.interpolatedWith (juce::Colours::white, 0.18f); }
+    inline juce::Colour trackPlateLow (juce::Colour family) { return family.withMultipliedBrightness (0.78f); }
+    inline juce::Colour trackPlateContact() { return deep.darker (0.62f); }
+    inline juce::Colour trackFaceHigh() { return panel.brighter (0.035f); }
+    inline juce::Colour trackFaceLow() { return panel.darker (0.025f); }
+    inline juce::Colour trackHeaderHigh() { return panel.brighter (0.080f); }
+    inline juce::Colour trackHeaderLow() { return panel.brighter (0.020f); }
+
     // Bass sound-knob material: live roles also work in custom light/dark previews.
     // Lighting uses surface brightness, not text (which is dark in light themes).
     inline juce::Colour bassKnobLight()   { return raised.brighter (0.22f); }
@@ -192,11 +203,12 @@ namespace Theme
     // Only the existing tuner/master well surrounds use this local material.
     // The caller paints the unchanged deep interior afterwards.
     inline void mixerWellSurround (juce::Graphics& g, juce::Rectangle<float> outer, float outerRadius,
-                                   juce::Rectangle<float> well, float innerRadius)
+                                   juce::Rectangle<float> well, float innerRadius,
+                                   juce::Colour light = juce::Colour())
     {
         g.setColour (border.darker (0.28f));
         g.fillRoundedRectangle (outer, outerRadius);
-        const auto light = mixerCoolLight();
+        if (light.isTransparent()) light = mixerCoolLight();
         g.setGradientFill (juce::ColourGradient (light.withAlpha (0.65f), outer.getX(), outer.getY(),
                                                 light.withAlpha (0.0f), outer.getX() + outer.getWidth() * 0.65f,
                                                 outer.getBottom(), false));
@@ -284,12 +296,17 @@ namespace Theme
         g.fillRect (face.getX() + ro, face.getBottom() - 2.0f, juce::jmax (0.0f, face.getWidth() * 0.5f - ro), 0.7f);
     }
 
+    // Panel identities follow the live theme roles: Drums = Primary, Bass =
+    // Secondary. Both the tab and the panel/ribbon use the same colour.
+    inline juce::Colour drumAccent() { return blue; }
+    inline juce::Colour bassAccent() { return purple; }
+
     // P1 Bass material only: derive every layer from the live theme, not a fixed orange palette.
-    inline juce::Colour bassRim() { return accent.interpolatedWith (cyan, 0.35f); }
-    inline juce::Colour bassFocusLight() { return bassRim().interpolatedWith (orange, 0.65f); }
+    inline juce::Colour bassRim() { return bassAccent().interpolatedWith (bassControlLight(), 0.20f); }
+    inline juce::Colour bassFocusLight() { return bassAccent().interpolatedWith (bassControlLight(), 0.35f); }
     inline juce::Colour bassFocusCore() { return bassFocusLight().interpolatedWith (bassControlLight(), 0.30f).withBrightness (1.0f); }
-    inline juce::Colour bassLeftRibbon() { return cyan; }
-    inline juce::Colour bassTabRibbon() { return accent.interpolatedWith (orange, 0.25f).withBrightness (1.0f); }
+    inline juce::Colour bassLeftRibbon() { return bassAccent(); }
+    inline juce::Colour bassTabRibbon() { return bassAccent(); }
 
     // v0.80 two-source lighting proof only. No palette or other knob changes.
     inline juce::Colour bassSubSpecular() { return bassKnobGlint().interpolatedWith (text, 0.35f); }
@@ -458,7 +475,9 @@ namespace Theme
     {
         const auto& p = c.getProperties();
         return (bool) p.getWithDefault ("bassControl", false)
-            || (bool) p.getWithDefault ("drumControl", false);
+            || (bool) p.getWithDefault ("drumControl", false)
+            || (bool) p.getWithDefault ("trackControl", false)
+            || (bool) p.getWithDefault ("toolbarControl", false);
     }
 
     // Only explicit button/combo opt-ins, once in their actual parent before
@@ -476,6 +495,171 @@ namespace Theme
         }
     }
 
+    // v0.85 toolbar: pale exposure light on the exposed upper edge, a dark
+    // neighbour inside it and a darker settings row. Roles are live so every
+    // built-in/custom palette keeps working.
+    inline juce::Colour toolbarFaceHigh() { return panel.brighter (0.050f); }
+    inline juce::Colour toolbarFaceLow() { return panel.darker (0.040f); }
+    inline juce::Colour toolbarRowTop() { return panel.darker (0.220f); }
+    inline juce::Colour toolbarRowBottom() { return panel.darker (0.300f); }
+    inline juce::Colour toolbarRim() { return materialCoolLight().interpolatedWith (juce::Colours::white, 0.15f); }
+    inline juce::Colour toolbarContact() { return deep.darker (0.620f); }
+
+    // v0.86: the toolbar's localized exposed-top glints, reused by the panel
+    // frames. The caller keeps its own rim colour and state strength.
+    inline void panelTopGlints (juce::Graphics& g, juce::Rectangle<float> r, float cornerRadius,
+                                juce::Colour rim, juce::Colour contact, float strength = 1.0f,
+                                int maxGlints = 8)
+    {
+        if (r.isEmpty() || r.getWidth() < 24.0f || strength <= 0.0f) return;
+        juce::Graphics::ScopedSaveState ss (g);
+        juce::Path clip;
+        clip.addRoundedRectangle (r, cornerRadius);
+        g.reduceClipRegion (clip);
+        auto glint = juce::Rectangle<float> (r.getX() + 8.0f, r.getY() + 0.6f,
+                                            r.getWidth() - 16.0f, 1.8f);
+        // Glints are spaced by panel width, not a fixed count: a narrow card such
+        // as the mixer gets 2-3, while the toolbar can use all 8. Wide sequencer
+        // panels cap the count so they do not read as a dashed strip.
+        const int count = juce::jlimit (1, juce::jmax (1, maxGlints),
+                                        (int) std::lround (r.getWidth() / 140.0f));
+        const float half = count == 1 ? 0.18f : 0.35f / (float) count;
+        const float start = count == 1 ? 0.5f : half;
+        const float step = count > 1 ? (1.0f - 2.0f * half) / (float) (count - 1) : 0.0f;
+        juce::ColourGradient top (contact.withAlpha (0.30f * strength), glint.getX(), 0.0f,
+                                  contact.withAlpha (0.25f * strength), glint.getRight(), 0.0f, false);
+        for (int i = 0; i < count; ++i)
+        {
+            const float p = start + (float) i * step;
+            if (p - half > 0.001f) top.addColour (p - half, contact.withAlpha (0.22f * strength));
+            top.addColour (p, rim.withAlpha (0.95f * strength));
+            if (p + half < 0.999f) top.addColour (p + half, contact.withAlpha (0.22f * strength));
+        }
+        g.setGradientFill (top);
+        g.fillRect (glint);
+        g.setGradientFill (juce::ColourGradient (rim.withAlpha (0.14f * strength), 0.0f, r.getY() + 1.5f,
+                                                rim.withAlpha (0.0f), 0.0f, r.getY() + 7.5f, false));
+        g.fillRect (r.getX() + 4.0f, r.getY() + 1.5f, r.getWidth() - 8.0f, 6.0f);
+    }
+
+    // Shared tab material for the pattern rail and the Drums/Bass tabs: one
+    // flat face and dark contact band for every tab, a crisp rim in the tab's
+    // colour (grey when inactive) and one localized glint on the active tab only.
+    inline void tabFace (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour rim,
+                         bool active, bool hovered = false)
+    {
+        if (r.isEmpty()) return;
+        juce::Graphics::ScopedSaveState ss (g);
+        juce::Path tab;
+        tab.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight() + 6.0f,
+                                 radiusLg, radiusLg, true, true, false, false);
+        g.reduceClipRegion (tab);
+        g.setGradientFill (juce::ColourGradient (hovered ? panel.brighter (0.04f) : panel, r.getTopLeft(),
+                                                 panel.interpolatedWith (deep, 0.45f),
+                                                 r.getBottomRight(), false));
+        g.fillPath (tab);
+
+        // No closing bottom border: the tab runs into the rail/panel body.
+        const auto edge = r.reduced (1.0f).withTrimmedBottom (-6.0f);
+        g.setColour (deep.darker (0.45f).withAlpha (0.85f));
+        g.fillPath (bassEnclosureBand (edge, 2.5f, true));
+        juce::Path core;
+        const auto inset = edge.reduced (0.75f);
+        core.addRoundedRectangle (inset.getX(), inset.getY(), inset.getWidth(), inset.getHeight(),
+                                  radiusLg - 0.75f, radiusLg - 0.75f, true, true, false, false);
+        g.setColour (rim.withAlpha (active ? 0.95f : 0.80f));
+        g.strokePath (core, juce::PathStrokeType (1.5f));
+
+        if (active)
+            panelTopGlints (g, r, radiusLg, rim.brighter (0.25f), deep, 0.85f, 1);
+    }
+
+    // v0.86: full exposed-edge treatment for the outer panel frames. Same
+    // pale upper contour, dark inner neighbour and localized glints as the
+    // v0.85 toolbar, in the panel's own live rim/contact roles. No geometry,
+    // control or hit-area changes.
+    inline void panelExposedEdge (juce::Graphics& g, juce::Rectangle<float> r, float cornerRadius,
+                                  juce::Colour rim, juce::Colour contact, float strength = 1.0f,
+                                  int maxGlints = 8)
+    {
+        if (r.isEmpty() || r.getWidth() < 24.0f || strength <= 0.0f) return;
+        juce::Graphics::ScopedSaveState ss (g);
+        juce::Path clip;
+        clip.addRoundedRectangle (r, cornerRadius);
+        g.reduceClipRegion (clip);
+        // Exposed upper rim; the far edges recede instead of forming a uniform outline.
+        g.setGradientFill (juce::ColourGradient (rim.withAlpha (0.80f * strength), r.getX(), r.getY(),
+                                                rim.withAlpha (0.10f * strength), r.getX(),
+                                                r.getY() + r.getHeight() * 0.62f, false));
+        g.drawRoundedRectangle (r.reduced (0.6f), juce::jmax (1.0f, cornerRadius - 0.6f), 1.2f);
+        // Dark neighbour inside the pale edge.
+        g.setGradientFill (juce::ColourGradient (contact.withAlpha (0.52f * strength), r.getX(), r.getY() + 2.0f,
+                                                contact.withAlpha (0.28f * strength), r.getX(), r.getBottom(), false));
+        g.drawRoundedRectangle (r.reduced (1.7f), juce::jmax (1.0f, cornerRadius - 1.7f), 1.0f);
+        panelTopGlints (g, r, cornerRadius, rim, contact, strength, maxGlints);
+    }
+
+    inline void toolbarEnclosure (juce::Graphics& g, juce::Rectangle<float> outer,
+                                  juce::Rectangle<float> settingsRow)
+    {
+        if (outer.isEmpty()) return;
+        const float r = radiusLg;
+        const auto rim = toolbarRim();
+        const auto contact = toolbarContact();
+        juce::Path shape;
+        shape.addRoundedRectangle (outer, r);
+        {   // Bounded cool bloom: the contour fades out before the lower half,
+            // so this reads as exposure light, not a neon outline.
+            juce::Graphics::ScopedSaveState bloom (g);
+            g.setGradientFill (juce::ColourGradient (rim.withAlpha (0.20f), outer.getX(), outer.getY() - 4.0f,
+                                                    rim.withAlpha (0.0f), outer.getX(), outer.getY() + outer.getHeight() * 0.48f, false));
+            g.drawRoundedRectangle (outer.expanded (2.5f), r + 2.5f, 4.0f);
+            g.setGradientFill (juce::ColourGradient (rim.withAlpha (0.09f), outer.getX(), outer.getY() - 5.0f,
+                                                    rim.withAlpha (0.0f), outer.getX(), outer.getY() + outer.getHeight() * 0.40f, false));
+            g.drawRoundedRectangle (outer.expanded (5.0f), r + 5.0f, 5.0f);
+        }
+        g.setGradientFill (juce::ColourGradient (toolbarFaceHigh(), 0.0f, outer.getY(),
+                                                toolbarFaceLow(), 0.0f, outer.getBottom(), false));
+        g.fillPath (shape);
+        {   // darker settings row inside the same rounded enclosure
+            juce::Graphics::ScopedSaveState rowState (g);
+            g.reduceClipRegion (shape);
+            g.setGradientFill (juce::ColourGradient (toolbarRowTop(), 0.0f, settingsRow.getY(),
+                                                    toolbarRowBottom(), 0.0f, settingsRow.getBottom(), false));
+            g.fillRect (settingsRow);
+            g.setColour (contact.withAlpha (0.45f));
+            g.fillRect (settingsRow.getX() + 2.0f, settingsRow.getY(), settingsRow.getWidth() - 4.0f, 1.0f);
+        }
+        {   // exposed pale rim with a dark neighbour inside: no uniform accent outline
+            g.setGradientFill (juce::ColourGradient (rim.withAlpha (0.82f), 0.0f, outer.getY(),
+                                                    rim.withAlpha (0.12f), 0.0f, outer.getY() + outer.getHeight() * 0.62f, false));
+            g.drawRoundedRectangle (outer.reduced (0.6f), r - 0.6f, 1.2f);
+            g.setGradientFill (juce::ColourGradient (contact.withAlpha (0.55f), 0.0f, outer.getY() + 2.0f,
+                                                    contact.withAlpha (0.22f), 0.0f, outer.getBottom(), false));
+            g.drawRoundedRectangle (outer.reduced (1.7f), r - 1.7f, 1.0f);
+        }
+        panelTopGlints (g, outer, r, rim, contact);
+    }
+
+    // BPM readout: a recessed dark field inside a warm rim. Text drawing is unchanged.
+    inline void toolbarReadoutWell (juce::Graphics& g, juce::Rectangle<float> r, float cornerRadius)
+    {
+        if (r.isEmpty()) return;
+        g.setColour (toolbarContact().withAlpha (0.55f));
+        g.fillRoundedRectangle (r.expanded (0.8f), cornerRadius + 0.8f);
+        g.setGradientFill (juce::ColourGradient (deep.darker (0.35f), 0.0f, r.getY(),
+                                                deep.brighter (0.05f), 0.0f, r.getBottom(), false));
+        g.fillRoundedRectangle (r, cornerRadius);
+        g.setGradientFill (juce::ColourGradient (juce::Colours::black.withAlpha (0.35f), 0.0f, r.getY(),
+                                                juce::Colours::black.withAlpha (0.0f), 0.0f, r.getY() + r.getHeight() * 0.55f, false));
+        g.fillRoundedRectangle (r, cornerRadius);
+        g.setGradientFill (juce::ColourGradient (accent.withAlpha (0.55f), 0.0f, r.getY(),
+                                                accent.withAlpha (0.20f), 0.0f, r.getBottom(), false));
+        g.drawRoundedRectangle (r.reduced (0.5f), cornerRadius - 0.5f, 1.0f);
+        g.setColour (accent.withAlpha (0.18f));
+        g.fillRect (r.getX() + 4.0f, r.getY() + 1.0f, r.getWidth() - 8.0f, 1.0f);
+    }
+
     // Narrow exposed bevel; no extra filled face, and no changed hit geometry.
     inline void materialBevel (juce::Graphics& g, juce::Rectangle<float> r, float cornerRadius,
                                juce::Colour light, float strength = 1.0f)
@@ -489,6 +673,10 @@ namespace Theme
         g.drawRoundedRectangle (r.reduced (0.5f), cornerRadius, 1.0f);
     }
 
+    // Drums keeps the Primary role, so the exposed top glints follow the tab
+    // colour instead of the cool material light.
+    inline juce::Colour drumRim() { return drumAccent().interpolatedWith (juce::Colours::white, 0.18f); }
+
     inline void drumEnclosure (juce::Graphics& g, juce::Rectangle<float> r)
     {
         juce::Graphics::ScopedSaveState ss (g);
@@ -498,12 +686,13 @@ namespace Theme
         g.setGradientFill (juce::ColourGradient (panel.interpolatedWith (raised, 0.18f), r.getX(), r.getY(),
                                                 panel.interpolatedWith (deep, 0.48f), r.getRight(), r.getBottom(), false));
         g.fillPath (shape);
-        materialBevel (g, r, radiusLg, materialCoolLight(), 0.35f);
-        g.setColour (orange.withAlpha (0.22f));
-        g.drawRoundedRectangle (r.reduced (0.5f), radiusLg, 1.0f);
+        // v0.86: directional exposed edge replaces the uniform orange outline;
+        // the orange left stripe and tabs keep the panel's identity. The glints
+        // follow the Drums tab colour, capped at 5 across the wide panel.
+        panelExposedEdge (g, r, radiusLg, drumRim(), materialContact(), 1.0f, 5);
         // Drums remains edge-painted, not Bass's 1px inset. The same solid
         // width and mild inner end rounding keep mixer alignment unchanged.
-        g.setColour (orange);
+        g.setColour (drumAccent());
         g.fillPath (bassStripePath (r));
     }
 
@@ -517,11 +706,11 @@ namespace Theme
         g.setGradientFill (juce::ColourGradient (panel, r.getTopLeft(), panel.interpolatedWith (deep, 0.45f),
                                                 r.getBottomRight(), false));
         g.fillPath (tab);
-        g.setGradientFill (juce::ColourGradient (orange.withAlpha (0.42f), r.getX(), r.getY(),
-                                                orange.withAlpha (0.0f), r.getX(), r.getY() + 9.0f, false));
+        g.setGradientFill (juce::ColourGradient (drumAccent().withAlpha (0.42f), r.getX(), r.getY(),
+                                                drumAccent().withAlpha (0.0f), r.getX(), r.getY() + 9.0f, false));
         g.fillPath (tab);
-        g.setGradientFill (juce::ColourGradient (orange, r.getX(), r.getY() + 1.0f,
-                                                orange.withAlpha (0.0f), r.getX(), r.getY() + 8.0f, false));
+        g.setGradientFill (juce::ColourGradient (drumAccent(), r.getX(), r.getY() + 1.0f,
+                                                drumAccent().withAlpha (0.0f), r.getX(), r.getY() + 8.0f, false));
         g.drawRoundedRectangle (r.withTrimmedBottom (-6.0f).reduced (0.75f), radiusLg, 1.5f);
         // No reflection beneath either tab caption.
     }
@@ -767,7 +956,8 @@ public:
         const auto accent = s.findColour (juce::Slider::rotarySliderFillColourId);
         const bool bass = (bool) s.getProperties().getWithDefault ("bassSoundKnob", false)
                        || (bool) s.getProperties().getWithDefault ("bassVolumeKnob", false);
-        const bool material = bass || (bool) s.getProperties().getWithDefault ("drumKnob", false);
+        const bool track = (bool) s.getProperties().getWithDefault ("trackKnob", false);
+        const bool material = bass || track || (bool) s.getProperties().getWithDefault ("drumKnob", false);
         const bool smallDrum = (bool) s.getProperties().getWithDefault ("drumKnob", false) && juce::jmin (w, h) <= 26;
         const bool subPoc = bass && (bool) s.getProperties().getWithDefault ("bassSubLightPoc", false);
 
@@ -903,6 +1093,7 @@ public:
     IconButton (Icon i, juce::Colour c) : juce::Button ({}), icon (i), colour (c)
     {
         setWantsKeyboardFocus (false);
+        getProperties().set ("toolbarControl", true);
     }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
@@ -912,8 +1103,9 @@ public:
         auto bgc = on ? colour : Theme::raised;
         if (on && icon == Record)   // gentle pulse while recording
             bgc = bgc.interpolatedWith (juce::Colours::white, 0.12f + 0.12f * std::sin ((float) juce::Time::getMillisecondCounter() * 0.008f));
-        if (down) bgc = bgc.darker (0.2f); else if (over) bgc = bgc.brighter (0.12f);
-        Theme::framedTile (g, getLocalBounds().toFloat(), bgc, 3.0f);
+        Theme::bassShadowState (*this, down);
+        Theme::bassControlTile (g, getLocalBounds().toFloat(), bgc, 2.5f,
+                                isEnabled(), over, down, hasKeyboardFocus (true));
 
         g.setColour (on ? Theme::onAccent : colour);
         auto ic = b.withSizeKeepingCentre (b.getHeight() * 0.38f, b.getHeight() * 0.38f);
@@ -972,14 +1164,19 @@ class ToolButton : public juce::Button
 {
 public:
     enum Icon { Cut, Copy, Paste, Silence, FadeIn, FadeOut, Duplicate, Undo, Redo, Menu, ZoomIn, ZoomOut, ZoomFit, SelectAll, Reverse, Crop, Folder };
-    explicit ToolButton (Icon i) : juce::Button ({}), icon (i) { setWantsKeyboardFocus (false); }
+    explicit ToolButton (Icon i) : juce::Button ({}), icon (i)
+    {
+        setWantsKeyboardFocus (false);
+        getProperties().set ("toolbarControl", true);
+    }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
         auto b = getLocalBounds().toFloat().reduced (1.0f);
         const bool en = isEnabled();
-        Theme::framedTile (g, getLocalBounds().toFloat(), en ? (down ? Theme::raised.darker (0.2f) : over ? Theme::raised.brighter (0.15f) : Theme::raised)
-                                                              : Theme::raised.withAlpha (0.5f), 2.5f);
+        Theme::bassShadowState (*this, down);
+        Theme::bassControlTile (g, getLocalBounds().toFloat(), Theme::raised, 2.0f,
+                                en, over, down, hasKeyboardFocus (true));
         const auto col = en ? Theme::text : Theme::dim.withAlpha (0.45f);
         g.setColour (col);
 
@@ -1137,8 +1334,22 @@ private:
 
     void drawBar (juce::Graphics& g, juce::Rectangle<float> r, float level, float hold)
     {
-        g.setColour (Theme::deep);
+        if (r.getWidth() < 1.0f || r.getHeight() < 1.0f) return;
+        const float rad = juce::jlimit (1.0f, 3.0f, juce::jmin (r.getWidth(), r.getHeight()) * 0.32f);
+        juce::Graphics::ScopedSaveState ss (g);
+        juce::Path well;
+        well.addRoundedRectangle (r, rad);
+        g.reduceClipRegion (well);
+
+        // Recessed well: shaded upper lip, almost-black floor and a faint lit lower lip.
+        g.setGradientFill (juce::ColourGradient (Theme::deep.darker (0.55f), 0.0f, r.getY(),
+                                                Theme::deep.brighter (0.06f), 0.0f, r.getBottom(), false));
         g.fillRect (r);
+        g.setGradientFill (juce::ColourGradient (juce::Colours::black.withAlpha (0.55f), 0.0f, r.getY(),
+                                                juce::Colours::transparentBlack, 0.0f, r.getY() + r.getHeight() * 0.70f, false));
+        g.fillRect (r);
+        segments (g, r, horizontal);
+
         const float p = pos (level), hp = pos (hold);
         // solid bar in the theme colours: accent up to -18 dB, secondary up to -3 dB, red only for clipping
         const float zoneY = (-18.0f + 60.0f) / 66.0f, zoneR = (-3.0f + 60.0f) / 66.0f;
@@ -1146,26 +1357,82 @@ private:
         {
             const float a = juce::jmin (p, to);
             if (a <= from) return;
-            g.setColour (c);
-            if (horizontal) g.fillRect (r.getX() + r.getWidth() * from, r.getY(), r.getWidth() * (a - from), r.getHeight());
-            else            g.fillRect (r.getX(), r.getBottom() - r.getHeight() * a, r.getWidth(), r.getHeight() * (a - from));
+            juce::Rectangle<float> z;
+            if (horizontal) z = { r.getX() + r.getWidth() * from, r.getY(), r.getWidth() * (a - from), r.getHeight() };
+            else            z = { r.getX(), r.getBottom() - r.getHeight() * a, r.getWidth(), r.getHeight() * (a - from) };
+            // Cylindrical bar: lit upper face falling into a deeper lower edge.
+            g.setGradientFill (juce::ColourGradient (c.brighter (0.30f), z.getX(), z.getY(),
+                                                    c.darker (0.34f), z.getX(), z.getBottom(), false));
+            g.fillRect (z);
+            g.setColour (c.interpolatedWith (juce::Colours::white, 0.55f).withAlpha (0.55f));
+            if (horizontal) g.fillRect (z.getX(), z.getY() + z.getHeight() * 0.20f, z.getWidth(), juce::jmax (1.0f, z.getHeight() * 0.18f));
+            else            g.fillRect (z.getX() + z.getWidth() * 0.20f, z.getY(), juce::jmax (1.0f, z.getWidth() * 0.18f), z.getHeight());
         };
         zone (0.0f, zoneY, Theme::accent);
         zone (zoneY, zoneR, Theme::purple);
         zone (zoneR, 1.0f, Theme::red);
+
+        if (p > 0.01f)
+        {
+            const auto c = p > zoneR ? Theme::red : (p > zoneY ? Theme::purple : Theme::accent);
+            const auto edge = c.interpolatedWith (juce::Colours::white, 0.72f);
+            if (horizontal)
+            {
+                const float x = r.getX() + r.getWidth() * p;
+                // bounded bloom behind the leading edge, clipped to the well
+                g.setGradientFill (juce::ColourGradient (c.withAlpha (0.30f), x - 5.0f, 0.0f,
+                                                        c.withAlpha (0.0f), x + 3.0f, 0.0f, false));
+                g.fillRect (juce::jmax (r.getX(), x - 5.0f), r.getY(),
+                            juce::jmin (8.0f, x - r.getX() + 3.0f), r.getHeight());
+                g.setColour (edge);
+                g.fillRect (x - 1.5f, r.getY() + 1.0f, 1.5f, r.getHeight() - 2.0f);
+            }
+            else
+            {
+                const float y = r.getBottom() - r.getHeight() * p;
+                g.setGradientFill (juce::ColourGradient (c.withAlpha (0.0f), 0.0f, y - 3.0f,
+                                                        c.withAlpha (0.30f), 0.0f, y + 5.0f, false));
+                g.fillRect (r.getX(), juce::jmax (r.getY(), y - 3.0f),
+                            r.getWidth(), juce::jmin (8.0f, r.getBottom() - y + 3.0f));
+                g.setColour (edge);
+                g.fillRect (r.getX() + 1.0f, y - 1.5f, r.getWidth() - 2.0f, 1.5f);
+            }
+        }
+
         if (hp > 0.02f)
         {
-            g.setColour (Theme::text.withAlpha (0.8f));
-            if (horizontal) g.fillRect (r.getX() + r.getWidth() * hp - 1.5f, r.getY(), 1.5f, r.getHeight());
-            else            g.fillRect (r.getX(), r.getBottom() - r.getHeight() * hp, r.getWidth(), 1.5f);
+            const auto hc = Theme::text.interpolatedWith (juce::Colours::white, 0.35f);
+            if (horizontal)
+            {
+                const float x = r.getX() + r.getWidth() * hp;
+                g.setGradientFill (juce::ColourGradient (hc.withAlpha (0.0f), x - 4.0f, 0.0f,
+                                                        hc.withAlpha (0.34f), x, 0.0f, false));
+                g.fillRect (x - 4.0f, r.getY(), 4.0f, r.getHeight());
+                g.setColour (hc.withAlpha (0.92f));
+                g.fillRect (x - 1.0f, r.getY(), 1.5f, r.getHeight());
+            }
+            else
+            {
+                const float y = r.getBottom() - r.getHeight() * hp;
+                g.setGradientFill (juce::ColourGradient (hc.withAlpha (0.0f), 0.0f, y + 4.0f,
+                                                        hc.withAlpha (0.34f), 0.0f, y, false));
+                g.fillRect (r.getX(), y, r.getWidth(), 4.0f);
+                g.setColour (hc.withAlpha (0.92f));
+                g.fillRect (r.getX(), y, r.getWidth(), 1.5f);
+            }
         }
+
+        // Outer contour: dark contact above, faint reflected light on the lower lip.
+        g.setGradientFill (juce::ColourGradient (Theme::border.withAlpha (0.45f), 0.0f, r.getY(),
+                                                Theme::border.withAlpha (0.10f), 0.0f, r.getBottom(), false));
+        g.drawRoundedRectangle (r.reduced (0.5f), rad - 0.5f, 1.0f);
     }
 
     static void segments (juce::Graphics& g, juce::Rectangle<float> r, bool horiz)
     {
-        g.setColour (Theme::panel);
-        if (horiz) for (float x = r.getX() + 3.0f; x < r.getRight(); x += 4.0f) g.fillRect (x, r.getY(), 1.0f, r.getHeight());
-        else       for (float y = r.getY() + 3.0f; y < r.getBottom(); y += 4.0f) g.fillRect (r.getX(), y, r.getWidth(), 1.0f);
+        g.setColour (Theme::text.withAlpha (0.055f));                        // unlit scale burned into the well
+        if (horiz) for (float x = r.getX() + 3.0f; x < r.getRight(); x += 4.0f) g.fillRect (x, r.getY() + 1.0f, 1.0f, r.getHeight() - 2.0f);
+        else       for (float y = r.getY() + 3.0f; y < r.getBottom(); y += 4.0f) g.fillRect (r.getX() + 1.0f, y, r.getWidth() - 2.0f, 1.0f);
     }
 
     bool horizontal = false;

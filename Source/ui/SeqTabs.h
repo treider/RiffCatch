@@ -29,19 +29,10 @@ public:
         {
             const auto r = juce::Rectangle<float> ((float) i * (w + 3.0f), 0.0f, w, (float) getHeight());
             const bool on = i == selected, data = hasData && hasData (i);
-            juce::Path tab;
-            tab.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight(), Theme::radiusLg, Theme::radiusLg, true, true, false, false);
-            auto fill = on ? Theme::panel : Theme::panel.darker (0.14f);
-            if (! on && hover == i) fill = Theme::panel.darker (0.04f);
-            if (on && i == 1)
-                Theme::bassEnclosure (g, r, true);
-            else if (on && i == 0)
-                Theme::drumTab (g, r);
-            else
-            {
-                g.setColour (fill);
-                g.fillPath (tab);
-            }
+            // Same material as the pattern tabs: Drums uses the Primary role and
+            // Bass the Secondary role when active; the inactive tab is grey.
+            const auto rim = on ? (i == 0 ? Theme::drumAccent() : Theme::bassAccent()) : Theme::dim;
+            Theme::tabFace (g, r, rim, on, hover == i);
 
             g.setFont (juce::Font (juce::FontOptions (13.0f, on ? juce::Font::bold : juce::Font::plain)));
             g.setColour (data ? Theme::accent : (on ? Theme::text : Theme::dim));

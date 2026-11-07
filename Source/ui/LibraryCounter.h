@@ -25,13 +25,13 @@ public:
     {
         const auto& bank = engine.patterns;
         const int cur = bank.currentRef (kind);
-        const bool filled = kind == PatternBank::Drums ? engine.drums.hasAnySteps() : engine.bass.hasAnySteps();
         const int users = (int) bank.usedBy (kind, cur).size();
         const auto d = displayRect (users > 1).toFloat();
         Seg::paintDisplayHousing (g, d.expanded (3.0f), Theme::radiusLg + 1.5f);
 
 
-        const auto lit = Seg::digitColour.withAlpha (filled ? 1.0f : 0.7f);
+        // Same brightness for Drums and Bass: the number is the state, not the glow.
+        const auto lit = Seg::digitColour;
         const float dh = d.getHeight() - 8.0f, gapX = dh * 0.3f;
         float x = d.getX() + 7.0f;
         const float y = d.getY() + 4.0f, dw = Seg::glyphWidth (dh);
