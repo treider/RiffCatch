@@ -996,6 +996,41 @@ inline void bottomRowSelfTest (const std::function<void (bool, const juce::Strin
     drums.setLookAndFeel (nullptr); bass.setLookAndFeel (nullptr); mixer.setLookAndFeel (nullptr);
 }
 
+inline void levelMeterSelfTest (const std::function<void (bool, const juce::String&)>& check)
+{
+    const Theme::Preset saved { "live", Theme::blue.getARGB(), Theme::purple.getARGB(), Theme::cyan.getARGB(),
+                               Theme::bg.getARGB(), Theme::panel.getARGB(), Theme::text.getARGB() };
+    const bool legacy = Theme::legacyTracks;
+    const Theme::Preset themes[] { Theme::presets[0], Theme::presets[2], Theme::presets[7] };
+    for (const auto& preset : themes)
+    {
+        Theme::applyPreset (preset, preset.name == "Tokyo Night");
+        for (bool horizontal : { false, true })
+        {
+            LevelMeter meter;
+            meter.setSize (horizontal ? 120 : 24, horizontal ? 24 : 120);
+            meter.setHorizontal (horizontal);
+            meter.setBars (1);
+            meter.setLevels (0.5f, 0.5f);
+            const auto image = meter.createComponentSnapshot (meter.getLocalBounds());
+            bool fillFound = false, peakFound = false, zoneFound = false;
+            for (int i = 0; i < 120; ++i)
+            {
+                const auto px = horizontal ? image.getPixelAt (i, 12) : image.getPixelAt (12, i);
+                fillFound |= px == Theme::meterFill();
+                peakFound |= px == Theme::meterPeak();
+                zoneFound |= px == Theme::green || px == Theme::red;
+            }
+            check (Theme::meterFill() == juce::Colour (0xffbb9af7)
+                   && Theme::meterPeak() == juce::Colour (0xff7aa2f7)
+                   && fillFound && peakFound && ! zoneFound,
+                   "level meter: flat fixed Tokyo lilac fill, blue peak and no zone colours - " + preset.name
+                   + (horizontal ? " horizontal" : " vertical"));
+        }
+    }
+    Theme::applyPreset (saved, legacy);
+}
+
 inline void mixerMaterialSelfTest (const std::function<void (bool, const juce::String&)>& check)
 {
     const Theme::Preset saved { "live", Theme::blue.getARGB(), Theme::purple.getARGB(), Theme::cyan.getARGB(),
@@ -1328,6 +1363,7 @@ inline juce::String runEngineSelfTest()
     toolbarMaterialSelfTest (check);
     BassLightPocTest::run (check);
     bassControlSelfTest (check);
+    levelMeterSelfTest (check);
     mixerMaterialSelfTest (check);
     bottomRowSelfTest (check);
 

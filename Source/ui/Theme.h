@@ -26,6 +26,9 @@ namespace Theme
     inline const juce::Colour orange { 0xffff9e64 };
     inline const juce::Colour red    { 0xfff7768e };
     inline const juce::Colour teal   { 0xff73daca };
+    // VU meters keep the Tokyo Night lilac/blue pair in every theme.
+    inline juce::Colour meterFill() { return juce::Colour (0xffbb9af7); }
+    inline juce::Colour meterPeak() { return juce::Colour (0xff7aa2f7); }
     inline bool legacyTracks = true;               // Tokyo Night keeps its original eight clip colours
 
     inline constexpr float radius = 4.0f;     // controls: buttons, boxes, menus, lanes
@@ -917,14 +920,19 @@ public:
 
             if ((bool) s.getProperties().getWithDefault ("masterOutputFader", false))
             {
+                // Same tactile metal face as the material knobs, kept inside the
+                // existing 14px cap so travel and hit area are unchanged.
                 const juce::Rectangle<float> cap (cx - 7.0f, pos - 7.0f, 14.0f, 14.0f);
-                g.setGradientFill (juce::ColourGradient (Theme::masterFaceLight(), cx - 4.0f, pos - 5.0f,
-                                                        Theme::masterFaceShade(), cx + 4.0f, pos + 7.0f, false));
+                g.setGradientFill (juce::ColourGradient (Theme::bassKnobLight(), cap.getX() + 3.0f, cap.getY() + 2.0f,
+                                                        Theme::bassKnobShade(), cap.getRight() - 2.0f, cap.getBottom() - 1.0f, false));
                 g.fillEllipse (cap);
-                // Inset contact and glint: no extra shadow or change to diameter/travel.
-                g.setGradientFill (juce::ColourGradient (Theme::masterFaceLight().withAlpha (0.75f), cx, pos - 6.5f,
-                                                        Theme::mixerContact().withAlpha (0.60f), cx, pos + 6.5f, false));
+                g.setColour (Theme::bassKnobContact().withAlpha (0.90f));
                 g.drawEllipse (cap.reduced (0.5f), 1.0f);
+                g.setColour (accent.withAlpha (s.isEnabled() ? 0.55f : 0.20f));
+                g.drawEllipse (cap.reduced (1.5f), 1.0f);
+                g.setGradientFill (juce::ColourGradient (Theme::bassKnobGlint().withAlpha (0.75f), cap.getX() + 3.0f, cap.getY() + 2.0f,
+                                                        Theme::bassKnobGlint().withAlpha (0.0f), cap.getRight() - 2.0f, cap.getCentreY(), true));
+                g.drawEllipse (cap.reduced (2.0f), 0.8f);
             }
             else
             {
@@ -1011,6 +1019,19 @@ public:
             const float edgeR = r - 6.2f;
             reflection.addCentredArc (c.x, c.y, edgeR, edgeR, 0.0f, -1.15f, 0.95f, true);
             g.strokePath (reflection, juce::PathStrokeType (0.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            if (track)
+            {
+                // Track volume/pan: give the drag circle a defined inner grip
+                // without changing the face, ring or hit area.
+                const auto grip = face.reduced (face.getWidth() * 0.22f);
+                g.setGradientFill (juce::ColourGradient (stateColour (Theme::bassKnobLight()).brighter (0.06f), grip.getX() + 2.0f, grip.getY() + 1.0f,
+                                                        stateColour (Theme::bassKnobShade()), grip.getRight() - 1.0f, grip.getBottom() - 1.0f, false));
+                g.fillEllipse (grip);
+                g.setColour (stateColour (Theme::bassKnobContact()).withAlpha (0.85f));
+                g.drawEllipse (grip.reduced (0.5f), 0.8f);
+                g.setColour (accent.withAlpha (enabled ? 0.30f : 0.12f));
+                g.drawEllipse (grip.reduced (1.4f), 0.8f);
+            }
             if (subPoc)
             {
                 // Narrow raised metal bevel and inner reflection, never a centre wash.
@@ -1341,98 +1362,57 @@ private:
         well.addRoundedRectangle (r, rad);
         g.reduceClipRegion (well);
 
-        // Recessed well: shaded upper lip, almost-black floor and a faint lit lower lip.
-        g.setGradientFill (juce::ColourGradient (Theme::deep.darker (0.55f), 0.0f, r.getY(),
-                                                Theme::deep.brighter (0.06f), 0.0f, r.getBottom(), false));
+        // Flat well: one dark fill, no gradients or burned-in scale.
+        g.setColour (Theme::deep.darker (0.55f));
         g.fillRect (r);
-        g.setGradientFill (juce::ColourGradient (juce::Colours::black.withAlpha (0.55f), 0.0f, r.getY(),
-                                                juce::Colours::transparentBlack, 0.0f, r.getY() + r.getHeight() * 0.70f, false));
-        g.fillRect (r);
-        segments (g, r, horizontal);
 
         const float p = pos (level), hp = pos (hold);
-        // solid bar in the theme colours: accent up to -18 dB, secondary up to -3 dB, red only for clipping
-        const float zoneY = (-18.0f + 60.0f) / 66.0f, zoneR = (-3.0f + 60.0f) / 66.0f;
-        auto zone = [&] (float from, float to, juce::Colour c)
-        {
-            const float a = juce::jmin (p, to);
-            if (a <= from) return;
-            juce::Rectangle<float> z;
-            if (horizontal) z = { r.getX() + r.getWidth() * from, r.getY(), r.getWidth() * (a - from), r.getHeight() };
-            else            z = { r.getX(), r.getBottom() - r.getHeight() * a, r.getWidth(), r.getHeight() * (a - from) };
-            // Cylindrical bar: lit upper face falling into a deeper lower edge.
-            g.setGradientFill (juce::ColourGradient (c.brighter (0.30f), z.getX(), z.getY(),
-                                                    c.darker (0.34f), z.getX(), z.getBottom(), false));
-            g.fillRect (z);
-            g.setColour (c.interpolatedWith (juce::Colours::white, 0.55f).withAlpha (0.55f));
-            if (horizontal) g.fillRect (z.getX(), z.getY() + z.getHeight() * 0.20f, z.getWidth(), juce::jmax (1.0f, z.getHeight() * 0.18f));
-            else            g.fillRect (z.getX() + z.getWidth() * 0.20f, z.getY(), juce::jmax (1.0f, z.getWidth() * 0.18f), z.getHeight());
-        };
-        zone (0.0f, zoneY, Theme::accent);
-        zone (zoneY, zoneR, Theme::purple);
-        zone (zoneR, 1.0f, Theme::red);
-
+        const auto fill = Theme::meterFill();
         if (p > 0.01f)
         {
-            const auto c = p > zoneR ? Theme::red : (p > zoneY ? Theme::purple : Theme::accent);
-            const auto edge = c.interpolatedWith (juce::Colours::white, 0.72f);
+            const juce::Rectangle<float> bar = horizontal
+                ? juce::Rectangle<float> (r.getX(), r.getY(), r.getWidth() * p, r.getHeight())
+                : juce::Rectangle<float> (r.getX(), r.getBottom() - r.getHeight() * p, r.getWidth(), r.getHeight() * p);
+            g.setColour (fill);
+            g.fillRect (bar);
+
+            // Small glow at the leading edge only; still clipped to the well.
             if (horizontal)
             {
                 const float x = r.getX() + r.getWidth() * p;
-                // bounded bloom behind the leading edge, clipped to the well
-                g.setGradientFill (juce::ColourGradient (c.withAlpha (0.30f), x - 5.0f, 0.0f,
-                                                        c.withAlpha (0.0f), x + 3.0f, 0.0f, false));
-                g.fillRect (juce::jmax (r.getX(), x - 5.0f), r.getY(),
-                            juce::jmin (8.0f, x - r.getX() + 3.0f), r.getHeight());
-                g.setColour (edge);
-                g.fillRect (x - 1.5f, r.getY() + 1.0f, 1.5f, r.getHeight() - 2.0f);
+                g.setGradientFill (juce::ColourGradient (fill.withAlpha (0.30f), x, 0.0f,
+                                                        fill.withAlpha (0.0f), x + 4.0f, 0.0f, false));
+                g.fillRect (x, r.getY(), 4.0f, r.getHeight());
             }
             else
             {
                 const float y = r.getBottom() - r.getHeight() * p;
-                g.setGradientFill (juce::ColourGradient (c.withAlpha (0.0f), 0.0f, y - 3.0f,
-                                                        c.withAlpha (0.30f), 0.0f, y + 5.0f, false));
-                g.fillRect (r.getX(), juce::jmax (r.getY(), y - 3.0f),
-                            r.getWidth(), juce::jmin (8.0f, r.getBottom() - y + 3.0f));
-                g.setColour (edge);
-                g.fillRect (r.getX() + 1.0f, y - 1.5f, r.getWidth() - 2.0f, 1.5f);
+                g.setGradientFill (juce::ColourGradient (fill.withAlpha (0.30f), 0.0f, y,
+                                                        fill.withAlpha (0.0f), 0.0f, y - 4.0f, false));
+                g.fillRect (r.getX(), y - 4.0f, r.getWidth(), 4.0f);
             }
         }
 
         if (hp > 0.02f)
         {
-            const auto hc = Theme::text.interpolatedWith (juce::Colours::white, 0.35f);
+            // Peak-hold stays Tokyo blue in every theme. Snap to whole pixels so
+            // the 2px marker stays crisp at any meter size.
+            g.setColour (Theme::meterPeak());
             if (horizontal)
             {
-                const float x = r.getX() + r.getWidth() * hp;
-                g.setGradientFill (juce::ColourGradient (hc.withAlpha (0.0f), x - 4.0f, 0.0f,
-                                                        hc.withAlpha (0.34f), x, 0.0f, false));
-                g.fillRect (x - 4.0f, r.getY(), 4.0f, r.getHeight());
-                g.setColour (hc.withAlpha (0.92f));
-                g.fillRect (x - 1.0f, r.getY(), 1.5f, r.getHeight());
+                const float x = std::floor (r.getX() + r.getWidth() * hp);
+                g.fillRect (x - 1.0f, r.getY(), 2.0f, r.getHeight());
             }
             else
             {
-                const float y = r.getBottom() - r.getHeight() * hp;
-                g.setGradientFill (juce::ColourGradient (hc.withAlpha (0.0f), 0.0f, y + 4.0f,
-                                                        hc.withAlpha (0.34f), 0.0f, y, false));
-                g.fillRect (r.getX(), y, r.getWidth(), 4.0f);
-                g.setColour (hc.withAlpha (0.92f));
-                g.fillRect (r.getX(), y, r.getWidth(), 1.5f);
+                const float y = std::floor (r.getBottom() - r.getHeight() * hp);
+                g.fillRect (r.getX(), y - 1.0f, r.getWidth(), 2.0f);
             }
         }
 
-        // Outer contour: dark contact above, faint reflected light on the lower lip.
-        g.setGradientFill (juce::ColourGradient (Theme::border.withAlpha (0.45f), 0.0f, r.getY(),
-                                                Theme::border.withAlpha (0.10f), 0.0f, r.getBottom(), false));
+        // Flat contact outline; no directional highlight.
+        g.setColour (Theme::border.withAlpha (0.40f));
         g.drawRoundedRectangle (r.reduced (0.5f), rad - 0.5f, 1.0f);
-    }
-
-    static void segments (juce::Graphics& g, juce::Rectangle<float> r, bool horiz)
-    {
-        g.setColour (Theme::text.withAlpha (0.055f));                        // unlit scale burned into the well
-        if (horiz) for (float x = r.getX() + 3.0f; x < r.getRight(); x += 4.0f) g.fillRect (x, r.getY() + 1.0f, 1.0f, r.getHeight() - 2.0f);
-        else       for (float y = r.getY() + 3.0f; y < r.getBottom(); y += 4.0f) g.fillRect (r.getX() + 1.0f, y, r.getWidth() - 2.0f, 1.0f);
     }
 
     bool horizontal = false;

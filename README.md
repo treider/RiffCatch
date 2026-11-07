@@ -2,7 +2,7 @@
 
 A lightweight multitrack looper and recorder for guitarists, built with JUCE and C++ for Windows. Plug in your interface (tested with a Focusrite 6i6 over ASIO), set a tempo, and layer riffs on top of a built-in drum machine.
 
-![RiffCatch main window, Sunset theme](docs/screenshots/main-sunset.png)
+![RiffCatch main window, Neo-Retro theme](docs/screenshots/main-neo-retro.png)
 
 ## Features
 

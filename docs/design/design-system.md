@@ -77,6 +77,23 @@ and cache-cost measurements. Synthetic 144-DPI/theme/state fixtures are not
 actual GUI interaction or alternate-monitor evidence. Visual inspection and
 user acceptance remain separate; **no rollout before explicit POC approval**.
 
+### v0.88 flat VU meters and material fader caps
+
+User-selected scope: the VU meters, the master fader cap and the track
+volume/pan drag circles. `LevelMeter` is flat again: one dark well fill, no
+burned-in scale, no cylindrical gradient, no zone colours and no white
+highlight. The bar is a flat Tokyo Night lilac `#BB9AF7` in every theme, with a
+small lilac glow at the leading edge; peak-hold is a crisp 2px Tokyo blue
+`#7AA2F7` line in every theme. Meter smoothing, peak timing, dB mapping and
+component bounds are unchanged. The master fader keeps its 14px cap and travel
+but now uses the material knob face, contact ring, accent ring and glint. Track
+volume/pan knobs gain a defined inner grip ring inside the existing face, so
+the drag circle reads more clearly without changing the face, outer ring, arc,
+pointer or hit area. Non-master linear faders and all non-track knobs keep their
+previous paint. Verification: Release selftest 1802 PASS / 0 FAIL, including a
+new fixed-colour meter check across Tokyo Night, Sunset and Neo-Retro, plus
+1500x980 and 1100x620 captures with active meters.
+
 ### v0.87 meters, tuner glow, pattern rail and recessed displays
 
 User-selected scope: VU effects, tuner note glow, the Song button, the pattern
