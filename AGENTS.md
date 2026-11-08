@@ -7,8 +7,8 @@ Windows multitrack looper. C++20, JUCE 8.0.4, CMake. Answer briefly in Norwegian
 - Prefer small, local changes and existing patterns. Read only relevant files; load specialist instructions on demand. Delegate bounded work when useful, not for trivial tasks. Avoid duplicate research and repeated full-file reads.
 - Preserve every control, shortcut, parameter range/default, callback, undo action, recording/loop/Catch operation, sequencer behavior and save/export path unless explicitly asked otherwise. Preserve project/settings compatibility.
 - Never delete autosaves or reset settings to pass tests. Protect unsaved sessions before stopping the app.
-- Workflow: inspect/edit -> Windows build and verification -> user test -> separately authorized commit/push. "Kjor" executes agreed scope, not implicit Git approval.
-- No staging/commit/push, branch creation/deletion/switching, discarded-redesign resurrection, destructive Git commands or Git configuration changes without approval. Commit approval is not push approval. Stage only reviewed relevant files; follow recent commit style and verify status.
+- Workflow: inspect/edit -> Windows build and verification -> local commit -> user test. Commit every completed, verified change so it is easy to roll back; "Kjor" includes the local commit.
+- Never push without explicit approval, and commit approval is never push approval. No branch creation/deletion/switching, discarded-redesign resurrection, destructive Git commands or Git configuration changes without approval. Stage only reviewed relevant files; follow recent commit style and verify status.
 
 ## Code map and conventions
 - `Source/Main.cpp`: application/window and LookAndFeel lifetime. `MainComponent`: devices/engine, controls/layout, shortcuts, undo and project actions.

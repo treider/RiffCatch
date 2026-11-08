@@ -4,10 +4,10 @@
 #include "SegmentDisplay.h"
 #include "../audio/AudioEngine.h"
 
-// Which drum (D01) or bass (B01) pattern of the library the open pattern plays, shown on a seven-segment display like an old
-// countdown timer, with an up and a down arrow. The arrows (and the mouse wheel) only count up and down: a number that does not
-// exist yet starts as a new empty pattern, and an empty one nobody plays disappears again when you leave it.
-// A small "x2" means several patterns play this one (editing it changes them all). Hover shows which.
+// Which drum (D01) or bass (B01) pattern of the global library the open pattern plays, shown on a seven-segment display like
+// an old countdown timer, with an up and a down arrow. The arrows (and the mouse wheel) only count up and down: a number that
+// does not exist yet starts as a new empty pattern, and an empty one nobody plays disappears again when you leave it.
+// The library is global: several song patterns may play the same item, and the counter shows just that item's number.
 class LibraryCounter : public juce::Component, public juce::SettableTooltipClient
 {
 public:
@@ -25,25 +25,19 @@ public:
     {
         const auto& bank = engine.patterns;
         const int cur = bank.currentRef (kind);
-        const int users = (int) bank.usedBy (kind, cur).size();
-        const auto d = displayRect (users > 1).toFloat();
+        const auto d = displayRect().toFloat();
         Seg::paintDisplayHousing (g, d.expanded (3.0f), Theme::radiusLg + 1.5f);
 
 
         // Same brightness for Drums and Bass: the number is the state, not the glow.
         const auto lit = Seg::digitColour;
         const float dh = d.getHeight() - 8.0f, gapX = dh * 0.3f;
-        float x = d.getX() + 7.0f;
         const float y = d.getY() + 4.0f, dw = Seg::glyphWidth (dh);
+        const float blockW = dw * 3.0f + gapX * 2.4f;      // "D01" / "B16", centred in the display
+        float x = d.getX() + (d.getWidth() - blockW) * 0.5f;
         Seg::glyph (g, x, y, dh, kind == PatternBank::Drums ? Seg::maskD : Seg::maskB, lit); x += dw + gapX * 1.4f;
         Seg::glyph (g, x, y, dh, Seg::digitMask ((cur + 1) / 10), lit); x += dw + gapX;
-        Seg::glyph (g, x, y, dh, Seg::digitMask ((cur + 1) % 10), lit); x += dw;
-        if (users > 1)
-        {
-            g.setColour (Theme::dim);
-            g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
-            g.drawText (juce::String::fromUTF8 ("\xc3\x97") + juce::String (users), juce::Rectangle<int> ((int) x + 3, (int) d.getY(), 22, (int) d.getHeight()), juce::Justification::centredLeft);
-        }
+        Seg::glyph (g, x, y, dh, Seg::digitMask ((cur + 1) % 10), lit);
         for (int i = 0; i < 2; ++i)                       // up arrow on top, down arrow below
         {
             const auto r = arrowRect (i).toFloat();
@@ -52,8 +46,8 @@ public:
             {
                 {
                     juce::Graphics::ScopedSaveState shadowState (g);
-                    // Reserve the blue housing, including the wider shared display.
-                    g.reduceClipRegion (getLocalBounds().withTrimmedLeft (displayRect (true).getRight() + 3));
+                    // Reserve the blue display housing.
+                    g.reduceClipRegion (getLocalBounds().withTrimmedLeft (displayRect().getRight() + 3));
                     Theme::bassControlShadow (g, r, isEnabled(), pressed == i);
                 }
                 Theme::bassControlTile (g, r, Theme::raised, 2.0f, isEnabled(), over, pressed == i, hasKeyboardFocus (true));
@@ -79,7 +73,7 @@ public:
     {
         pressed = -1;
         if (Theme::materialControl (*this)) repaint();
-        if (e.mods.isPopupMenu() && displayRect (true).contains (e.getPosition()))
+        if (e.mods.isPopupMenu() && displayRect().contains (e.getPosition()))
         {
             juce::PopupMenu m;
             m.addItem (1, "Copy to a new pattern", engine.patterns.numItems (kind) < PatternBank::maxItems);
@@ -107,15 +101,14 @@ private:
     int pressed = -1;
     float wheelAcc = 0.0f;
 
-    // the display is as wide as its three digits (a little more while "x2" is shown); the ring around it needs a few pixels of margin
-    juce::Rectangle<int> displayRect (bool shared = false) const
+    // the display keeps its full width so the arrows never move; the ring around it needs a few pixels of margin
+    juce::Rectangle<int> displayRect() const
     {
-        const int w = displayW - (shared ? 0 : 18);
-        return { margin, margin, w, getHeight() - 2 * margin };
+        return { margin, margin, displayW, getHeight() - 2 * margin };
     }
     juce::Rectangle<int> arrowRect (int i) const        // the two arrows together are as tall as the controls next to the counter
     {
-        const auto d = displayRect (true);
+        const auto d = displayRect();
         const int h = (getHeight() - 2) / 2;
         return { d.getRight() + gapToArrows, i * (h + 2), arrowW, h };
     }    int arrowAt (juce::Point<int> p) const { for (int i = 0; i < 2; ++i) if (arrowRect (i).contains (p)) return i; return -1; }
@@ -123,9 +116,7 @@ private:
     void updateTip()
     {
         const int cur = engine.patterns.currentRef (kind);
-        juce::StringArray names;
-        for (int p : engine.patterns.usedBy (kind, cur)) names.add (engine.patterns.pats[(size_t) p].name);
-        setTooltip ((kind == PatternBank::Drums ? "Drum pattern D" : "Bass pattern B") + juce::String (cur + 1) + " (used in " + names.joinIntoString (", ")
-                    + "). Arrows or wheel: next / previous number; a new number starts empty. Right-click: copy");
+        setTooltip ((kind == PatternBank::Drums ? "Drum pattern D" : "Bass pattern B") + juce::String (cur + 1)
+                    + ". Arrows or wheel: next / previous number; a new number starts empty. Right-click: copy");
     }
 };

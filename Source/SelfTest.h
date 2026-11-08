@@ -622,7 +622,7 @@ inline void bassControlSelfTest (const std::function<void (bool, const juce::Str
         bool displaySame = true, arrowsDiffer = false;
         for (int y = 0; y < bassCounter.getHeight(); ++y)
             for (int x = 0; x < bassCounter.getWidth(); ++x)
-                // Display housing ends at x=70 even for shared counters.
+                // The display housing is always full width and ends at x=70.
                 // Arrow shadow may occupy the previously empty 2px gap.
                 if (x < 70) displaySame &= plainCounter.getPixelAt (x, y) == bassCounter.getPixelAt (x, y);
                 else arrowsDiffer |= plainCounter.getPixelAt (x, y) != bassCounter.getPixelAt (x, y);

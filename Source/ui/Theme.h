@@ -882,6 +882,51 @@ public:
         }
     }
 
+    // Stock JUCE message-box surface, with the compact themed alert symbol kept.
+    void drawAlertBox (juce::Graphics& g, juce::AlertWindow& alert,
+                       const juce::Rectangle<int>& textArea, juce::TextLayout& textLayout) override
+    {
+        juce::ignoreUnused (textArea);
+
+        const auto cornerSize = 4.0f;
+        g.setColour (alert.findColour (juce::AlertWindow::outlineColourId));
+        g.drawRoundedRectangle (alert.getLocalBounds().toFloat(), cornerSize, 2.0f);
+
+        const auto bounds = alert.getLocalBounds().reduced (1);
+        g.reduceClipRegion (bounds);
+
+        g.setColour (alert.findColour (juce::AlertWindow::backgroundColourId));
+        g.fillRoundedRectangle (bounds.toFloat(), cornerSize);
+
+        int iconSpaceUsed = 0;
+        const auto type = alert.getAlertType();
+
+        if (type != juce::MessageBoxIconType::NoIcon)
+        {
+            const auto accent = type == juce::MessageBoxIconType::WarningIcon ? Theme::orange
+                              : type == juce::MessageBoxIconType::InfoIcon    ? Theme::blue
+                                                                              : Theme::cyan;
+            const juce::Rectangle<float> badge ((float) bounds.getX() + 20.0f,
+                                                (float) bounds.getY() + 18.0f, 30.0f, 30.0f);
+            g.setColour (accent.withAlpha (0.14f));
+            g.fillEllipse (badge.expanded (4.0f));
+            g.setColour (accent.withAlpha (0.85f));
+            g.drawEllipse (badge, 1.5f);
+            g.setColour (accent);
+            g.setFont (juce::Font (juce::FontOptions (18.0f, juce::Font::bold)));
+            g.drawText (type == juce::MessageBoxIconType::WarningIcon ? "!"
+                      : type == juce::MessageBoxIconType::InfoIcon    ? "i" : "?",
+                        badge, juce::Justification::centred);
+            iconSpaceUsed = 80;
+        }
+
+        g.setColour (alert.findColour (juce::AlertWindow::textColourId));
+        const juce::Rectangle<int> alertBounds (bounds.getX() + iconSpaceUsed, 30,
+                                                bounds.getWidth(),
+                                                bounds.getHeight() - getAlertWindowButtonHeight() - 20);
+        textLayout.draw (g, alertBounds.toFloat());
+    }
+
     void fillTextEditorBackground (juce::Graphics& g, int w, int h, juce::TextEditor& t) override
     {
         g.setColour (t.findColour (juce::TextEditor::backgroundColourId));
