@@ -77,6 +77,16 @@ and cache-cost measurements. Synthetic 144-DPI/theme/state fixtures are not
 actual GUI interaction or alternate-monitor evidence. Visual inspection and
 user acceptance remain separate; **no rollout before explicit POC approval**.
 
+### v0.92 soft stage-light background
+
+The empty workspace behind the panels no longer sits on a flat `Theme::bg`. A
+cached quarter-resolution wash draws blurred ellipses in the live theme roles:
+primary upper left, secondary lower right, accent lower left, plus a diagonal
+shadow and two faint streaks. The ellipses are blurred once when the image is
+built and the image is upscaled with high-quality resampling, so it is rebuilt
+only on resize or theme change. A vignette keeps panels and text in front; light
+themes use reduced alpha. Controls, layout, persistence and audio are unchanged.
+
 ### v0.88 flat VU meters and material fader caps
 
 User-selected scope: the VU meters, the master fader cap and the track

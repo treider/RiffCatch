@@ -987,6 +987,7 @@ void MainComponent::applyTheme (int index)
 
 void MainComponent::refreshTheme()
 {
+    backgroundWash = {};
     if (auto* laf = dynamic_cast<RiffLookAndFeel*> (&getLookAndFeel())) laf->applyColours();
     if (auto* top = getTopLevelComponent()) top->sendLookAndFeelChange(); else sendLookAndFeelChange();
     if (auto* peer = getPeer()) applyDarkTitleBar (peer, Theme::bg, Theme::text);
@@ -1291,9 +1292,69 @@ void MainComponent::analyzeTrack (int slot)
     juce::CallOutBox::launchAsynchronously (std::unique_ptr<juce::Component> (card), rows[slot] != nullptr ? rows[slot]->getScreenBounds() : getScreenBounds(), nullptr);
 }
 
+// A very soft stage-light wash behind the panels. Built at quarter resolution and
+// blurred once, then cached until the size or theme changes.
+void MainComponent::ensureBackgroundWash()
+{
+    const int w = getWidth(), h = getHeight();
+    if (w <= 0 || h <= 0) return;
+
+    const int cw = juce::jmax (1, w / 4), ch = juce::jmax (1, h / 4);
+
+    if (backgroundWash.isValid() && backgroundWash.getWidth() == cw
+        && backgroundWash.getHeight() == ch && backgroundWashTheme == Theme::current)
+        return;
+
+    backgroundWash = juce::Image (juce::Image::ARGB, cw, ch, true);
+    backgroundWashTheme = Theme::current;
+
+    const float iw = (float) cw, ih = (float) ch;
+    const bool light = Theme::bg.getPerceivedBrightness() > 0.5f;
+    const float wash = light ? 0.55f : 1.0f;
+    juce::Graphics g (backgroundWash);
+
+    // One blurred ellipse per light source: exact theme colour, soft edges and no
+    // per-frame cost once the image is cached.
+    auto softEllipse = [&] (float cx, float cy, float rx, float ry, float angle,
+                            juce::Colour colour, float peak)
+    {
+        juce::Path p;
+        p.addEllipse (-rx * iw, -ry * ih, rx * iw * 2.0f, ry * ih * 2.0f);
+        p.applyTransform (juce::AffineTransform::rotation (angle).translated (cx * iw, cy * ih));
+        juce::DropShadow (colour.withAlpha (peak), 22, { 0, 0 }).drawForPath (g, p);
+    };
+
+    // Primary upper left, secondary lower right, accent lower left: the same three
+    // theme roles the panels use, so every theme gets its own colour play.
+    softEllipse (0.16f, 0.40f, 0.34f, 0.30f, 0.0f, Theme::blue, 0.05f * wash);
+    softEllipse (0.88f, 0.66f, 0.30f, 0.28f, 0.0f, Theme::purple, 0.045f * wash);
+    softEllipse (0.06f, 0.68f, 0.22f, 0.22f, 0.0f, Theme::cyan, 0.025f * wash);
+
+    // One broad diagonal shadow and two faint streaks, as in the reference.
+    softEllipse (0.55f, 0.58f, 0.90f, 0.22f, -0.32f, juce::Colours::black, 0.12f);
+    softEllipse (0.45f, 0.52f, 0.70f, 0.10f, -0.32f, Theme::text, 0.020f);
+    softEllipse (0.62f, 0.66f, 0.55f, 0.06f, -0.32f, Theme::text, 0.015f);
+
+    // Vignette keeps the panels and the text in front.
+    {
+        juce::ColourGradient vig (juce::Colours::transparentBlack, iw * 0.5f, ih * 0.5f,
+                                  juce::Colours::black.withAlpha (light ? 0.05f : 0.24f),
+                                  iw * 0.5f, ih * 1.18f, true);
+        vig.addColour (0.55, juce::Colours::transparentBlack);
+        g.setGradientFill (vig);
+        g.fillRect (0.0f, 0.0f, iw, ih);
+    }
+}
+
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::bg);
+    ensureBackgroundWash();
+    if (backgroundWash.isValid())
+    {
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+        g.drawImage (backgroundWash, getLocalBounds().toFloat());
+    }
     Theme::cardShadow (g, barArea.getUnion (settingsArea).toFloat());
     Theme::cardShadow (g, (seqTab == 1 ? bassPanel.getBounds() : drumPanel.getBounds()).toFloat());
     Theme::cardShadow (g, mixer.enclosureBounds().translated ((float) mixer.getX(), (float) mixer.getY()));
@@ -1312,6 +1373,7 @@ void MainComponent::paint (juce::Graphics& g)
 
 void MainComponent::resized()
 {
+    backgroundWash = {};
     auto r = getLocalBounds().reduced (12);
     barArea = r.removeFromTop (56);
     auto bar = barArea.reduced (12, 8);
