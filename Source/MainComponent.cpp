@@ -1292,8 +1292,8 @@ void MainComponent::analyzeTrack (int slot)
     juce::CallOutBox::launchAsynchronously (std::unique_ptr<juce::Component> (card), rows[slot] != nullptr ? rows[slot]->getScreenBounds() : getScreenBounds(), nullptr);
 }
 
-// A very soft stage-light wash behind the panels. Built at quarter resolution and
-// blurred once, then cached until the size or theme changes.
+// A soft diagonal ribbon behind the panels. Built at quarter resolution, then
+// cached until the size or theme changes.
 void MainComponent::ensureBackgroundWash()
 {
     const int w = getWidth(), h = getHeight();
@@ -1310,30 +1310,28 @@ void MainComponent::ensureBackgroundWash()
 
     const float iw = (float) cw, ih = (float) ch;
     const bool light = Theme::bg.getPerceivedBrightness() > 0.5f;
-    const float wash = light ? 0.55f : 1.0f;
+    const float wash = light ? 0.6f : 1.0f;
     juce::Graphics g (backgroundWash);
 
-    // One blurred ellipse per light source: exact theme colour, soft edges and no
-    // per-frame cost once the image is cached.
-    auto softEllipse = [&] (float cx, float cy, float rx, float ry, float angle,
-                            juce::Colour colour, float peak)
+    // A band across the window: one linear gradient perpendicular to the band, so
+    // the colour changes from primary to secondary over its width and fades out at
+    // both edges.
+    auto band = [&] (float cx, float cy, float halfWidth, float angle,
+                     juce::Colour c1, float a1, juce::Colour c2, float a2)
     {
-        juce::Path p;
-        p.addEllipse (-rx * iw, -ry * ih, rx * iw * 2.0f, ry * ih * 2.0f);
-        p.applyTransform (juce::AffineTransform::rotation (angle).translated (cx * iw, cy * ih));
-        juce::DropShadow (colour.withAlpha (peak), 22, { 0, 0 }).drawForPath (g, p);
+        const float nx = -std::sin (angle), ny = std::cos (angle);
+        const float x1 = cx * iw - nx * halfWidth * ih, y1 = cy * ih - ny * halfWidth * ih;
+        const float x2 = cx * iw + nx * halfWidth * ih, y2 = cy * ih + ny * halfWidth * ih;
+        juce::ColourGradient grad (c1.withAlpha (0.0f), x1, y1, c2.withAlpha (0.0f), x2, y2, false);
+        grad.addColour (0.22, c1.withAlpha (a1));
+        grad.addColour (0.78, c2.withAlpha (a2));
+        g.setGradientFill (grad);
+        g.fillRect (0.0f, 0.0f, iw, ih);
     };
 
-    // Primary upper left, secondary lower right, accent lower left: the same three
-    // theme roles the panels use, so every theme gets its own colour play.
-    softEllipse (0.16f, 0.40f, 0.34f, 0.30f, 0.0f, Theme::blue, 0.05f * wash);
-    softEllipse (0.88f, 0.66f, 0.30f, 0.28f, 0.0f, Theme::purple, 0.045f * wash);
-    softEllipse (0.06f, 0.68f, 0.22f, 0.22f, 0.0f, Theme::cyan, 0.025f * wash);
-
-    // One broad diagonal shadow and two faint streaks, as in the reference.
-    softEllipse (0.55f, 0.58f, 0.90f, 0.22f, -0.32f, juce::Colours::black, 0.12f);
-    softEllipse (0.45f, 0.52f, 0.70f, 0.10f, -0.32f, Theme::text, 0.020f);
-    softEllipse (0.62f, 0.66f, 0.55f, 0.06f, -0.32f, Theme::text, 0.015f);
+    // The ribbon itself, with a faint light ray above it.
+    band (0.52f, 0.56f, 0.24f, -0.30f, Theme::blue, 0.075f * wash, Theme::purple, 0.060f * wash);
+    band (0.44f, 0.44f, 0.09f, -0.30f, Theme::text, 0.030f, Theme::text, 0.030f);
 
     // Vignette keeps the panels and the text in front.
     {
