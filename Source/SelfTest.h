@@ -142,6 +142,19 @@ inline void songSelfTest (const std::function<void (bool, const juce::String&)>&
         check (okSong && sm.getNumSamples() >= 3 * bar && sm.getNumSamples() < 3 * bar + 44100 * 2, "song: length is the sum of the patterns' passes (" + juce::String (sm.getNumSamples()) + ")");
         check (okSong && std::abs (sm.getSample (0, bar / 2) - 0.25f * 0.70711f) < 1.0e-3f && std::abs (sm.getSample (0, bar + bar / 2) - 0.5f * 0.70711f) < 1.0e-3f && std::abs (sm.getSample (1, 2 * bar + bar / 2) - 0.5f * 0.70711f) < 1.0e-3f,
                "song: pattern 1 plays first, then pattern 2 twice");
+        {   // export one pattern (with repeats) instead of the whole song
+            juce::AudioBuffer<float> pm;
+            juce::String perr;
+            const bool okPat = Exporter::renderPatternBuffer (p5, 0, 1, pm, perr, false);
+            check (okPat && pm.getNumSamples() >= bar && pm.getNumSamples() < bar + 44100 * 2, "pattern export: one pass plus tail (" + juce::String (pm.getNumSamples()) + ")");
+            check (okPat && std::abs (pm.getSample (0, bar / 2) - 0.25f * 0.70711f) < 1.0e-3f, "pattern export: renders only the chosen pattern");
+            juce::AudioBuffer<float> pm2;
+            const bool okPat2 = Exporter::renderPatternBuffer (p5, 1, 2, pm2, perr, false);
+            check (okPat2 && pm2.getNumSamples() >= 2 * bar && std::abs (pm2.getSample (0, bar + bar / 2) - 0.5f * 0.70711f) < 1.0e-3f,
+                   "pattern export: repeats the pattern the requested number of times");
+            juce::AudioBuffer<float> pm3;
+            check (! Exporter::renderPatternBuffer (p5, 99, 1, pm3, perr, false), "pattern export: an unused pattern is rejected");
+        }
         auto buf = std::make_shared<juce::AudioBuffer<float>> (sm);
         p5.setSong (buf);
         p5.stop();
@@ -1434,14 +1447,14 @@ inline juce::String runEngineSelfTest()
     tr.volume = 1.0f;
     auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("rc_selftest_export.wav");
     juce::String err;
-    check (Exporter::bounceWav (*eng, tmp, 2, err), "bounceWav succeeds " + err);
+    check (Exporter::bounceWav (*eng, tmp, Exporter::Source::Live, -1, 2, err), "bounceWav succeeds " + err);
     check (tmp.getSize() > 2 * loopLen * 2 * 3, "exported WAV has 2 loops of 24-bit stereo (" + juce::String (tmp.getSize()) + " bytes)");
     tmp.deleteFile();
     if (Exporter::mp3Available)
     {
         auto mp3 = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("rc_selftest_export.mp3");
         juce::String e2;
-        check (Exporter::bounceMp3 (*eng, mp3, 2, 192, e2), "bounceMp3 succeeds " + e2);
+        check (Exporter::bounceMp3 (*eng, mp3, Exporter::Source::Live, -1, 2, 192, e2), "bounceMp3 succeeds " + e2);
         juce::MemoryBlock mb; mp3.loadFileAsData (mb);
         const auto* b = (const unsigned char*) mb.getData();
         const bool sync = mb.getSize() > 4 && ((b[0] == 0xFF && (b[1] & 0xE0) == 0xE0) || (b[0] == 'I' && b[1] == 'D' && b[2] == '3'));
@@ -1890,7 +1903,7 @@ inline juce::String runEngineSelfTest()
         ex.drums.steps[DrumMachine::Kick][0] = 2;
         auto wav = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("rc_selftest_drums.wav");
         juce::String derr;
-        check (Exporter::bounceWav (ex, wav, 1, derr), "export works with drums only " + derr);
+        check (Exporter::bounceWav (ex, wav, Exporter::Source::Live, -1, 1, derr), "export works with drums only " + derr);
         check (wav.getSize() > 96000 * 2 * 3, "exported drum loop has the expected length");
         wav.deleteFile();
     }
@@ -2221,7 +2234,7 @@ inline juce::String runEngineSelfTest()
         bx.bass.volume = 1.0f;
         bx.bass.steps[0] = BassMachine::pack (0, 4, false, false);
         auto bwav = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("rc_selftest_bass.wav");
-        check (Exporter::bounceWav (bx, bwav, 1, berr), "export works with bass only " + berr);
+        check (Exporter::bounceWav (bx, bwav, Exporter::Source::Live, -1, 1, berr), "export works with bass only " + berr);
         bwav.deleteFile();
 
         // bass insert effects: echo repeats the note after the dry note has ended, reverb adds a tail

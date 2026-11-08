@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "audio/AudioEngine.h"
+#include "project/Exporter.h"
 #include "ui/ThemeEditor.h"
 #include "audio/SilenceTrim.h"
 #include "audio/MidiPedal.h"
@@ -92,9 +93,9 @@ private:
     };
     TrackSnap captureTrack (int slot);
     int restoreTrack (const TrackSnap&);
-    void exportMenu();
+    void exportDialog();
     void fileMenu();
-    void doExport (const juce::File&, int kind, int loops);
+    void doExport (const juce::File&, int kind, int loops, Exporter::Source source, int pattern);
     void saveLatencyAdjust();
     void setBpm (double v);
     void updateSettingsFromEngine();

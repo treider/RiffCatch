@@ -113,6 +113,31 @@ bool renderSongBuffer (AudioEngine& e, juce::AudioBuffer<float>& mix, juce::Stri
     if (applyMaster) mix.applyGain (e.masterVolume.load());
     return true;
 }
+
+bool renderPatternBuffer (AudioEngine& e, int pattern, int repeats, juce::AudioBuffer<float>& mix, juce::String& error, bool applyMaster)
+{
+    auto& bank = e.patterns;
+    bank.storeCurrent (e);                        // the open pattern is as it is on screen
+    if (pattern < 0 || pattern >= PatternBank::maxPatterns || ! bank.isUsed (pattern))
+    {
+        error = "That pattern is empty.";
+        return false;
+    }
+    const double sr = e.getSampleRate();
+    const juce::int64 barLen = e.getBarLength();
+    const auto& p = bank.pats[(size_t) pattern];
+    const juce::int64 loopLen = juce::jmax<juce::int64> (1, (juce::int64) p.loopBars * barLen);
+    const int reps = juce::jlimit (1, 64, repeats);
+    const juce::int64 total = loopLen * reps;
+    if (total > (juce::int64) sr * 3600) { error = "Export too long."; return false; }
+    const juce::int64 tail = (juce::int64) (sr * 1.5);
+    mix.setSize (2, (int) (total + tail));
+    mix.clear();
+    mixPattern (e, bank, p, loopLen, reps, mix);
+    if (applyMaster) mix.applyGain (e.masterVolume.load());
+    return true;
+}
+
 static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix, juce::String& error)
 {
     if (e.patterns.songMode && ! e.patterns.song.empty()) return renderSongBuffer (e, mix, error, true);     // song mode: export the whole song
@@ -202,12 +227,15 @@ static bool renderMix (AudioEngine& e, int loops, juce::AudioBuffer<float>& mix,
     return true;
 }
 
-bool bounceWav (AudioEngine& e, const juce::File& file, int loops, juce::String& error)
+static bool render (AudioEngine& e, Source source, int pattern, int loops, juce::AudioBuffer<float>& mix, juce::String& error)
 {
-    juce::AudioBuffer<float> mix;
-    if (! renderMix (e, loops, mix, error)) return false;
-    const double sr = e.getSampleRate();
+    if (source == Source::Song) return renderSongBuffer (e, mix, error, true);
+    if (source == Source::Pattern) return renderPatternBuffer (e, pattern, loops, mix, error, true);
+    return renderMix (e, loops, mix, error);
+}
 
+static bool writeWav (const juce::File& file, const juce::AudioBuffer<float>& mix, double sr, juce::String& error)
+{
     file.deleteFile();
     std::unique_ptr<juce::FileOutputStream> os (file.createOutputStream());
     if (os == nullptr) { error = "Could not write " + file.getFullPathName(); return false; }
@@ -219,18 +247,15 @@ bool bounceWav (AudioEngine& e, const juce::File& file, int loops, juce::String&
     return true;
 }
 
-bool bounceMp3 (AudioEngine& e, const juce::File& file, int loops, int kbps, juce::String& error)
+static bool writeMp3 (const juce::File& file, juce::AudioBuffer<float>& mix, double sr, int kbps, juce::String& error)
 {
 #if RC_MP3
-    juce::AudioBuffer<float> mix;
-    if (! renderMix (e, loops, mix, error)) return false;
-
     for (int c = 0; c < 2; ++c)   // LAME expects +-1.0 floats; avoid overs
         juce::FloatVectorOperations::clip (mix.getWritePointer (c), mix.getReadPointer (c), -1.0f, 1.0f, mix.getNumSamples());
 
     lame_t gf = lame_init();
     if (gf == nullptr) { error = "LAME init failed"; return false; }
-    lame_set_in_samplerate (gf, (int) std::lround (e.getSampleRate()));
+    lame_set_in_samplerate (gf, (int) std::lround (sr));
     lame_set_num_channels (gf, 2);
     lame_set_mode (gf, JOINT_STEREO);
     lame_set_brate (gf, kbps);
@@ -262,9 +287,23 @@ bool bounceMp3 (AudioEngine& e, const juce::File& file, int loops, int kbps, juc
     if (! ok && error.isEmpty()) error = "Write failed";
     return ok;
 #else
-    juce::ignoreUnused (e, file, loops, kbps);
+    juce::ignoreUnused (file, mix, sr, kbps);
     error = "This build was made without LAME (MP3 support).";
     return false;
 #endif
+}
+
+bool bounceWav (AudioEngine& e, const juce::File& file, Source source, int pattern, int loops, juce::String& error)
+{
+    juce::AudioBuffer<float> mix;
+    if (! render (e, source, pattern, loops, mix, error)) return false;
+    return writeWav (file, mix, e.getSampleRate(), error);
+}
+
+bool bounceMp3 (AudioEngine& e, const juce::File& file, Source source, int pattern, int loops, int kbps, juce::String& error)
+{
+    juce::AudioBuffer<float> mix;
+    if (! render (e, source, pattern, loops, mix, error)) return false;
+    return writeMp3 (file, mix, e.getSampleRate(), kbps, error);
 }
 }

@@ -569,7 +569,7 @@ void MainComponent::fileMenu()
             case 2: openProject(); break;
             case 3: saveProject (false); break;
             case 4: saveProject (true); break;
-            case 5: exportMenu(); break;
+            case 5: exportDialog(); break;
             case 6: showAudioSettings(); break;
             case 7: importAudio(); break;
             case 9: chooseWorkDir(); break;
@@ -605,57 +605,101 @@ void MainComponent::fileMenu()
     });
 }
 
-// Menu item id = kind * 100 + loops. kind: 1 = WAV, 2..4 = MP3 192/256/320 kbps
-void MainComponent::exportMenu()
+// The export dialog: choose the whole song, one pattern (with its repeat count)
+// or the live mix, then the format. The file chooser follows from there.
+void MainComponent::exportDialog()
 {
-    const bool looping = engine.loopEnabled.load();
-    auto addFormat = [&] (juce::PopupMenu& m, int kind, const juce::String& title)
-    {
-        if (looping)
-        {
-            juce::PopupMenu sub;
-            for (int loops : { 1, 2, 4, 8 })
-                sub.addItem (kind * 100 + loops, juce::String (loops) + (loops == 1 ? " loop" : " loops"));
-            m.addSubMenu (title, sub);
-        }
-        else
-            m.addItem (kind * 100 + 1, title + " (full length)");
-    };
+    auto& bank = engine.patterns;
+    struct Target { Exporter::Source source; int pattern; juce::String label; };
+    std::vector<Target> targets;
+    if (! bank.song.empty())
+        targets.push_back ({ Exporter::Source::Song, -1,
+                             "Whole song (" + juce::String ((int) bank.song.size())
+                                 + (bank.song.size() == 1 ? " block)" : " blocks)") });
+    for (int i = 0; i < PatternBank::maxPatterns; ++i)
+        if (bank.isUsed (i))
+            targets.push_back ({ Exporter::Source::Pattern, i,
+                                 "Pattern " + juce::String (i + 1) + " - " + bank.pats[(size_t) i].name });
+    if (! (bank.songMode && ! bank.song.empty()))      // in song mode the song already is the live mix
+        targets.push_back ({ Exporter::Source::Live, -1, "Live mix (tracks + drums/bass)" });
 
-    juce::PopupMenu m;
-    addFormat (m, 1, "WAV 24-bit");
-    if (Exporter::mp3Available)
+    juce::StringArray targetNames;
+    for (auto& t : targets) targetNames.add (t.label);
+    juce::StringArray formats { "WAV 24-bit" };
+    if (Exporter::mp3Available) { formats.add ("MP3 192 kbps"); formats.add ("MP3 256 kbps"); formats.add ("MP3 320 kbps"); }
+
+    auto* aw = new juce::AlertWindow ("Export", "Choose what to export, then the format.", juce::MessageBoxIconType::NoIcon);
+    aw->addComboBox ("target", targetNames, "What");
+    aw->addComboBox ("repeats", { "1 loop", "2 loops", "4 loops", "8 loops" }, "Repeats");
+    aw->addComboBox ("format", formats, "Format");
+    aw->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    aw->addButton ("Export...", 1, juce::KeyPress (juce::KeyPress::returnKey));
+
+    // Repeats only apply to one pattern (or to a looping live mix); a whole song already has its own order.
+    auto* targetBox = aw->getComboBoxComponent ("target");
+    auto* repeatBox = aw->getComboBoxComponent ("repeats");
+    juce::Component::SafePointer<MainComponent> self (this);
+    auto updateRepeats = [self, targetBox, repeatBox, targets]
     {
-        m.addSeparator();
-        addFormat (m, 2, "MP3 192 kbps");
-        addFormat (m, 3, "MP3 256 kbps");
-        addFormat (m, 4, "MP3 320 kbps");
-    }
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileBtn), [this] (int id)
+        const int idx = targetBox->getSelectedItemIndex();
+        bool on = false;
+        if (idx >= 0 && idx < (int) targets.size())
+        {
+            const auto src = targets[(size_t) idx].source;
+            on = src == Exporter::Source::Pattern
+                 || (src == Exporter::Source::Live && self != nullptr && self->engine.loopEnabled.load());
+        }
+        repeatBox->setEnabled (on);
+        if (! on) repeatBox->setSelectedItemIndex (0, juce::dontSendNotification);
+    };
+    targetBox->onChange = updateRepeats;
+    updateRepeats();
+
+    juce::Component::SafePointer<juce::AlertWindow> safeAw (aw);
+    aw->enterModalState (true, juce::ModalCallbackFunction::create ([self, safeAw, targets] (int result)
     {
-        if (id <= 0) return;
-        const int kind = id / 100, loops = id % 100;
+        if (result != 1 || safeAw == nullptr || self == nullptr) return;
+        auto* tb = safeAw->getComboBoxComponent ("target");
+        auto* rb = safeAw->getComboBoxComponent ("repeats");
+        auto* fb = safeAw->getComboBoxComponent ("format");
+        if (tb == nullptr || rb == nullptr || fb == nullptr) return;
+        const int ti = tb->getSelectedItemIndex();
+        if (ti < 0 || ti >= (int) targets.size()) return;
+        const auto target = targets[(size_t) ti];
+        const int kind = juce::jlimit (1, 4, fb->getSelectedId());
+        const int loops = 1 << juce::jlimit (0, 3, rb->getSelectedId() - 1);
         const bool mp3 = kind > 1;
         const juce::String ext = mp3 ? "mp3" : "wav";
-        const auto base = projectFile == juce::File() ? juce::String ("RiffCatch") : projectFile.getFileNameWithoutExtension();
-        chooser = std::make_unique<juce::FileChooser> (mp3 ? "Export MP3" : "Export WAV",
-            workDir().getChildFile (base + "." + ext), "*." + ext);
-        chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+
+        auto& b = self->engine.patterns;
+        juce::String suffix;
+        if (target.source == Exporter::Source::Pattern)
+            suffix = " - " + b.pats[(size_t) target.pattern].name;
+        else if (target.source == Exporter::Source::Song)
+            suffix = " - song";
+        const auto base = self->projectFile == juce::File() ? juce::String ("RiffCatch")
+                                                           : self->projectFile.getFileNameWithoutExtension();
+        const auto suggested = juce::File::createLegalFileName (base + suffix) + "." + ext;
+
+        self->chooser = std::make_unique<juce::FileChooser> (mp3 ? "Export MP3" : "Export WAV",
+            self->workDir().getChildFile (suggested), "*." + ext);
+        self->chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                                   | juce::FileBrowserComponent::warnAboutOverwriting,
-                              [this, kind, loops, ext] (const juce::FileChooser& fc)
+                              [self, kind, loops, target, ext] (const juce::FileChooser& fc)
                               {
                                   auto f = fc.getResult();
-                                  if (f != juce::File()) doExport (f.withFileExtension (ext), kind, loops);
+                                  if (f != juce::File() && self != nullptr)
+                                      self->doExport (f.withFileExtension (ext), kind, loops, target.source, target.pattern);
                               });
-    });
+    }), true);
 }
 
-void MainComponent::doExport (const juce::File& f, int kind, int loops)
+void MainComponent::doExport (const juce::File& f, int kind, int loops, Exporter::Source source, int pattern)
 {
     juce::String err;
     const int kbps = kind == 2 ? 192 : kind == 3 ? 256 : 320;
-    const bool ok = kind == 1 ? Exporter::bounceWav (engine, f, loops, err)
-                              : Exporter::bounceMp3 (engine, f, loops, kbps, err);
+    const bool ok = kind == 1 ? Exporter::bounceWav (engine, f, source, pattern, loops, err)
+                              : Exporter::bounceMp3 (engine, f, source, pattern, loops, kbps, err);
     if (ok) setStatus ("Exported " + f.getFullPathName());
     else juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export failed", err);
 }

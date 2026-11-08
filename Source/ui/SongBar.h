@@ -82,6 +82,7 @@ public:
         if (h >= 0 && h != plusHover)
         {
             dragging = -1; dropAt = -1; pressed = h;
+            copyDrag = e.mods.isCtrlDown();
             grabDX = e.x - blocks()[(size_t) h].getX();
         }
         else pressed = -1;
@@ -91,6 +92,7 @@ public:
     {
         if (pressed < 0 || e.mods.isPopupMenu() || e.getDistanceFromDragStart() < 6) return;
         dragging = pressed;
+        copyDrag = e.mods.isCtrlDown();          // Ctrl turns the move into a duplicate
         dragPos = e.getPosition();
         dropAt = dropIndexFor (e.x);
         setMouseCursor (juce::MouseCursor::DraggingHandCursor);
@@ -103,7 +105,7 @@ public:
         if (dragging >= 0)                       // finish a rearrange: commit the move once
         {
             applyDrop();
-            dragging = -1; dropAt = -1; pressed = -1;
+            dragging = -1; dropAt = -1; pressed = -1; copyDrag = false;
             setMouseCursor (juce::MouseCursor::NormalCursor);
             changed(); repaint();
             return;
@@ -139,6 +141,7 @@ private:
     AudioEngine& engine;
     int hover = -1, pressed = -1, dragging = -1;
     int dropAt = -1, grabDX = 0;
+    bool copyDrag = false;                 // Ctrl held: the drag duplicates instead of moving
     juce::Point<int> dragPos;
     bool closeHover = false;
     juce::int64 playhead = -1;
@@ -205,6 +208,17 @@ private:
         g.fillRoundedRectangle (ghost.translated (2.0f, 3.0f), Theme::radiusLg);
         drawBlock (g, ghost.toNearestInt(), from, true);
 
+        if (copyDrag)                          // a "+" badge marks a duplicate drag
+        {
+            const juce::Rectangle<float> badge (ghost.getX() + 5.0f, ghost.getY() + 5.0f, 14.0f, 14.0f);
+            g.setColour (Theme::deep.withAlpha (0.8f));
+            g.fillEllipse (badge);
+            const auto bc = badge.getCentre();
+            g.setColour (Theme::text);
+            g.drawLine (bc.x - 3.5f, bc.y, bc.x + 3.5f, bc.y, 1.4f);
+            g.drawLine (bc.x, bc.y - 3.5f, bc.x, bc.y + 3.5f, 1.4f);
+        }
+
         if (engine.patterns.song.size() < 256)
             drawPlus (g, { juce::jmin (x, getWidth() - plusW - 6), 6, plusW, getHeight() - 12 });
     }
@@ -224,7 +238,16 @@ private:
     {
         auto& song = engine.patterns.song;
         if (dragging < 0 || dragging >= (int) song.size()) return;
-        const int to = juce::jlimit (0, (int) song.size() - 1, dropAt < 0 ? dragging : dropAt);
+        const int drop = juce::jlimit (0, (int) song.size(), dropAt < 0 ? dragging : dropAt);
+        if (copyDrag)                       // Ctrl: keep the block and insert a copy at the drop slot
+        {
+            if (song.size() >= 256) return;
+            const int pos = juce::jlimit (0, (int) song.size(), drop <= dragging ? drop : drop + 1);
+            const auto copy = song[(size_t) dragging];
+            song.insert (song.begin() + pos, copy);
+            return;
+        }
+        const int to = juce::jlimit (0, (int) song.size() - 1, drop);
         if (to == dragging) return;
         const auto moved = song[(size_t) dragging];
         song.erase (song.begin() + dragging);

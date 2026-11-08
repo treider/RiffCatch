@@ -580,7 +580,7 @@ namespace Theme
         g.setColour (hot ? raised.brighter (0.18f) : raised.darker (0.06f));
         g.fillRoundedRectangle (r, radiusLg);
         const auto c = r.getCentre();
-        const float s = juce::jmin (r.getWidth(), r.getHeight()) * 0.28f;
+        const float s = juce::jmin (r.getWidth(), r.getHeight()) * 0.21f;   // v0.98: 25% smaller glyph
         g.setColour (hot ? text : text.withAlpha (0.72f));
         g.drawLine (c.x - s, c.y, c.x + s, c.y, 1.6f);
         g.drawLine (c.x, c.y - s, c.x, c.y + s, 1.6f);

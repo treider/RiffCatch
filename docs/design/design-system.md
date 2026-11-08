@@ -555,4 +555,22 @@ dialogs, wheel repeats, menus and the tab rail are unchanged apart from the new
 close and plus visuals. No DSP, undo, shortcut, default or project/settings
 schema changes.
 
+### v0.98 smaller plus glyphs, Ctrl-drag duplicate and an export dialog
+
+The flat "+" glyph in the pattern rail and the song row is 25% smaller
+(`Theme::flatPlusTile`); the tile and hit area stay 34/36 px. In song mode a
+Ctrl-drag lifts a copy instead of the block: the same dashed accent slot marks
+the landing position, the floating ghost carries a "+" badge, and the order is
+committed on release with the original block left in place. A normal drag still
+moves the block.
+
+File > Export... now opens a dialog with three choices: the whole song (its
+block count), one used pattern with a 1/2/4/8-loop repeat count, or the live mix
+(tracks + drums/bass). Repeats are disabled for a whole song. The format list is
+unchanged (WAV 24-bit, MP3 192/256/320 when available), and the file chooser
+suggests a name with the target appended. `Exporter::Source` keeps the old live
+mix path intact; `renderPatternBuffer` renders one pattern plus the same 1.5 s
+tail as the song render. No DSP, transport, shortcut or project/settings schema
+changes.
+
 Completion requires the [visual checklist](visual-checklist.md), a successful build/selftest for code changes, actual screenshot comparison and user testing. Missing visual evidence means incomplete verification. Commit and push remain separate user-approved steps.
