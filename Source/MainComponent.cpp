@@ -987,7 +987,6 @@ void MainComponent::applyTheme (int index)
 
 void MainComponent::refreshTheme()
 {
-    backgroundWash = {};
     if (auto* laf = dynamic_cast<RiffLookAndFeel*> (&getLookAndFeel())) laf->applyColours();
     if (auto* top = getTopLevelComponent()) top->sendLookAndFeelChange(); else sendLookAndFeelChange();
     if (auto* peer = getPeer()) applyDarkTitleBar (peer, Theme::bg, Theme::text);
@@ -1292,67 +1291,9 @@ void MainComponent::analyzeTrack (int slot)
     juce::CallOutBox::launchAsynchronously (std::unique_ptr<juce::Component> (card), rows[slot] != nullptr ? rows[slot]->getScreenBounds() : getScreenBounds(), nullptr);
 }
 
-// A soft diagonal ribbon behind the panels. Built at quarter resolution, then
-// cached until the size or theme changes.
-void MainComponent::ensureBackgroundWash()
-{
-    const int w = getWidth(), h = getHeight();
-    if (w <= 0 || h <= 0) return;
-
-    const int cw = juce::jmax (1, w / 4), ch = juce::jmax (1, h / 4);
-
-    if (backgroundWash.isValid() && backgroundWash.getWidth() == cw
-        && backgroundWash.getHeight() == ch && backgroundWashTheme == Theme::current)
-        return;
-
-    backgroundWash = juce::Image (juce::Image::ARGB, cw, ch, true);
-    backgroundWashTheme = Theme::current;
-
-    const float iw = (float) cw, ih = (float) ch;
-    const bool light = Theme::bg.getPerceivedBrightness() > 0.5f;
-    const float wash = light ? 0.6f : 1.0f;
-    juce::Graphics g (backgroundWash);
-
-    // A band across the window: one linear gradient perpendicular to the band, so
-    // the colour changes from primary to secondary over its width and fades out at
-    // both edges.
-    auto band = [&] (float cx, float cy, float halfWidth, float angle,
-                     juce::Colour c1, float a1, juce::Colour c2, float a2)
-    {
-        const float nx = -std::sin (angle), ny = std::cos (angle);
-        const float x1 = cx * iw - nx * halfWidth * ih, y1 = cy * ih - ny * halfWidth * ih;
-        const float x2 = cx * iw + nx * halfWidth * ih, y2 = cy * ih + ny * halfWidth * ih;
-        juce::ColourGradient grad (c1.withAlpha (0.0f), x1, y1, c2.withAlpha (0.0f), x2, y2, false);
-        grad.addColour (0.22, c1.withAlpha (a1));
-        grad.addColour (0.78, c2.withAlpha (a2));
-        g.setGradientFill (grad);
-        g.fillRect (0.0f, 0.0f, iw, ih);
-    };
-
-    // The ribbon itself, with a faint light ray above it.
-    band (0.52f, 0.56f, 0.24f, -0.30f, Theme::blue, 0.075f * wash, Theme::purple, 0.060f * wash);
-    band (0.44f, 0.44f, 0.09f, -0.30f, Theme::text, 0.030f, Theme::text, 0.030f);
-
-    // Vignette keeps the panels and the text in front.
-    {
-        juce::ColourGradient vig (juce::Colours::transparentBlack, iw * 0.5f, ih * 0.5f,
-                                  juce::Colours::black.withAlpha (light ? 0.05f : 0.24f),
-                                  iw * 0.5f, ih * 1.18f, true);
-        vig.addColour (0.55, juce::Colours::transparentBlack);
-        g.setGradientFill (vig);
-        g.fillRect (0.0f, 0.0f, iw, ih);
-    }
-}
-
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::bg);
-    ensureBackgroundWash();
-    if (backgroundWash.isValid())
-    {
-        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
-        g.drawImage (backgroundWash, getLocalBounds().toFloat());
-    }
     Theme::cardShadow (g, barArea.getUnion (settingsArea).toFloat());
     Theme::cardShadow (g, (seqTab == 1 ? bassPanel.getBounds() : drumPanel.getBounds()).toFloat());
     Theme::cardShadow (g, mixer.enclosureBounds().translated ((float) mixer.getX(), (float) mixer.getY()));
@@ -1371,7 +1312,6 @@ void MainComponent::paint (juce::Graphics& g)
 
 void MainComponent::resized()
 {
-    backgroundWash = {};
     auto r = getLocalBounds().reduced (12);
     barArea = r.removeFromTop (56);
     auto bar = barArea.reduced (12, 8);

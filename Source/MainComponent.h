@@ -63,9 +63,6 @@ private:
     void setStatus (const juce::String&, int ticks = 90);
     void lookAndFeelChanged() override;
     void restyle();
-    void ensureBackgroundWash();
-    juce::Image backgroundWash;
-    int backgroundWashTheme = -1;
     void applyTheme (int index);
     void refreshTheme();
     void updateNotesButton();
