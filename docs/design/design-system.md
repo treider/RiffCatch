@@ -573,4 +573,13 @@ mix path intact; `renderPatternBuffer` renders one pattern plus the same 1.5 s
 tail as the song render. No DSP, transport, shortcut or project/settings schema
 changes.
 
+### v0.99 no rail background and square plus tiles
+
+The faint panel block behind the pattern rail is gone: the tabs and the "+"
+tile now sit directly on the window background, so the row no longer reads as a
+grey strip that ends in a hard edge. The pattern "+" is a small square whose
+width equals its height (one tab tall, `getHeight() - 3`), and the song "+" tile
+narrows from 36 to 26 px to match. Tab widths, hit areas, the flat pill material
+and the flat glyph stay unchanged.
+
 Completion requires the [visual checklist](visual-checklist.md), a successful build/selftest for code changes, actual screenshot comparison and user testing. Missing visual evidence means incomplete verification. Commit and push remain separate user-approved steps.

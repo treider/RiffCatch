@@ -137,7 +137,7 @@ public:
     }
 
 private:
-    static constexpr int plusW = 36, gap = 4, minBlockW = 34, plusHover = 1000;
+    static constexpr int plusW = 26, gap = 4, minBlockW = 34, plusHover = 1000;
     AudioEngine& engine;
     int hover = -1, pressed = -1, dragging = -1;
     int dropAt = -1, grabDX = 0;

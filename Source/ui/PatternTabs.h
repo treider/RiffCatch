@@ -24,23 +24,6 @@ public:
         const auto& bank = engine.patterns;
         const int used = bank.numUsed();
         const bool plus = used < PatternBank::maxPatterns;
-        const int slots = used + (plus ? 1 : 0);
-
-        // The rail hugs its tabs and ends in a rounded cap, so it no longer runs
-        // as an empty strip into the Song button with hard 90-degree corners.
-        const float barW = slots > 0 ? (float) juce::jmin (getWidth(), tabRect (slots - 1).getRight()) : 0.0f;
-        if (barW > 0.0f)
-        {
-            juce::Path bar;
-            bar.addRoundedRectangle (0.0f, 0.0f, barW, (float) getHeight(),
-                                     Theme::radiusLg, Theme::radiusLg, false, false, true, true);
-            juce::Graphics::ScopedSaveState barState (g);
-            g.reduceClipRegion (bar);
-            g.setColour (Theme::panel.darker (0.30f));
-            g.fillRect (getLocalBounds());
-            g.setColour (Theme::panel.darker (0.45f));
-            g.fillRect (0, getHeight() - 3, (int) std::ceil (barW), 3);
-        }
 
         int pos = 0;
         for (int i = 0; i < PatternBank::maxPatterns; ++i)
@@ -128,7 +111,8 @@ private:
     {
         const int w = tabWidth();
         const bool plus = pos >= engine.patterns.numUsed();
-        return { pos * (w + 3), 0, plus ? 34 : w, getHeight() - 3 };
+        const int side = getHeight() - 3;              // the "+" is a small square, the same height as a tab
+        return { pos * (w + 3), 0, plus ? side : w, side };
     }
     // pattern index, -2 for "+", -1 for nothing
     int hit (int x) const
