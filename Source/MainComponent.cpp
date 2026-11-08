@@ -1005,7 +1005,7 @@ void MainComponent::restyle()
     clickBtn.setColour (juce::TextButton::buttonOnColourId, Theme::accent);
     clickBtn.setColour (juce::TextButton::textColourOnId, Theme::onAccent);
     clickVol.setColour (juce::Slider::trackColourId, Theme::accent);
-    recBtn.setIconColour (Theme::red);
+    recBtn.setIconColour (Theme::recordRed);
     playBtn.setIconColour (Theme::green);
     stopBtn.setIconColour (Theme::text);
     skipStartBtn.setIconColour (Theme::text);

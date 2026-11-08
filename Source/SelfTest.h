@@ -578,10 +578,10 @@ inline void bassControlSelfTest (const std::function<void (bool, const juce::Str
         for (auto* c : panel.getChildren())
             if (auto* b = dynamic_cast<juce::TextButton*> (c))
                 if (b->getButtonText() == (state == 0 ? "Rec" : state == 1 ? "Wait" : "REC"))
-                    found = b->getToggleState() == (state != 0) && b->findColour (juce::TextButton::buttonOnColourId) == Theme::red;
+                    found = b->getToggleState() == (state != 0) && b->findColour (juce::TextButton::buttonOnColourId) == Theme::recordRed;
         liveOK &= found;
     }
-    check (liveOK, "bass controls: Rec/Wait/REC retain toggle and record-red semantics");
+    check (liveOK, "bass controls: Rec/Wait/REC retain toggle and fixed record-red semantics");
     panel.setLiveState (0);
 
     const Theme::Preset saved { "live", Theme::blue.getARGB(), Theme::purple.getARGB(), Theme::cyan.getARGB(),
@@ -2349,7 +2349,8 @@ inline juce::String runEngineSelfTest()
             return Theme::blue.getARGB() == p.primary && Theme::accent.getARGB() == p.primary
                 && Theme::purple.getARGB() == p.secondary && Theme::cyan.getARGB() == p.accent
                 && Theme::bg.getARGB() == p.background && Theme::panel.getARGB() == p.surface && Theme::text.getARGB() == p.text
-                && Theme::red.getARGB() == 0xfff7768e && Theme::green.getARGB() == 0xff9ece6a;
+                && Theme::red.getARGB() == 0xfff7768e && Theme::recordRed.getARGB() == 0xffbe123c
+                && Theme::green.getARGB() == 0xff9ece6a;
         };
         check (ThemeStore::save (fixture), "custom theme saved to disk");
         ThemeStore::reload();

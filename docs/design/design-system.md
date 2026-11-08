@@ -582,4 +582,13 @@ width equals its height (one tab tall, `getHeight() - 3`), and the song "+" tile
 narrows from 36 to 26 px to match. Tab widths, hit areas, the flat pill material
 and the flat glyph stay unchanged.
 
+### v0.100 one fixed record red for arm and record
+
+Record and arm controls now use `Theme::recordRed` (0xffbe123c, the red the
+loop button has in the Rose theme) in every theme: the transport record button,
+the track arm button and armed card rim, the live recording clip, and the Bass
+Rec/Wait/REC button. The old `Theme::red` (0xfff7768e) stays for drum lane 1,
+punch and other non-arm accents, so unrelated controls are unchanged. The colour
+is fixed like the other semantic colours and does not follow the theme.
+
 Completion requires the [visual checklist](visual-checklist.md), a successful build/selftest for code changes, actual screenshot comparison and user testing. Missing visual evidence means incomplete verification. Commit and push remain separate user-approved steps.

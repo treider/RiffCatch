@@ -6,6 +6,7 @@
 
 // Colour themes: six roles (Primary, Secondary, Accent, Background, Surface, Text) are mapped onto the app palette.
 // Red (record), yellow/orange (warnings, info) and green are fixed and never follow the theme.
+// Record/arm controls use the stronger fixed recordRed (the Rose loop red) in every theme.
 namespace Theme
 {
     inline juce::Colour bg     { 0xff1a1b26 };
@@ -25,6 +26,7 @@ namespace Theme
     inline const juce::Colour yellow { 0xffe0af68 };
     inline const juce::Colour orange { 0xffff9e64 };
     inline const juce::Colour red    { 0xfff7768e };
+    inline const juce::Colour recordRed { 0xffbe123c };   // Rose loop red: fixed arm/record red, never follows the theme
     inline const juce::Colour teal   { 0xff73daca };
     // VU meters keep the Tokyo Night lilac/blue pair in every theme.
     inline juce::Colour meterFill() { return juce::Colour (0xffbb9af7); }
@@ -157,7 +159,7 @@ namespace Theme
     }
 
     // Track cards only: a localized rim in the live track colour, and a raised
-    // nameplate. Armed cards pass Theme::red, so the red state is preserved.
+    // nameplate. Armed cards pass Theme::recordRed, so the red state is preserved.
     inline juce::Colour trackRimLight (juce::Colour family) { return family.interpolatedWith (juce::Colours::white, 0.22f); }
     inline juce::Colour trackRimShade() { return deep.darker (0.55f); }
     inline juce::Colour trackPlateHigh (juce::Colour family) { return family.interpolatedWith (juce::Colours::white, 0.18f); }

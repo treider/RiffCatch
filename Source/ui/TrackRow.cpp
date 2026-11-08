@@ -80,7 +80,7 @@ TrackRow::TrackRow (AudioEngine& e, int slot) : engine (e), index (slot), accent
     inMeter.setHorizontal (true);
     addAndMakeVisible (inMeter);
 
-    styleToggle (arm, Theme::red);
+    styleToggle (arm, Theme::recordRed);
     styleFlat (mute, Theme::accent);
     styleFlat (solo, Theme::accent);
     arm.onClick  = [this] { track().armed = arm.getToggleState(); repaint(); if (onArmChanged) onArmChanged(); };
@@ -403,7 +403,7 @@ void TrackRow::paint (juce::Graphics& g)
     juce::Graphics::ScopedSaveState cardState (g);
     const bool armedNow = track().armed.load();
     const bool recNow = track().recActive.load() && engine.getState() == AudioEngine::Recording;
-    const auto glow = (recNow || armedNow) ? Theme::red : accent;      // armed tracks turn red
+    const auto glow = (recNow || armedNow) ? Theme::recordRed : accent;      // armed tracks turn red
     juce::Path card;
     card.addRoundedRectangle (b, Theme::radiusLg);
     g.reduceClipRegion (card);                                          // everything below is clipped to a rounded card
@@ -536,7 +536,7 @@ void TrackRow::paint (juce::Graphics& g)
         auto drawClip = [&] (float dx)
         {
         auto clip = w.withWidth (clipW).translated (dx, 0.0f);
-        const auto col = live ? Theme::red : accent;
+        const auto col = live ? Theme::recordRed : accent;
         g.setColour (col.withMultipliedBrightness (0.92f));
         g.fillRoundedRectangle (clip, Theme::radius - 1.0f);                        // solid clip body
         auto strip = clip.removeFromTop ((float) clipStripH);

@@ -123,7 +123,7 @@ BassPanel::BassPanel (AudioEngine& e) : engine (e)
     addAndMakeVisible (bakeBtn);
     liveBtn.setWantsKeyboardFocus (false);
     liveBtn.setClickingTogglesState (false);
-    liveBtn.setColour (juce::TextButton::buttonOnColourId, Theme::red);
+    liveBtn.setColour (juce::TextButton::buttonOnColourId, Theme::recordRed);
     liveBtn.setTooltip ("Record the bass for one loop pass while you play (turn knobs such as Cutoff): it becomes a new audio track");
     liveBtn.onClick = [this, release] { if (onBakeLive) onBakeLive(); release(); };
     addAndMakeVisible (liveBtn);
@@ -279,7 +279,7 @@ void BassPanel::lookAndFeelChanged()
     if (auto* parent = getParentComponent()) parent->repaint (getBounds().expanded (12));
     volume.setColour (juce::Slider::rotarySliderFillColourId, Theme::bassAccent());
     pageLabel.setColour (juce::Label::textColourId, Theme::dim);
-    liveBtn.setColour (juce::TextButton::buttonOnColourId, Theme::red);
+    liveBtn.setColour (juce::TextButton::buttonOnColourId, Theme::recordRed);
     for (auto* b : { &muteBtn, &soloBtn, (juce::TextButton*) &echoBtn, (juce::TextButton*) &reverbBtn })
     {
         b->setColour (juce::TextButton::buttonColourId, Theme::raised);

@@ -15,7 +15,7 @@ public:
         const bool on = getToggleState();
         getLookAndFeel().drawButtonBackground (g, *this, findColour (on ? buttonOnColourId : buttonColourId), over, down);
         const auto c = getLocalBounds().toFloat().getCentre();
-        g.setColour (on ? Theme::deep : Theme::red);
+        g.setColour (on ? Theme::deep : Theme::recordRed);
         g.fillEllipse (c.x - 5.5f, c.y - 5.5f, 11.0f, 11.0f);
     }
 };

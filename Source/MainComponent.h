@@ -143,7 +143,7 @@ private:
     void switchPattern (int i);
     Ruler ruler { engine };
 
-    IconButton recBtn  { IconButton::Record, Theme::red };
+    IconButton recBtn  { IconButton::Record, Theme::recordRed };
     IconButton playBtn { IconButton::Play,   Theme::green };
     IconButton stopBtn { IconButton::Stop,   Theme::text };
     IconButton skipStartBtn { IconButton::SkipStart, Theme::text }, skipEndBtn { IconButton::SkipEnd, Theme::text };
