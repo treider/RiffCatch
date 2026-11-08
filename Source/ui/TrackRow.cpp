@@ -259,6 +259,7 @@ void TrackRow::refreshFromTrack()
         input.setSelectedId (t.inputCode.load() + 1, juce::dontSendNotification);
     updateDb();
     mn.clear(); mx.clear(); mn2.clear(); mx2.clear(); stereo = false; done = 0; rev = ~0u;
+    updateCache();      // rebuild now, so the immediate repaint below is not blank
     repaint();
 }
 
@@ -361,8 +362,13 @@ void TrackRow::tick()
     auto lvl = [&] (int ch) { return ch >= 0 && ch < 16 ? engine.inputLevel[ch].load() : 0.0f; };
     inMeter.setLevels (lvl (l), lvl (r));
     meter.setLevels (t.peakL.exchange (0.0f), t.peakR.exchange (0.0f));
+    const auto cachedBefore = done;
+    const auto liveBefore = liveDone;
     updateCache();
     updateLive();
+    // A row whose cache was cleared and rebuilt (add/remove track, undo, project
+    // load) must repaint even while the transport is stopped and idle.
+    if (done != cachedBefore || liveDone != liveBefore) repaint (wave);
     {
         const int glowState = (t.armed.load() ? 1 : 0) + ((t.recActive.load() && engine.getState() == AudioEngine::Recording) ? 2 : 0);
         if (glowState != lastGlowState) { lastGlowState = glowState; repaint(); }
