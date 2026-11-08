@@ -2018,12 +2018,21 @@ void MainComponent::setupPatternTabs()
     patternTabs.onDelete = [this] (int i)
     {
         if (i == engine.patterns.current && engine.getState() != AudioEngine::Stopped) { setStatus ("Stop the transport first"); return; }
-        if (engine.patterns.remove (engine, i))
+        auto doDelete = [this, i]
         {
-            undoManager.clearUndoHistory();
-            ++editCounter;
-            syncRows();
-        }
+            if (engine.patterns.remove (engine, i))
+            {
+                undoManager.clearUndoHistory();
+                ++editCounter;
+                syncRows();
+            }
+        };
+        if (! engine.patterns.hasContent (engine, i)) { doDelete(); return; }
+        juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::WarningIcon, "Delete pattern",
+                                            "Delete \"" + engine.patterns.pats[(size_t) i].name
+                                                + "\"? Its clips are removed from the song too.",
+                                            "Delete", "Cancel", this,
+                                            juce::ModalCallbackFunction::create ([doDelete] (int r) { if (r == 1) doDelete(); }));
     };
 }
 

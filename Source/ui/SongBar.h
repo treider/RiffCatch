@@ -52,7 +52,8 @@ public:
             g.setFont (juce::Font (juce::FontOptions (12.5f, juce::Font::bold)));
             auto label = p.name;
             if (c.repeats > 1) label << "  " << juce::String::fromUTF8 ("\xc3\x97") << c.repeats;
-            g.drawText (label, layout[i].reduced (7, 0), juce::Justification::centredLeft, true);
+            g.drawText (label, layout[i].reduced (7, 0).withTrimmedRight (13), juce::Justification::centredLeft, true);
+            drawClose (g, closeRect (layout[i]).toFloat(), hover == (int) i && closeHover);
         }
         if (bank.song.size() < 256)
         {
@@ -82,12 +83,18 @@ public:
         }
     }
 
-    void mouseMove (const juce::MouseEvent& e) override { setHover (hit (e.getPosition())); }
-    void mouseExit (const juce::MouseEvent&) override { setHover (-1); }
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        const int h = hit (e.getPosition());
+        const bool ch = closeBlockAt (e.getPosition()) >= 0;
+        setHover (h, ch);
+    }
+    void mouseExit (const juce::MouseEvent&) override { setHover (-1, false); }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
         if (e.mods.isPopupMenu()) return;
+        if (closeBlockAt (e.getPosition()) >= 0) { pressed = -1; return; }
         const int h = hit (e.getPosition());
         if (h >= 0 && h != plusHover) { dragging = -1; pressed = h; }
         else pressed = -1;
@@ -115,6 +122,16 @@ public:
     void mouseUp (const juce::MouseEvent& e) override
     {
         const int h = hit (e.getPosition());
+        if (! e.mods.isPopupMenu() && dragging < 0)   // a drag must never turn into a delete
+        {
+            const int cb = closeBlockAt (e.getPosition());
+            if (cb >= 0)
+            {
+                dragging = -1; pressed = -1;
+                if (e.mouseWasClicked()) removeBlock (cb);
+                return;
+            }
+        }
         const bool moved = dragging >= 0;
         dragging = -1;
         if (moved) { pressed = -1; changed(); repaint(); return; }
@@ -138,10 +155,40 @@ private:
     static constexpr int plusW = 36, gap = 4, minBlockW = 34, plusHover = 1000;
     AudioEngine& engine;
     int hover = -1, pressed = -1, dragging = -1;
+    bool closeHover = false;
     juce::int64 playhead = -1;
 
     void changed() { if (onChanged) onChanged(); }
-    void setHover (int h) { if (h != hover) { hover = h; repaint(); } }
+    void setHover (int h, bool ch) { if (h != hover || ch != closeHover) { hover = h; closeHover = ch; repaint(); } }
+
+    static juce::Rectangle<int> closeRect (juce::Rectangle<int> block)
+    {
+        return { block.getRight() - 15, block.getY() + 3, 12, 12 };
+    }
+    static void drawClose (juce::Graphics& g, juce::Rectangle<float> r, bool hot)
+    {
+        g.setColour (Theme::deep.withAlpha (hot ? 0.55f : 0.35f));
+        g.fillRoundedRectangle (r.expanded (1.0f), 3.0f);
+        g.setColour (hot ? Theme::red : Theme::red.withAlpha (0.85f));
+        const float in = 3.5f;
+        g.drawLine (r.getX() + in, r.getY() + in, r.getRight() - in, r.getBottom() - in, 1.6f);
+        g.drawLine (r.getRight() - in, r.getY() + in, r.getX() + in, r.getBottom() - in, 1.6f);
+    }
+    int closeBlockAt (juce::Point<int> p) const
+    {
+        const auto b = blocks();
+        for (size_t i = 0; i < b.size(); ++i) if (closeRect (b[i]).contains (p)) return (int) i;
+        return -1;
+    }
+    // removing a block only takes the pattern out of the song, the pattern itself stays
+    void removeBlock (int i)
+    {
+        auto& song = engine.patterns.song;
+        if (i < 0 || i >= (int) song.size()) return;
+        song.erase (song.begin() + i);
+        hover = -1; closeHover = false;
+        changed(); repaint();
+    }
     juce::Rectangle<int> plusRect() const
     {
         const auto b = blocks();

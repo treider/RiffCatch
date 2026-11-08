@@ -58,8 +58,10 @@ public:
             auto tr = r.toNearestInt().withTrimmedTop (3).reduced (8, 0);
             g.setColour (Theme::dim);
             g.drawText (juce::String (i + 1), tr.removeFromLeft (16), juce::Justification::centredLeft);
+            if (canDelete()) tr.removeFromRight (18);          // leave room for the close cross
             g.setColour (on ? Theme::text : (data ? Theme::text.withAlpha (0.8f) : Theme::dim));
             g.drawText (bank.pats[i].name, tr, juce::Justification::centredLeft, true);
+            if (canDelete()) drawClose (g, closeRect (r.toNearestInt()).toFloat(), hover == i && closeHover);
         }
         if (plus)
         {
@@ -76,13 +78,19 @@ public:
         }
     }
 
-    void mouseMove (const juce::MouseEvent& e) override { setHover (hit (e.x)); }
-    void mouseExit (const juce::MouseEvent&) override { setHover (-1); }
+    void mouseMove (const juce::MouseEvent& e) override { updateHover (e.getPosition()); }
+    void mouseExit (const juce::MouseEvent&) override { setHover (-1, false); }
 
     void mouseUp (const juce::MouseEvent& e) override
     {
         const int h = hit (e.x);
         if (h == -1) return;
+        if (! e.mods.isPopupMenu() && h >= 0 && canDelete()
+            && closeRect (rectForPattern (h)).contains (e.getPosition()))
+        {
+            if (e.mouseWasClicked() && onDelete) onDelete (h);
+            return;
+        }
         if (e.mods.isPopupMenu()) { if (h >= 0) showMenu (h); return; }
         if (! e.mouseWasClicked()) return;
         if (h == -2) { if (onAdd) onAdd(); }
@@ -93,6 +101,36 @@ public:
 private:
     AudioEngine& engine;
     int hover = -1;
+    bool closeHover = false;
+
+    bool canDelete() const { return engine.patterns.numUsed() > 1; }
+
+    // the tab rectangle for a pattern index (only valid for a used pattern)
+    juce::Rectangle<int> rectForPattern (int i) const
+    {
+        int pos = 0;
+        for (int k = 0; k < i; ++k) if (engine.patterns.isUsed (k)) ++pos;
+        return tabRect (pos);
+    }
+    static juce::Rectangle<int> closeRect (juce::Rectangle<int> tab)
+    {
+        return { tab.getRight() - 17, tab.getY() + 3, 14, 14 };
+    }
+    static void drawClose (juce::Graphics& g, juce::Rectangle<float> r, bool hot)
+    {
+        if (hot) { g.setColour (Theme::red.withAlpha (0.20f)); g.fillRoundedRectangle (r, 3.0f); }
+        g.setColour (hot ? Theme::red : Theme::red.withAlpha (0.60f));
+        const float in = 4.0f;
+        g.drawLine (r.getX() + in, r.getY() + in, r.getRight() - in, r.getBottom() - in, 1.5f);
+        g.drawLine (r.getRight() - in, r.getY() + in, r.getX() + in, r.getBottom() - in, 1.5f);
+    }
+    void updateHover (juce::Point<int> p)
+    {
+        const int h = hit (p.x);
+        const bool ch = h >= 0 && canDelete() && closeRect (rectForPattern (h)).contains (p);
+        setHover (h, ch);
+    }
+    void setHover (int h, bool ch) { if (h != hover || ch != closeHover) { hover = h; closeHover = ch; repaint(); } }
 
     int tabWidth() const
     {
@@ -155,8 +193,6 @@ private:
         juce::MessageManager::callAsync ([this, ed = std::shared_ptr<juce::TextEditor> (std::move (editor))] { (void) ed; repaint(); });
         if (commit && onRenamed) onRenamed (i, text);
     }
-
-    void setHover (int h) { if (h != hover) { hover = h; repaint(); } }
 
     // a 4 x 4 grid of colour swatches inside the popup menu: the colour itself is the preview
     struct SwatchGrid : juce::PopupMenu::CustomComponent
