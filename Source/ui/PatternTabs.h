@@ -49,32 +49,26 @@ public:
             const auto r = tabRect (pos++).toFloat();
             const bool on = i == bank.current;
             const auto col = Theme::trackColour (bank.pats[i].colour);
-            // Every tab shares one material; only the active tab carries its
-            // pattern colour and the single glint.
-            Theme::tabFace (g, r, on ? col : Theme::dim, on, hover == i);
+            // Flat pill: solid face, colour chip, circle close. No rim or glint.
+            Theme::flatTabFace (g, r, on, hover == i);
 
             const bool data = bank.hasContent (engine, i);
+            auto tr = r.toNearestInt().reduced (8, 0);
+            Theme::tabColourChip (g, tr.removeFromLeft (12).withSizeKeepingCentre (12, 12).toFloat(), col);
+            tr.removeFromLeft (7);
             g.setFont (juce::Font (juce::FontOptions (13.0f, on ? juce::Font::bold : juce::Font::plain)));
-            auto tr = r.toNearestInt().withTrimmedTop (3).reduced (8, 0);
             g.setColour (Theme::dim);
-            g.drawText (juce::String (i + 1), tr.removeFromLeft (16), juce::Justification::centredLeft);
-            if (canDelete()) tr.removeFromRight (18);          // leave room for the close cross
+            g.drawText (juce::String (i + 1), tr.removeFromLeft (14), juce::Justification::centredLeft);
+            tr.removeFromLeft (4);
+            if (canDelete()) tr.removeFromRight (22);          // leave room for the close circle
             g.setColour (on ? Theme::text : (data ? Theme::text.withAlpha (0.8f) : Theme::dim));
             g.drawText (bank.pats[i].name, tr, juce::Justification::centredLeft, true);
-            if (canDelete()) drawClose (g, closeRect (r.toNearestInt()).toFloat(), hover == i && closeHover);
+            if (canDelete()) Theme::circleClose (g, closeRect (r.toNearestInt()).toFloat(), hover == i && closeHover);
         }
         if (plus)
         {
             const auto r = tabRect (pos).toFloat();
-            juce::Path tab;
-            tab.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight(), Theme::radiusLg, Theme::radiusLg, true, true, false, false);
-            // No solid fill and no colour in the outline: the rail shows through
-            // and a grey outline gives the plus the same material as the tabs.
-            g.setColour (hover == -2 ? Theme::text.withAlpha (0.75f) : Theme::dim);
-            g.strokePath (tab, juce::PathStrokeType (1.0f));
-            g.setColour (Theme::accent);
-            g.setFont (juce::Font (juce::FontOptions (16.0f, juce::Font::bold)));
-            g.drawText ("+", r.toNearestInt().withTrimmedTop (2), juce::Justification::centred);
+            Theme::flatPlusTile (g, r, hover == -2);
         }
     }
 
@@ -114,15 +108,8 @@ private:
     }
     static juce::Rectangle<int> closeRect (juce::Rectangle<int> tab)
     {
-        return { tab.getRight() - 17, tab.getY() + 3, 14, 14 };
-    }
-    static void drawClose (juce::Graphics& g, juce::Rectangle<float> r, bool hot)
-    {
-        if (hot) { g.setColour (Theme::red.withAlpha (0.20f)); g.fillRoundedRectangle (r, 3.0f); }
-        g.setColour (hot ? Theme::red : Theme::red.withAlpha (0.60f));
-        const float in = 4.0f;
-        g.drawLine (r.getX() + in, r.getY() + in, r.getRight() - in, r.getBottom() - in, 1.5f);
-        g.drawLine (r.getRight() - in, r.getY() + in, r.getX() + in, r.getBottom() - in, 1.5f);
+        const int d = 16;
+        return { tab.getRight() - 20, tab.getY() + (tab.getHeight() - d) / 2, d, d };
     }
     void updateHover (juce::Point<int> p)
     {
@@ -180,7 +167,7 @@ private:
         editor->onEscapeKey = [this] { finishRename (false); };
         editor->onFocusLost = [this] { finishRename (true); };
         addAndMakeVisible (*editor);
-        editor->setBounds (r.withTrimmedLeft (22).reduced (2, 4));
+        editor->setBounds (r.withTrimmedLeft (30).withTrimmedRight (22).reduced (0, 4));
         editor->grabKeyboardFocus();
         editor->selectAll();
     }

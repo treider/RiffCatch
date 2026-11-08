@@ -545,9 +545,50 @@ namespace Theme
         g.fillRect (r.getX() + 4.0f, r.getY() + 1.5f, r.getWidth() - 8.0f, 6.0f);
     }
 
-    // Shared tab material for the pattern rail and the Drums/Bass tabs: one
-    // flat face and dark contact band for every tab, a crisp rim in the tab's
-    // colour (grey when inactive) and one localized glint on the active tab only.
+    // v0.97: pattern-rail / song-block material. A plain browser-style pill:
+    // one solid face, no rim, gradient or glint. The pattern colour lives in a
+    // small chip (like the reference logo square); the close glyph is an x in
+    // a filled circle and the "+" tile is flat with no outline.
+    inline void flatTabFace (juce::Graphics& g, juce::Rectangle<float> r, bool active, bool hovered)
+    {
+        if (r.isEmpty()) return;
+        auto fill = active ? raised.brighter (0.10f) : raised.darker (0.16f);
+        if (hovered) fill = fill.brighter (0.08f);
+        g.setColour (fill);
+        g.fillRoundedRectangle (r, radiusLg);
+    }
+    inline void tabColourChip (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour col)
+    {
+        g.setColour (col);
+        g.fillRoundedRectangle (r, 2.5f);
+    }
+    inline void circleClose (juce::Graphics& g, juce::Rectangle<float> r, bool hot)
+    {
+        const auto c = r.getCentre();
+        const float d = juce::jmin (r.getWidth(), r.getHeight());
+        g.setColour (hot ? red : deep.withAlpha (0.38f));
+        g.fillEllipse (c.x - d * 0.5f, c.y - d * 0.5f, d, d);
+        g.setColour (hot ? deep : text.withAlpha (0.72f));
+        const float in = d * 0.30f;
+        g.drawLine (c.x - d * 0.5f + in, c.y - d * 0.5f + in,
+                    c.x + d * 0.5f - in, c.y + d * 0.5f - in, 1.6f);
+        g.drawLine (c.x + d * 0.5f - in, c.y - d * 0.5f + in,
+                    c.x - d * 0.5f + in, c.y + d * 0.5f - in, 1.6f);
+    }
+    inline void flatPlusTile (juce::Graphics& g, juce::Rectangle<float> r, bool hot)
+    {
+        g.setColour (hot ? raised.brighter (0.18f) : raised.darker (0.06f));
+        g.fillRoundedRectangle (r, radiusLg);
+        const auto c = r.getCentre();
+        const float s = juce::jmin (r.getWidth(), r.getHeight()) * 0.28f;
+        g.setColour (hot ? text : text.withAlpha (0.72f));
+        g.drawLine (c.x - s, c.y, c.x + s, c.y, 1.6f);
+        g.drawLine (c.x, c.y - s, c.x, c.y + s, 1.6f);
+    }
+
+    // Shared tab material for the Drums/Bass tabs: one flat face and dark
+    // contact band for every tab, a crisp rim in the tab's colour (grey when
+    // inactive) and one localized glint on the active tab only.
     inline void tabFace (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour rim,
                          bool active, bool hovered = false)
     {

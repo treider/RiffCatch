@@ -31,40 +31,23 @@ public:
         g.fillRoundedRectangle (well, Theme::radius);
 
         const auto layout = blocks();
+        const bool isDrag = dragging >= 0 && dragging < (int) layout.size();
+        if (isDrag) paintDrag (g, layout);
+        else
+        {
+            for (size_t i = 0; i < layout.size(); ++i) drawBlock (g, layout[i], (int) i, false);
+            if (bank.song.size() < 256) drawPlus (g, plusRect());
+        }
         if (bank.song.empty())
         {
             g.setColour (Theme::dim);
             g.setFont (juce::Font (juce::FontOptions (12.5f)));
             g.drawText ("The song is empty. Add patterns with +, then press Play to hear them one after the other.",
-                        getLocalBounds().withTrimmedLeft (12).withTrimmedRight (plusW + 10), juce::Justification::centredLeft);
+                        getLocalBounds().withTrimmedLeft (plusW + 18).withTrimmedRight (12), juce::Justification::centredLeft);
         }
-        const juce::int64 barLen = juce::jmax<juce::int64> (1, engine.getBarLength());
-        for (size_t i = 0; i < layout.size(); ++i)
+        if (playhead >= 0 && ! isDrag)    // where the song is now
         {
-            const auto& c = bank.song[i];
-            const auto& p = bank.pats[(size_t) c.pattern];
-            const auto r = layout[i].toFloat();
-            const auto col = Theme::trackColour (p.colour);
-            const bool lifted = (int) i == dragging;
-            g.setColour (col.withAlpha (lifted ? 0.7f : (hover == (int) i ? 1.0f : 0.88f)));
-            g.fillRoundedRectangle (r, Theme::radius);
-            g.setColour (col.contrasting (0.85f).withAlpha (0.9f));
-            g.setFont (juce::Font (juce::FontOptions (12.5f, juce::Font::bold)));
-            auto label = p.name;
-            if (c.repeats > 1) label << "  " << juce::String::fromUTF8 ("\xc3\x97") << c.repeats;
-            g.drawText (label, layout[i].reduced (7, 0).withTrimmedRight (13), juce::Justification::centredLeft, true);
-            drawClose (g, closeRect (layout[i]).toFloat(), hover == (int) i && closeHover);
-        }
-        if (bank.song.size() < 256)
-        {
-            const auto r = plusRect().toFloat();
-            Theme::framedTile (g, r, hover == plusHover ? Theme::raised.brighter (0.1f) : Theme::raised, 2.0f);
-            g.setColour (Theme::accent);
-            g.setFont (juce::Font (juce::FontOptions (16.0f, juce::Font::bold)));
-            g.drawText ("+", r.toNearestInt(), juce::Justification::centred);
-        }
-        if (playhead >= 0)    // where the song is now
-        {
+            const juce::int64 barLen = juce::jmax<juce::int64> (1, engine.getBarLength());
             double bars = (double) playhead / (double) barLen, acc = 0.0;
             for (size_t i = 0; i < layout.size(); ++i)
             {
@@ -96,45 +79,45 @@ public:
         if (e.mods.isPopupMenu()) return;
         if (closeBlockAt (e.getPosition()) >= 0) { pressed = -1; return; }
         const int h = hit (e.getPosition());
-        if (h >= 0 && h != plusHover) { dragging = -1; pressed = h; }
+        if (h >= 0 && h != plusHover)
+        {
+            dragging = -1; dropAt = -1; pressed = h;
+            grabDX = e.x - blocks()[(size_t) h].getX();
+        }
         else pressed = -1;
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (pressed < 0 || e.mods.isPopupMenu() || e.getDistanceFromDragStart() < 6) return;
-        auto& song = engine.patterns.song;
         dragging = pressed;
-        const auto layout = blocks();
-        const int x = e.x;
-        int target = pressed;                       // the block that would be at the mouse
-        for (size_t i = 0; i < layout.size(); ++i) if (x >= layout[i].getX() && x < layout[i].getRight()) target = (int) i;
-        if (target != pressed && target >= 0 && target < (int) song.size())
-        {
-            const auto moved = song[(size_t) pressed];
-            song.erase (song.begin() + pressed);
-            song.insert (song.begin() + target, moved);
-            pressed = dragging = target;
-            repaint();
-        }
+        dragPos = e.getPosition();
+        dropAt = dropIndexFor (e.x);
+        setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+        repaint();
     }
 
     void mouseUp (const juce::MouseEvent& e) override
     {
         const int h = hit (e.getPosition());
-        if (! e.mods.isPopupMenu() && dragging < 0)   // a drag must never turn into a delete
+        if (dragging >= 0)                       // finish a rearrange: commit the move once
+        {
+            applyDrop();
+            dragging = -1; dropAt = -1; pressed = -1;
+            setMouseCursor (juce::MouseCursor::NormalCursor);
+            changed(); repaint();
+            return;
+        }
+        if (! e.mods.isPopupMenu())
         {
             const int cb = closeBlockAt (e.getPosition());
             if (cb >= 0)
             {
-                dragging = -1; pressed = -1;
+                pressed = -1;
                 if (e.mouseWasClicked()) removeBlock (cb);
                 return;
             }
         }
-        const bool moved = dragging >= 0;
-        dragging = -1;
-        if (moved) { pressed = -1; changed(); repaint(); return; }
         pressed = -1;
         if (h == plusHover && ! e.mods.isPopupMenu()) { showAddMenu(); return; }
         if (h < 0 || h == plusHover) return;
@@ -145,7 +128,7 @@ public:
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
     {
         const int h = hit (e.getPosition());
-        if (h < 0 || w.deltaY == 0.0f) return;
+        if (h < 0 || h >= (int) engine.patterns.song.size() || w.deltaY == 0.0f) return;
         auto& c = engine.patterns.song[(size_t) h];
         c.repeats = juce::jlimit (1, 64, c.repeats + (w.deltaY > 0.0f ? 1 : -1));
         changed(); repaint();
@@ -155,6 +138,8 @@ private:
     static constexpr int plusW = 36, gap = 4, minBlockW = 34, plusHover = 1000;
     AudioEngine& engine;
     int hover = -1, pressed = -1, dragging = -1;
+    int dropAt = -1, grabDX = 0;
+    juce::Point<int> dragPos;
     bool closeHover = false;
     juce::int64 playhead = -1;
 
@@ -163,16 +148,87 @@ private:
 
     static juce::Rectangle<int> closeRect (juce::Rectangle<int> block)
     {
-        return { block.getRight() - 15, block.getY() + 3, 12, 12 };
+        const int d = 14;
+        return { block.getRight() - 18, block.getY() + (block.getHeight() - d) / 2, d, d };
     }
-    static void drawClose (juce::Graphics& g, juce::Rectangle<float> r, bool hot)
+
+    void drawBlock (juce::Graphics& g, juce::Rectangle<int> rect, int i, bool ghost)
     {
-        g.setColour (Theme::deep.withAlpha (hot ? 0.55f : 0.35f));
-        g.fillRoundedRectangle (r.expanded (1.0f), 3.0f);
-        g.setColour (hot ? Theme::red : Theme::red.withAlpha (0.85f));
-        const float in = 3.5f;
-        g.drawLine (r.getX() + in, r.getY() + in, r.getRight() - in, r.getBottom() - in, 1.6f);
-        g.drawLine (r.getRight() - in, r.getY() + in, r.getX() + in, r.getBottom() - in, 1.6f);
+        const auto& c = engine.patterns.song[(size_t) i];
+        const auto& p = engine.patterns.pats[(size_t) c.pattern];
+        const auto col = Theme::trackColour (p.colour);
+        g.setColour (col.withAlpha (ghost ? 0.96f : (hover == i ? 1.0f : 0.88f)));
+        g.fillRoundedRectangle (rect.toFloat(), Theme::radiusLg);
+        g.setColour (col.contrasting (0.85f).withAlpha (0.9f));
+        g.setFont (juce::Font (juce::FontOptions (12.5f, juce::Font::bold)));
+        auto label = p.name;
+        if (c.repeats > 1) label << "  " << juce::String::fromUTF8 ("\xc3\x97") << c.repeats;
+        g.drawText (label, rect.reduced (7, 0).withTrimmedRight (ghost ? 7 : 18), juce::Justification::centredLeft, true);
+        if (! ghost) Theme::circleClose (g, closeRect (rect).toFloat(), hover == i && closeHover);
+    }
+    void drawPlus (juce::Graphics& g, juce::Rectangle<int> rect)
+    {
+        Theme::flatPlusTile (g, rect.toFloat(), hover == plusHover);
+    }
+
+    // While dragging, the block is lifted out of the row: the other blocks close
+    // the gap, a dashed slot shows where it will land and a floating copy follows
+    // the pointer. Nothing is reordered until the mouse is released.
+    void paintDrag (juce::Graphics& g, const std::vector<juce::Rectangle<int>>& staticLayout)
+    {
+        const int n = (int) engine.patterns.song.size();
+        const int from = dragging;
+        const int drop = juce::jlimit (0, juce::jmax (0, n - 1), dropAt < 0 ? from : dropAt);
+        const auto src = staticLayout[(size_t) from];
+        int x = 8, placed = 0, holeX = -1;
+        for (int i = 0; i < n; ++i)
+        {
+            if (i == from) continue;
+            if (placed == drop) { holeX = x; x += src.getWidth() + gap; }
+            const int w = staticLayout[(size_t) i].getWidth();
+            drawBlock (g, { x, 6, w, getHeight() - 12 }, i, false);
+            x += w + gap;
+            ++placed;
+        }
+        if (placed == drop) { holeX = x; x += src.getWidth() + gap; }
+        if (holeX < 0) holeX = x;
+
+        const juce::Rectangle<float> slot ((float) holeX, 6.0f, (float) src.getWidth(), (float) getHeight() - 12.0f);
+        g.setColour (Theme::accent.withAlpha (0.10f));
+        g.fillRoundedRectangle (slot, Theme::radiusLg);
+        g.setColour (Theme::accent.withAlpha (0.75f));
+        g.drawRoundedRectangle (slot.reduced (0.75f), Theme::radiusLg, 1.4f);
+
+        const juce::Rectangle<float> ghost ((float) (dragPos.x - grabDX), 4.0f,
+                                            (float) src.getWidth(), (float) src.getHeight());
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.fillRoundedRectangle (ghost.translated (2.0f, 3.0f), Theme::radiusLg);
+        drawBlock (g, ghost.toNearestInt(), from, true);
+
+        if (engine.patterns.song.size() < 256)
+            drawPlus (g, { juce::jmin (x, getWidth() - plusW - 6), 6, plusW, getHeight() - 12 });
+    }
+
+    int dropIndexFor (int mouseX) const
+    {
+        const auto layout = blocks();
+        int drop = 0;
+        for (int i = 0; i < (int) layout.size(); ++i)
+        {
+            if (i == dragging) continue;
+            if (mouseX > layout[(size_t) i].getCentreX()) ++drop;
+        }
+        return drop;
+    }
+    void applyDrop()
+    {
+        auto& song = engine.patterns.song;
+        if (dragging < 0 || dragging >= (int) song.size()) return;
+        const int to = juce::jlimit (0, (int) song.size() - 1, dropAt < 0 ? dragging : dropAt);
+        if (to == dragging) return;
+        const auto moved = song[(size_t) dragging];
+        song.erase (song.begin() + dragging);
+        song.insert (song.begin() + to, moved);
     }
     int closeBlockAt (juce::Point<int> p) const
     {

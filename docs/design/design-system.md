@@ -540,4 +540,19 @@ mute/audition and undo/redo, plus Bass note/length/accent/slide/page mapping.
 Synthetic tests are not GUI/audio acceptance; genuine HWND evidence and manual
 interaction remain separately recorded.
 
+### v0.97 flat pattern rail and song blocks
+
+The pattern rail and the song row now use a flat browser-style pill material
+(`Theme::flatTabFace`, `Theme::tabColourChip`, `Theme::circleClose`,
+`Theme::flatPlusTile`): one solid face, no rim, gradient or glint, a small
+pattern-colour chip, an x inside a filled circle for close (red on hover) and a
+flat "+" tile with no outline. The Drums/Bass tabs keep `Theme::tabFace`.
+Song rearrange now lifts the block out of the row: a dashed accent slot marks the
+landing position and a floating copy follows the pointer; the order is committed
+on release instead of reordering live. The empty-song hint starts after the flat
+"+" tile so the two never overlap. Tab/block geometry, close hit areas,
+dialogs, wheel repeats, menus and the tab rail are unchanged apart from the new
+close and plus visuals. No DSP, undo, shortcut, default or project/settings
+schema changes.
+
 Completion requires the [visual checklist](visual-checklist.md), a successful build/selftest for code changes, actual screenshot comparison and user testing. Missing visual evidence means incomplete verification. Commit and push remain separate user-approved steps.
